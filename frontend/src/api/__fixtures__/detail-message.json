@@ -1,0 +1,27 @@
+{
+  "freshness": {
+    "last_ingest_ms": 1791790200000,
+    "parser_version": "7.0.0",
+    "price_fingerprint": "p-2026-10-12",
+    "schema_version": 7,
+    "api_version": 1
+  },
+  "kind": "message",
+  "position": {
+    "session": "claude_code/a11ce5e5-1111-4222-8333-944455556666/session/-",
+    "turn": "claude_code/a11ce5e5-1111-4222-8333-944455556666/turn/2",
+    "display_id": "T2",
+    "row": {
+      "type": "turn",
+      "id": "claude_code/a11ce5e5-1111-4222-8333-944455556666/turn/2"
+    },
+    "depth": 0
+  },
+  "turn": "claude_code/a11ce5e5-1111-4222-8333-944455556666/turn/2",
+  "display_id": "T2",
+  "turn_kind": "human",
+  "turn_origin": "user",
+  "label": "I hit my usage limit. Please continue",
+  "text_src": "src://claude_code/projects/-Users-a-bizdemo/a11ce5e5.jsonl#L120",
+  "text_bytes": 120
+}

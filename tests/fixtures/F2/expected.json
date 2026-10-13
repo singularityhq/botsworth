@@ -1,0 +1,15 @@
+{
+  "note": "subagent requestId streamed as 2/5/480 output tokens: final record only, never the sum",
+  "llm_calls": [
+    {
+      "agent_id": "a",
+      "in_tok": 10,
+      "out_tok": 480,
+      "cache_read_tok": 5000,
+      "cache_write_tok": 1000,
+      "cache_write_5m_tok": 1000,
+      "cache_write_1h_tok": 0,
+      "cost_usd": 0.01248
+    }
+  ]
+}

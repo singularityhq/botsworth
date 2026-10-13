@@ -1,0 +1,4 @@
+{"type": "user", "sessionId": "sslow2", "message": {"role": "user", "content": "check the report totals after the rebuild"}, "timestamp": "2026-10-07T06:00:00.000Z"}
+{"type": "assistant", "requestId": "req_x1", "message": {"role": "assistant", "model": "synth-model-1", "content": [{"type": "text", "text": "synthetic reply"}], "usage": {"input_tokens": 100, "output_tokens": 20, "cache_read_input_tokens": 0}}, "timestamp": "2026-10-07T06:02:00.000Z"}
+{"type": "user", "sessionId": "sslow2", "message": {"role": "user", "content": "thanks, now draft the summary for review"}, "timestamp": "2026-10-07T06:27:00.000Z"}
+{"type": "assistant", "requestId": "req_x2", "message": {"role": "assistant", "model": "synth-model-1", "content": [{"type": "text", "text": "synthetic reply"}], "usage": {"input_tokens": 100, "output_tokens": 20, "cache_read_input_tokens": 0}}, "timestamp": "2026-10-07T06:30:00.000Z"}

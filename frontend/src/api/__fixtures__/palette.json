@@ -1,0 +1,49 @@
+{
+  "freshness": {
+    "last_ingest_ms": 1791790200000,
+    "parser_version": "7.0.0",
+    "price_fingerprint": "p-2026-10-12",
+    "schema_version": 7,
+    "api_version": 1
+  },
+  "filter_values": [
+    {
+      "kind": "model",
+      "value": "claude-opus-5-5",
+      "label": "opus 5.5",
+      "n": 150
+    }
+  ],
+  "projects": [
+    {
+      "project": "/Users/a/bizdemo",
+      "project_name": "bizdemo",
+      "color_slot": 1,
+      "cost_usd": 1500.5,
+      "cost_lower_bound": false,
+      "n_unpriced": 0,
+      "n_sessions": 90,
+      "n_automated": 4
+    }
+  ],
+  "sessions": [
+    {
+      "session": "claude_code/a11ce5e5-1111-4222-8333-944455556666/session/-",
+      "session_id": "a11ce5e5-1111-4222-8333-944455556666",
+      "provider": "claude_code",
+      "name": "Fix rbac sync",
+      "title_source": "first_ask",
+      "project": "/Users/a/bizdemo",
+      "project_name": "bizdemo",
+      "color_slot": 1,
+      "start_ms": 1791700000000,
+      "cost_usd": 12.4,
+      "cost_lower_bound": false,
+      "n_unpriced": 0,
+      "is_automated": false,
+      "first_day": "2026-10-06",
+      "in_period": true,
+      "in_filters": true
+    }
+  ]
+}

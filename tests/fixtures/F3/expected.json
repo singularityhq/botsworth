@@ -1,0 +1,18 @@
+{
+  "note": "two async agents in parallel; interval metrics computed from emitted leaf intervals (store rules, design \u00a74.6)",
+  "llm_calls": 4,
+  "out_tok_total": 800,
+  "turn:main#0": {
+    "wall_ms": 50000,
+    "busy_sum_ms": 73000,
+    "active_ms": 48000,
+    "blocked_ms": 40000,
+    "idle_ms": 2000,
+    "max_parallel": 2
+  },
+  "tool_call:ta": {
+    "dur_ms": 0,
+    "is_async": true,
+    "subtree_wall_ms": 40000
+  }
+}

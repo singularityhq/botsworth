@@ -1,0 +1,53 @@
+{
+  "freshness": {
+    "last_ingest_ms": 1791790200000,
+    "parser_version": "7.0.0",
+    "price_fingerprint": "p-2026-10-12",
+    "schema_version": 7,
+    "api_version": 1
+  },
+  "first_day": "2026-09-22",
+  "last_day": "2026-10-12",
+  "totals": {
+    "cost_usd": 2570.0,
+    "cost_lower_bound": true,
+    "n_unpriced": 3,
+    "tok_total": 8690000000,
+    "n_sessions": 212,
+    "n_sessions_period": 212,
+    "n_automated_hidden": 12
+  },
+  "projects": [
+    {
+      "project": "/Users/a/bizdemo",
+      "project_name": "bizdemo",
+      "color_slot": 1,
+      "cost_usd": 1500.5,
+      "cost_lower_bound": false,
+      "n_unpriced": 0,
+      "tok_total": 5000000000,
+      "n_sessions": 90
+    },
+    {
+      "project": "/Users/a/old-profiler",
+      "project_name": "old-profiler",
+      "color_slot": 2,
+      "cost_usd": 900.25,
+      "cost_lower_bound": true,
+      "n_unpriced": 3,
+      "tok_total": 3000000000,
+      "n_sessions": 80
+    },
+    {
+      "project": "/Users/a/scratch",
+      "project_name": "scratch",
+      "color_slot": null,
+      "cost_usd": 169.25,
+      "cost_lower_bound": false,
+      "n_unpriced": 0,
+      "tok_total": 690000000,
+      "n_sessions": 42
+    }
+  ],
+  "empty": null
+}

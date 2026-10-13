@@ -1,0 +1,20 @@
+{
+  "note": "nested fork repeats its parent's attributed record (same uuid): the parent owns it, the fork's op is a copy hint",
+  "owners": [
+    [
+      "afork",
+      30
+    ],
+    [
+      "zparent",
+      231
+    ]
+  ],
+  "copies": [
+    {
+      "agent_id": "afork",
+      "occ_key": "claude_code:request:rp",
+      "duplicate_of": "claude_code/s1/llm_call/rp"
+    }
+  ]
+}

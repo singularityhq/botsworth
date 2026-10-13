@@ -1,0 +1,32 @@
+{
+  "compilerOptions": {
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.node.tsbuildinfo",
+    "target": "es2023",
+    /* DOM is here because tests import components, and components touch
+       document/KeyboardEvent. jsx is here for the same reason: a test that
+       imports a .tsx file has to be able to parse it. Without these the
+       program fails on any test that reaches a component -- which is most
+       of them. */
+    "lib": ["ES2023", "DOM"],
+    "types": ["node", "vite/client"],
+    "jsx": "react-jsx",
+    "skipLibCheck": true,
+
+    /* Bundler mode -- deliberately matched to tsconfig.app.json. `nodenext`
+       here would demand explicit .js extensions on relative imports, which
+       the app half does not use, so shared files would need two spellings. */
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "verbatimModuleSyntax": true,
+    "moduleDetection": "force",
+    "noEmit": true,
+
+    /* Linting */
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "erasableSyntaxOnly": true,
+    "noFallthroughCasesInSwitch": true
+  },
+  "include": ["vite.config.ts", "src/**/*.test.ts", "src/**/*.test.tsx"]
+}

@@ -1,0 +1,139 @@
+/* ══════════════════════════════════════════════════════════════════════════
+   NOCTURNE — blue night, warm lamp. Tokens follow docs/specs/ui/system.md
+   (SYS-1 to SYS-28). Components take colour only from here.
+
+   Three colour axes never trade places:
+     --color-struct   navigation and selection ("you are here / you can go here")
+     --color-money    cost only
+     --color-type-*   turn kind (user, teammate, system), as marks only
+   Projects use --color-series-*; models use shapes, plus --chart-model-* in charts.
+   Warm accent on a cool ground is what makes a selected row read as lit.
+   ══════════════════════════════════════════════════════════════════════════ */
+@theme static {
+  /* SYS-1: surfaces. ground is the floor, l1 to l4 lift toward the viewer */
+  --color-ground: #080e1a;
+  --color-l1: #0e1522;
+  --color-l2: #121a29;
+  --color-l3: #172032;
+  /* l4 is for key caps and tooltips only. ink3 on l4 is the tightest pair (4.55:1). */
+  --color-l4: #1c2438;
+  --color-hair: rgba(255, 255, 255, 0.06);
+  --color-rule: #27304a;
+  --color-rule-soft: #1a2236;
+
+  /* SYS-4: three inks */
+  --color-ink1: #eaecf5;
+  --color-ink2: #aab0c8;
+  --color-ink3: #838ba3;
+
+  /* SYS-6: navigation and selection */
+  --color-struct: #ffb26f;
+  /* D44: .08, so ink3 text on an open row passes 4.5:1 over l1 */
+  --color-struct-soft: rgba(255, 178, 111, 0.08);
+  --color-struct-line: rgba(255, 178, 111, 0.34);
+
+  /* SYS-7: money. money-bar is an opaque fill (an alpha rose turns brown on dark blue).
+     list-bar is the cost bar beside a figure in a list. */
+  --color-money: #ff8fa8;
+  --color-money-bar: #393455;
+  --list-bar: #c46f88;
+
+  /* SYS-8: error colours only the circle-alert glyph and the status text beside it */
+  --color-error: #ff6b6b;
+
+  /* SYS-9: turn kind marks */
+  --color-type-user: #66d3d4;
+  --color-type-team: #c6aee8;
+  --color-type-sys: #62b9f4;
+
+  /* SYS-10: project colours (a mark, a bar segment, a name) */
+  --color-series-1: #65a7fa;
+  --color-series-2: #f0834e;
+  --color-series-3: #54c8b1;
+  --color-series-4: #ad87ed;
+  --color-series-5: #81ce70;
+  --color-series-6: #dd71c8;
+  --color-series-other: #878d93;
+
+  /* SYS-13: edge of an input or an unselected toggle; only on l1 or l2 */
+  --color-edge: #5c6888;
+
+  /* SES-20: time-state colours (hatched states draw with repeating-linear-gradient) */
+  --st-model: #aab0c8;
+  --st-tool: #6b7899;
+  --st-agents: var(--color-type-team);
+  --st-you: var(--color-type-user);
+  --st-agentmsg: var(--color-type-team);
+  --st-limit: var(--color-type-sys);
+  --st-none: #5c6888;
+
+  /* SES-22: model ramp, charts only */
+  --chart-model-opus: #e1e4ef;
+  --chart-model-sonnet: #b6bdd4;
+  --chart-model-fable: #949cb9;
+  --chart-model-haiku: #7a84a6;
+  --chart-model-gpt: #a39a86;
+  --chart-model-other: #646f94;
+
+  /* ambient corner wash and focus bloom (a state: only the one focused blade) */
+  --color-glow: rgba(110, 140, 230, 0.15);
+  --color-focus-glow: rgba(255, 178, 111, 0.28);
+
+  /* SYS-15: exactly four sizes. 12 px only for mono chart numerals, key caps and the TRN-31 "final" tag. */
+  --text-display: 30px;
+  --text-display--line-height: 36px;
+  --text-lead: 20px;
+  --text-lead--line-height: 26px;
+  --text-body: 14px;
+  --text-body--line-height: 20px;
+  --text-label: 12px;
+  --text-label--line-height: 16px;
+
+  /* SYS-20: a 4 px grid. Without this, utilities scale by the 14 px root and p-4 would be 14 px. */
+  --spacing: 4px;
+
+  /* SYS-23: radii */
+  --radius-pane: 16px;
+  --radius-card: 10px;
+  --radius-control: 7px;
+  --radius-chip: 4px;
+
+  /* SYS-3: elevation only on blades and floating layers */
+  --shadow-pane: 0 1px 0 rgba(255, 255, 255, 0.035) inset, 0 18px 44px -28px rgba(0, 0, 0, 0.9);
+  --shadow-pane-focus: 0 1px 0 rgba(255, 255, 255, 0.04) inset, 0 18px 48px -28px rgba(0, 0, 0, 0.95), 0 0 44px -20px var(--color-focus-glow);
+  --shadow-pop: 0 12px 32px -12px rgba(0, 0, 0, 0.85), 0 0 0 1px var(--color-rule);
+
+  /* SYS-14: families. IBM Plex Sans (variable) and IBM Plex Mono, self-hosted via @fontsource. */
+  --font-sans: 'IBM Plex Sans Variable', system-ui, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+
+  /* SYS-58: motion */
+  --ease-standard: cubic-bezier(0.22, 0.61, 0.36, 1);
+  --ease-blade: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-pop: cubic-bezier(0.2, 0.9, 0.25, 1.04);
+  --dur-blade: 280ms;
+}
+
+/* Font rendering. Grayscale smoothing suits light text on a dark ground.
+   font-synthesis: none makes a missing weight fall back to a real one instead of a smeared fake. */
+html {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-synthesis: none;
+  -webkit-text-size-adjust: 100%;
+  font-size: var(--text-body);
+}
+
+/* SYS-51: a 2 px struct ring on keyboard focus only. In the base layer so a utility (a row's -2 px offset) can override it. */
+@layer base {
+  :focus-visible {
+    outline: 2px solid var(--color-struct);
+    outline-offset: 2px;
+    border-radius: var(--radius-chip);
+  }
+
+  /* A text input keeps its own focus state (the caret is the cue). */
+  [data-focus-quiet]:focus-visible {
+    outline: none;
+  }
+}

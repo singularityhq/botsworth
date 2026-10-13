@@ -1,0 +1,78 @@
+{
+  "freshness": {
+    "last_ingest_ms": 1791790200000,
+    "parser_version": "7.0.0",
+    "price_fingerprint": "p-2026-10-12",
+    "schema_version": 7,
+    "api_version": 1
+  },
+  "kind": "call",
+  "position": {
+    "session": "claude_code/a11ce5e5-1111-4222-8333-944455556666/session/-",
+    "turn": "claude_code/a11ce5e5-1111-4222-8333-944455556666/turn/2",
+    "display_id": "T2",
+    "row": {
+      "type": "call",
+      "id": "claude_code/a11ce5e5-1111-4222-8333-944455556666/llm/a1"
+    },
+    "depth": 0
+  },
+  "turn_cost_usd": 4.0,
+  "cost_in_usd": 0.01,
+  "cost_out_usd": 0.5,
+  "cost_cache_read_usd": 0.4,
+  "cost_cache_write_usd": 0.09,
+  "cost_basis": "list price",
+  "context_tokens": 904000,
+  "speed_tok_s": 100.0,
+  "speed_basis": "derived",
+  "sections": [
+    {
+      "part": "thinking",
+      "src": "src://claude_code/projects/-Users-a-bizdemo/a11ce5e5.jsonl#L120",
+      "snippet": "Let me look",
+      "bytes": 400,
+      "row": null
+    },
+    {
+      "part": "tool_use",
+      "src": "src://claude_code/projects/-Users-a-bizdemo/a11ce5e5.jsonl#L120",
+      "snippet": "npm test",
+      "bytes": 60,
+      "row": {
+        "type": "tool",
+        "id": "claude_code/a11ce5e5-1111-4222-8333-944455556666/tool/b1"
+      }
+    }
+  ],
+  "id": "claude_code/a11ce5e5-1111-4222-8333-944455556666/llm/a1",
+  "cost_usd": 1.0,
+  "cost_lower_bound": false,
+  "n_unpriced": 0,
+  "depth": 0,
+  "start_ms": 1791790200000,
+  "end_ms": 1791790220000,
+  "dur_ms": 20000,
+  "time_prov": "present",
+  "model": "claude-opus-5-5",
+  "tok": {
+    "in": 100,
+    "cache_read": 900000,
+    "cache_write": 1000,
+    "out": 2000,
+    "reasoning": null,
+    "total": 903100
+  },
+  "ttft_ms": 800,
+  "stop_reason": "tool_use",
+  "error_kind": null,
+  "is_final": false,
+  "steps": [
+    {
+      "step_id": "claude_code/a11ce5e5-1111-4222-8333-944455556666/turn/2#1",
+      "verb": "think",
+      "summary": "Plan the fix",
+      "snippet": "Let me look at the rbac module"
+    }
+  ]
+}

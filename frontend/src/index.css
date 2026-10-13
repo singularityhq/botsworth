@@ -1,0 +1,88 @@
+@import "tailwindcss";
+
+/* Self-hosted type faces (@fontsource, no CDN: this is a local tool).
+   Change these together with --font-sans and --font-mono in theme.css. */
+@import "@fontsource-variable/ibm-plex-sans/wght.css";
+@import "@fontsource-variable/ibm-plex-sans/wght-italic.css";
+@import "@fontsource/ibm-plex-mono/400.css";
+@import "@fontsource/ibm-plex-mono/500.css";
+@import "@fontsource/ibm-plex-mono/600.css";
+
+@import "./theme.css";
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  overflow: hidden;
+  background:
+    radial-gradient(1100px 620px at 6% -12%, var(--color-glow), transparent 62%),
+    var(--color-ground);
+  color: var(--color-ink1);
+  font-family: var(--font-sans);
+}
+
+/* Base layer, so utilities on a button (padding, background, size) still win. Preflight already resets the rest. */
+@layer base {
+  button {
+    cursor: pointer;
+    text-align: left;
+  }
+}
+
+/* SYS-18: figures use tabular numerals */
+.fig {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Thin scrollbars in the rule colour */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-rule) transparent;
+}
+
+/* SYS-54: skeleton pulse (off under reduced motion, SYS-59) */
+@keyframes skeleton-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
+}
+.skeleton {
+  background: var(--color-l2);
+  border-radius: var(--radius-chip);
+  animation: skeleton-pulse 1.6s var(--ease-standard) infinite;
+}
+
+/* SYS-58: popover, palette and toast entrance */
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.pop-in {
+  animation: pop-in 200ms var(--ease-pop) both;
+}
+
+/* SYS-59: reduced motion turns every transition and animation off */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}

@@ -1,0 +1,20 @@
+/** SES-73: every key of the session and turn blades, with its effect. */
+export const KEYS: readonly { keys: readonly string[]; effect: string }[] = [
+  { keys: ['j', '↓', 'k', '↑'], effect: 'next / previous turn (session) or row (turn); past a turn’s last row, the next turn swaps in' },
+  { keys: ['J', 'K'], effect: '10 rows down / up; stops at the turn’s first or last row' },
+  { keys: ['t', 'T'], effect: 'next / previous numbered turn' },
+  { keys: ['Enter'], effect: 'open the turn (session) or the detail of the cursor row (turn)' },
+  { keys: ['←', '→'], effect: 'focus the blade on the left / right' },
+  { keys: ['Esc'], effect: 'close the detail, then the turn; then clear the search, then the range' },
+  { keys: ['l', 'h'], effect: 'show the cursor agent’s rows inline / fold them' },
+  { keys: ['b', 'B'], effect: 'next / previous biggest (a turn in the session, a row in the turn)' },
+  { keys: ['w', 'W'], effect: 'next / previous wait of 2 min or more' },
+  { keys: ['e'], effect: 'next failed tool' },
+  { keys: ['s', 'S'], effect: 'next / previous skill load, across turns' },
+  { keys: ['a'], effect: 'next agent' },
+  { keys: ['1', '2', '3'], effect: 'measure: cost / time / tokens' },
+  { keys: ['v'], effect: 'ledger / waterfall of the focused blade' },
+  { keys: ['0'], effect: 'reset the turn zoom and the session range' },
+  { keys: ['/'], effect: 'find a step' },
+  { keys: ['?'], effect: 'this list' },
+]

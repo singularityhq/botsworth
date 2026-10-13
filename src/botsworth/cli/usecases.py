@@ -1,0 +1,138 @@
+"""CONTRACT: the use-case commands `slow`, `breakdown` and `tasks` (interfaces.md §5.2, CLI-20 to CLI-23).
+
+GUARANTEES:
+- `register(sub)` adds the three subcommands to the `botsworth` parser. Each is argument parsing plus one
+  `botsworth.query` call (`project_slow`, `session_breakdown`, `top_tasks`); the scope comes from
+  `cli.scope.to_scope`, the same flags and `--since` rule as the other read commands (CLI-5).
+- Output is the CLI-2 output: one line of JSON, `asdict` of the function's result plus the time siblings of
+  `cli.timefmt` (`--json` changes nothing);
+  `--table` prints the table of `cli.render`.
+- `--help` of each command ends with an epilog (at most 25 lines) that defines the fields of its JSON output
+  from interfaces.md §5.2, DM-40, DM-51 and DM-52; it names every top-level field of the output (D49)
+  and, in one line, the time siblings (D50).
+- `--by` and `--measure` take a fixed list; a value outside it is an argparse error (exit 2, CLI-4). `-n`
+  outside the range of the view is a `QueryError` (exit 1).
+EXPECTS: the parser built by `cli.main.build_parser`, which calls `register(sub)` and runs the `handler`
+  default each subcommand sets (`cli.main.run`).
+FAILURE BEHAVIOR: as `cli.main.main` (exit codes of CLI-4).
+DOES NOT: contain query logic or SQL, or open the store.
+"""
+
+from __future__ import annotations
+
+import argparse
+from collections.abc import Callable
+from typing import Any
+
+from botsworth.cli.scope import cli_zone, resolve_projects, scope_args, to_scope, tz_arg
+from botsworth.query.views.usecases import BY, MEASURES
+
+_TIME_FIELDS = """\
+time_split: where the session wall went. Four states, each instant in exactly
+  one (no overlap), by priority: model_ms (a main-thread model call runs),
+  tool_ms (else a main-thread tool call runs), agents_ms (else an agent's call
+  or tool runs), none_ms (nothing runs). They sum to wall_ms (DM-51).
+none_split: none_ms by label: you (the stretch ends where a human turn starts),
+  agentmsg (ends at an agent or teammate message), limit (inferred usage
+  limit), none (all other stretches, and any stretch before the first
+  numbered turn: before_first). The four sum to none_ms.
+time_prov: how a tool duration was measured. derived = result time minus call
+  time. It can include a permission or usage-limit wait, or a sleeping machine
+  (DM-40). n_no_records counts calls with 5 min or more without any record.
+waits_on_user: calls of tools that ask the user (AskUserQuestion,
+  request_user_input, ask). They are left out of tools and slowest_tools."""
+_TIME_FORMAT = """\
+time: tz is the zone used (--tz). Each <x>_ms timestamp has an ISO sibling <x>; each duration has <x>_ms_h
+  (45s, 12m 05s, 2h 15m, 3d 4h)."""
+
+SLOW_EPILOG = (
+    """\
+output fields:
+  freshness, current, previous (same block for the prior period, or null),
+  sessions, tools, slowest_tools, waits_on_user, waits, models
+"""
+    + _TIME_FIELDS
+    + _TIME_FORMAT
+)
+
+BREAKDOWN_EPILOG = (
+    """\
+output fields:
+  freshness, session, turns_by_time, turns_by_tokens, rows_by_time,
+  rows_by_cost, rows_by_tokens, tools, agents, waits, models
+"""
+    + _TIME_FIELDS
+    + _TIME_FORMAT
+)
+
+TASKS_EPILOG = (
+    """\
+output fields: freshness, by, measure, basis, scope_totals, unassigned,
+  total_groups (all groups), groups (the first n)
+basis: how tokens and cost reach a group (D42).
+  issuing_call_split  by tool, command_key, verb: the tokens of the call that
+                      issued the tool calls, divided evenly among them
+  turn_split          by skill: the turn's tokens, divided among its skills
+  nearest_engagement  by agent_type: calls under the nearest agent run;
+                      "(main)" is calls under no agent, "(none)" has no type
+  turn_attr           by slash: the tokens of the turn the command started
+unassigned: part of scope_totals that is in no group. It is 0 for
+  issuing_call_split, where a call that issued no tool is the group "no tool".
+Token figures are fractional because a call's tokens are divided evenly.
+share: the group's measure divided by scope_totals, or null.
+--by: command_key = tool calls that have a command_key; tool = tool calls by
+  tool name; verb = steps of tool calls, by steps.verb; skill = skill loads;
+  agent_type = agent runs (engagements); slash = slash-command and builtin turns.
+"""
+    + _TIME_FORMAT
+)
+
+
+Handler = Callable[[argparse.Namespace, Any, Any], Any]
+
+
+def _scope(args: argparse.Namespace, api: Any, db: Any) -> Any:
+    resolve_projects(args, api, db)
+    return to_scope(args, cli_zone(args))
+
+
+def _slow(args: argparse.Namespace, api: Any, db: Any) -> Any:
+    return api.project_slow(_scope(args, api, db), args.compare, args.n, db=db)
+
+
+def _breakdown(args: argparse.Namespace, api: Any, db: Any) -> Any:
+    return api.session_breakdown(args.session, args.n, db=db)
+
+
+def _tasks(args: argparse.Namespace, api: Any, db: Any) -> Any:
+    return api.top_tasks(_scope(args, api, db), args.by, args.measure, args.n, db=db)
+
+
+def register(sub: Any) -> None:
+    epilogs = {"slow": SLOW_EPILOG, "breakdown": BREAKDOWN_EPILOG, "tasks": TASKS_EPILOG}
+
+    def cmd(name: str, help: str, handler: Handler) -> argparse.ArgumentParser:
+        p = sub.add_parser(
+            name, help=help, epilog=epilogs[name], formatter_class=argparse.RawDescriptionHelpFormatter
+        )
+        out = p.add_mutually_exclusive_group()
+        out.add_argument("--json", dest="fmt", action="store_const", const="json", help="the default")
+        out.add_argument("--table", dest="fmt", action="store_const", const="table")
+        p.set_defaults(fmt="json", handler=handler)
+        return p
+
+    p = cmd("slow", "where the time of the in-scope sessions went (CLI-20)", _slow)
+    scope_args(p)
+    p.add_argument("--compare", action=argparse.BooleanOptionalAction, default=True)
+    p.add_argument("-n", type=int, default=10, help="rows per list, 1 to 100")
+
+    p = cmd("breakdown", "the largest turns, rows, tools and agents of one session (CLI-21)", _breakdown)
+    p.add_argument("session", metavar="SESSION")
+    p.add_argument("-n", type=int, default=10, help="rows per list, 1 to 100")
+    tz_arg(p)
+
+    p = cmd("tasks", "tokens, cost and time grouped by a task key (CLI-22)", _tasks)
+    scope_args(p)
+    p.add_argument("--by", required=True, choices=BY)
+    p.add_argument("--measure", choices=MEASURES, default="tokens")
+    p.add_argument("-n", type=int, default=20, help="groups, 1 to 500")

@@ -1,0 +1,33 @@
+{
+  "store_exists": true,
+  "store_state": "ready",
+  "freshness": {
+    "last_ingest_ms": 1791790200000,
+    "parser_version": "7.0.0",
+    "price_fingerprint": "p-2026-10-12",
+    "schema_version": 7,
+    "api_version": 1
+  },
+  "ingest": {
+    "running": false,
+    "started_ms": null,
+    "pid": null
+  },
+  "sources": [
+    {
+      "provider": "claude_code",
+      "root": "/Users/a/.claude/projects",
+      "files": 1622,
+      "bundles": 1622,
+      "live": 3,
+      "last_ingest_ms": 1791790200000,
+      "rejected": 0
+    }
+  ],
+  "last_run": {
+    "started_ms": 1791790100000,
+    "ended_ms": 1791790200000,
+    "bundles_changed": 4,
+    "rejected": []
+  }
+}

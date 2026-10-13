@@ -1,0 +1,2 @@
+{"type": "user", "uuid": "ub", "timestamp": "2026-10-01T10:00:05.000Z", "cwd": "/repo", "message": {"content": "do B"}}
+{"type": "assistant", "uuid": "rb-30-200", "requestId": "rb", "timestamp": "2026-10-01T10:00:30.000Z", "cwd": "/repo", "message": {"model": "fixture-a", "stop_reason": "end_turn", "content": [], "usage": {"input_tokens": 10, "output_tokens": 200, "cache_read_input_tokens": 5000, "cache_creation_input_tokens": 1000, "cache_creation": {"ephemeral_5m_input_tokens": 1000, "ephemeral_1h_input_tokens": 0}}}}

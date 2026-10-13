@@ -1,0 +1,25 @@
+{
+  "note": "s2 resumes s1 and copies its two calls: each bundle emits them (no cross-bundle duplicate_of); the store keeps one owner per occ_key",
+  "bundles": {
+    "s1": {
+      "llm_calls": 2,
+      "duplicate_of": [
+        null,
+        null
+      ]
+    },
+    "s2": {
+      "llm_calls": 2,
+      "duplicate_of": [
+        null,
+        null
+      ]
+    }
+  },
+  "shared_occ_keys": [
+    "claude_code:request:r1",
+    "claude_code:request:r2"
+  ],
+  "unique_cost_usd": 0.01656,
+  "copy_out_tok": 400
+}

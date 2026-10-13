@@ -1,0 +1,260 @@
+{
+  "_readme": "Hand-derived numbers for the QF fixture store (TST-1). Each value comes from the timeline in make.py and the spec rule named in its note, never from the code under test. Times are UTC ISO strings, durations ms, money USD. Keys marked b3 need the B3 fold (display_ix, attr_*, span_*, stretches, projects, local rollup_time, max_silence_ms, skill_load); the rest are stored by the loader today. Do not change a value to make a test pass: report both numbers.",
+  "tz": "Asia/Kolkata",
+  "store_total_owned_cost_usd": {
+    "value": 22.75,
+    "note": "Sum of the owned llm_call costs of the 14 sessions: s2day 8.00, sagents 4.70, sauto 0.50, scodex 0.15, sfork 0.20 (its three copies excluded), sharness 0.60, somp 0.50, sskills 1.30, sslow1 1.00, sslow2 0.50, sstretch 1.40, stools 0.90, sunpriced 3.00 (null call skipped), szero none."
+  },
+  "sessions": {
+    "s2day": {"incl_cost_usd": 8.0, "n_llm_calls": 2, "wall_ms": 7265000, "note": "wall 16:59:55 to 19:01:00 = 2h01m05s"},
+    "sagents": {"incl_cost_usd": 4.7, "n_llm_calls": 9, "wall_ms": 4060000, "note": "main transcript 09:00:00 to 10:07:40; the agent files lie inside it"},
+    "sauto": {"incl_cost_usd": 0.5, "n_llm_calls": 1, "wall_ms": 25000, "note": "03:00:00 to 03:00:25"},
+    "scodex": {"incl_cost_usd": 0.15, "n_llm_calls": 1, "wall_ms": 25000, "note": "11:00:00 to 11:00:25"},
+    "sfork": {"incl_cost_usd": 0.2, "n_llm_calls": 1, "wall_ms": 60000, "n_duplicates": 3, "note": "two segments of 35 s and 25 s; the copied call and its two tools are duplicates"},
+    "sharness": {"incl_cost_usd": 0.6, "n_llm_calls": 3, "wall_ms": 515000, "note": "12:00:00 to 12:08:35"},
+    "somp": {"incl_cost_usd": 0.5, "n_llm_calls": 2, "wall_ms": 26000, "note": "10:00:00 to 10:00:26"},
+    "sskills": {"incl_cost_usd": 1.3, "n_llm_calls": 3, "wall_ms": 622000, "note": "08:00:00 to 08:10:22; 0.50 + 0.60 + 0.20"},
+    "sslow1": {"incl_cost_usd": 1.0, "n_llm_calls": 2, "wall_ms": 3600000, "note": "CLI-20 scenario: wall 60 min"},
+    "sslow2": {"incl_cost_usd": 0.5, "n_llm_calls": 2, "wall_ms": 1800000, "note": "CLI-20 scenario: wall 30 min"},
+    "sstretch": {"incl_cost_usd": 1.4, "n_llm_calls": 7, "wall_ms": 10085000, "note": "02:00:00 to 04:48:05 = 2h48m05s; six main calls of 0.10 and the agent call of 0.80"},
+    "stools": {"incl_cost_usd": 0.9, "n_llm_calls": 3, "wall_ms": 136000, "note": "05:00:00 to 05:02:16; the fork's copy does not change it"},
+    "sunpriced": {"incl_cost_usd": 3.0, "n_llm_calls": 3, "wall_ms": 155000, "cost_lower_bound": 1, "tok_total": 360, "note": "QRY-11: 1.00 + null + 2.00; each call 100 in + 20 out"},
+    "szero": {"incl_cost_usd": null, "n_llm_calls": 0, "wall_ms": 120000, "note": "case 4: turns only; cost is null, not 0 (QRY-11)"}
+  },
+  "case_1_s2day": {
+    "b3": {
+      "day_rows": [
+        {"bucket_day": "2026-10-06", "bucket_start": "2026-10-05T18:30:00Z", "cost_usd": 3.0, "n_llm_calls": 1},
+        {"bucket_day": "2026-10-07", "bucket_start": "2026-10-06T18:30:00Z", "cost_usd": 5.0, "n_llm_calls": 1}
+      ],
+      "hour_starts": ["2026-10-06T16:30:00Z", "2026-10-06T18:30:00Z"],
+      "n_human_asks": 2,
+      "display_ix": [1, 2],
+      "stretches": [
+        {"state": "none", "start": "2026-10-06T17:01:00Z", "end": "2026-10-06T18:59:55Z", "turn": "main#0", "next_turn_kind": "human"}
+      ],
+      "note": "DM-42, DM-41: call 1 starts 17:00Z = 22:30 IST on 6 Oct; call 2 starts 19:00Z = 00:30 IST on 7 Oct. Both are 6 Oct in UTC, so a UTC bucket would give one day row of 8.00. Day start 7 Oct IST = 2026-10-06T18:30Z. Hours are IST hours: 22:00 IST = 16:30Z, 00:00 IST = 18:30Z. Stretch: nothing runs 17:01:00 to 18:59:55 (the human ask of 7 Oct starts at 18:59:55); the 5 s before each call is under 60 s and gets no row."
+    }
+  },
+  "case_2_sauto": {
+    "turn": {"turn_kind": "message", "turn_origin": "sdk"},
+    "entrypoint": "sdk-cli",
+    "b3": {"n_human_asks": 0, "is_automated": 1, "note": "DM-25: no human ask, so automated. Project /u/d/helper has one session and it is automated (DM-61)."}
+  },
+  "case_3_sunpriced": {
+    "call_costs": [1.0, null, 2.0],
+    "cost_basis": ["reported", "missing", "reported"],
+    "note": "QRY-11: sums skip the null; cost_lower_bound is 1 on the session; the day rollup has n_unpriced 1 (b3, local day buckets)",
+    "b3": {"day_rows": [{"bucket_day": "2026-10-06", "cost_usd": 3.0, "n_llm_calls": 3, "n_unpriced": 1}]}
+  },
+  "case_4_szero": {
+    "turns": [
+      {"turn_kind": "human", "turn_origin": "typed"},
+      {"turn_kind": "harness", "turn_origin": "empty"}
+    ],
+    "entrypoint": "vscode",
+    "originator": "codex_vscode",
+    "b3": {"project": "/u/b/demolib/src", "n_sessions": 0, "n_automated": 0, "note": "DM-60, DM-61: the only session of the project has no llm_call, so n_sessions is 0 and the project is not a hidden helper"}
+  },
+  "case_5_projects": {
+    "b3": {
+      "names": {
+        "/u/a/bizdemo/src": "bizdemo/src",
+        "/u/b/demolib/src": "demolib/src",
+        "/u/d/helper": "helper",
+        "/u/e/agentsdemo": "agentsdemo",
+        "/u/f/harnessproj": "harnessproj",
+        "/u/g/skillproj": "skillproj",
+        "/u/h/slowproj/app": "app",
+        "/u/i/idleproj": "idleproj",
+        "/u/j/ompproj": "ompproj",
+        "/u/k/codexproj": "codexproj"
+      },
+      "counts": {
+        "/u/a/bizdemo/src": {"n_sessions": 4, "n_automated": 0},
+        "/u/b/demolib/src": {"n_sessions": 0, "n_automated": 0},
+        "/u/d/helper": {"n_sessions": 1, "n_automated": 1},
+        "/u/e/agentsdemo": {"n_sessions": 1, "n_automated": 0},
+        "/u/f/harnessproj": {"n_sessions": 1, "n_automated": 0},
+        "/u/g/skillproj": {"n_sessions": 1, "n_automated": 0},
+        "/u/h/slowproj/app": {"n_sessions": 2, "n_automated": 0},
+        "/u/i/idleproj": {"n_sessions": 1, "n_automated": 0},
+        "/u/j/ompproj": {"n_sessions": 1, "n_automated": 0},
+        "/u/k/codexproj": {"n_sessions": 1, "n_automated": 0}
+      },
+      "note": "DM-60: only `src` collides, so both get their parent. bizdemo/src holds s2day, sunpriced, stools and sfork (sfork has one owned call). Counts include sessions with n_llm_calls > 0 only."
+    }
+  },
+  "case_6_sagents": {
+    "tree": {
+      "engagement_depths": {"ra#0": 4, "rn#0": 8, "rb#0": 4, "rb#1": 4, "rc#0": 1, "ra#1": 4},
+      "ra#1_parent": "toolu_spawnA",
+      "ra#1_caused_by": "toolu_sendA",
+      "rc#0_caused_by": null,
+      "note": "Depth counts ops from the session (0). rn#0 runs inside ra#0: session 0, turn 1, call 2, spawn tool 3, ra#0 4, agent turn 5, call 6, spawn tool 7, rn#0 8 (agent depth 2). ra#1 sits under A's spawn call by the cycle rule (design 4.5), so depth 4. rc#0 hangs on the session."
+    },
+    "b3": {
+      "attr": {
+        "main#0": {"attr_cost_usd": 3.2, "attr_n_llm_calls": 5, "attr_tok_total": 600},
+        "main#1": {"attr_cost_usd": 1.2, "attr_n_llm_calls": 3, "attr_tok_total": 360}
+      },
+      "attr_turn_of_call": {
+        "req_ra0": "main#0", "req_rn0": "main#0", "req_rb0": "main#0", "req_rb1": "main#0",
+        "req_ra1": "main#1", "req_rc0": null
+      },
+      "unattributed_cost_usd": 0.3,
+      "note": "DM-45. T1 = c1 0.10 + A#0 2.00 + nested 0.50 + B#0 0.40 + B#1 0.20 = 3.20 (B#1 is caused by T1's spawn call, one hour later). T2 = c2 0.10 + c2b 0.10 + A#1 1.00 = 1.20. C#0 (caused_by NULL) 0.30 is unattributed. 3.20 + 1.20 + 0.30 = 4.70 = sessions.incl_cost_usd. Every call is 100 in + 20 out = 120 tokens, so 5 x 120 and 3 x 120."
+    },
+    "agent_runs": {
+      "toolu_spawnA": {"runs": 1, "run_ms": 270000},
+      "toolu_spawnB": {"runs": 2, "run_ms": 900000},
+      "toolu_spawnN": {"runs": 1, "run_ms": 60000},
+      "toolu_sendA": {"runs": 1, "run_ms": 75000},
+      "note": "DM-36 / D38 M12. Engagement walls: ra#0 09:01:00-09:05:30, rn#0 09:04:30-09:05:30, rb#0 09:02:30-09:12:30 (10 min), rb#1 10:02:30-10:07:30 (5 min, exactly one hour after rb#0), ra#1 10:00:00-10:01:15. The spawn call toolu_spawnB caused both rb engagements, so one row: runs 2, run_ms 15 min."
+    },
+    "b3_time": {
+      "session_split_ms": {"model": 30000, "tool": 4000, "agents": 1065000, "none": 2961000},
+      "window_split_ms": {
+        "main#0": {"model": 10000, "tool": 2000, "agents": 690000, "none": 2298000},
+        "main#1": {"model": 20000, "tool": 2000, "agents": 375000, "none": 663000}
+      },
+      "span_ms": {
+        "main#0": {"wall": 17000, "model": 10000, "tool": 2000, "agents": 0, "none": 5000},
+        "main#1": {"wall": 1060000, "model": 20000, "tool": 2000, "agents": 375000, "none": 663000}
+      },
+      "stretches": [
+        {"state": "agents", "start": "2026-10-08T09:01:00Z", "end": "2026-10-08T09:12:30Z", "turn": "main#0", "next_turn_kind": null},
+        {"state": "none", "start": "2026-10-08T09:12:30Z", "end": "2026-10-08T09:50:00Z", "turn": "main#0", "next_turn_kind": "human"},
+        {"state": "none", "start": "2026-10-08T09:50:17Z", "end": "2026-10-08T10:00:00Z", "turn": "main#1", "next_turn_kind": null},
+        {"state": "agents", "start": "2026-10-08T10:00:00Z", "end": "2026-10-08T10:01:15Z", "turn": "main#1", "next_turn_kind": null},
+        {"state": "none", "start": "2026-10-08T10:01:15Z", "end": "2026-10-08T10:02:30Z", "turn": "main#1", "next_turn_kind": null},
+        {"state": "agents", "start": "2026-10-08T10:02:30Z", "end": "2026-10-08T10:07:30Z", "turn": "main#1", "next_turn_kind": null}
+      ],
+      "note": "DM-50 to DM-53. Main-thread work: c1 09:00:05-09:00:15 and its two spawn tools to 09:00:17; c2 09:50:05-09:50:15, SendMessage to 09:50:17, c2b 10:07:30-10:07:40. Agent work covers 09:01:00-09:12:30 (union of A#0, nested, B#0, C#0), then A#1 10:00:00-10:01:15 and B#1 10:02:30-10:07:30. Session 4060 s = 30 + 4 + 1065 + 2961. The none gap 09:00:17-09:01:00 is 43 s (no row); the 5 s starts of each turn get no row. T1 stored span is 09:00:00-09:00:17 (H1: agents that end later do not widen it). T1 window 09:00:00-09:50:00 = 3000 s = 10 + 2 + 690 + 2298; T2 window = span = 1060 s."
+    }
+  },
+  "case_7_sharness": {
+    "turns": [
+      {"turn_kind": "human", "turn_origin": "typed", "label": "outline the migration steps for the billing tables"},
+      {"turn_kind": "harness", "turn_origin": "builtin:clear", "label": "/clear"},
+      {"turn_kind": "human", "turn_origin": "typed", "label": "summarize what changed in the schema this week"},
+      {"turn_kind": "harness", "turn_origin": "interrupt", "label": "[Request interrupted by user]"},
+      {"turn_kind": "harness", "turn_origin": "empty", "label": "(no text)"},
+      {"turn_kind": "human", "turn_origin": "typed", "label": "continue with the second table now"}
+    ],
+    "b3": {
+      "display_ix": [1, null, 2, null, null, 3],
+      "n_human_asks": 3,
+      "stretches": [
+        {"state": "none", "start": "2026-10-08T12:01:00Z", "end": "2026-10-08T12:03:00Z", "turn": 1, "next_turn_kind": "human"},
+        {"state": "none", "start": "2026-10-08T12:03:35Z", "end": "2026-10-08T12:05:00Z", "turn": 2, "next_turn_kind": "harness"},
+        {"state": "none", "start": "2026-10-08T12:05:00Z", "end": "2026-10-08T12:06:30Z", "turn": 3, "next_turn_kind": "harness"},
+        {"state": "none", "start": "2026-10-08T12:06:30Z", "end": "2026-10-08T12:08:00Z", "turn": 4, "next_turn_kind": "human"}
+      ],
+      "note": "DM-24: numbering skips harness turns. DM-52: stretches attach to the turn whose window holds them, harness turns included (`turn` is the index in the turn list above). The 25 s after the first call (12:00:35-12:01:00) and each 5 s before a call are under 60 s. Session 515 s = 90 model + 425 none."
+    }
+  },
+  "case_8_sstretch": {
+    "b3": {
+      "stretches": [
+        {"state": "none", "start": "2026-10-10T02:01:00Z", "end": "2026-10-10T02:26:00Z", "turn": "main#0", "next_turn_kind": "human", "label": "you"},
+        {"state": "none", "start": "2026-10-10T02:26:00Z", "end": "2026-10-10T02:48:00Z", "turn": "main#1", "next_turn_kind": null, "label": "none"},
+        {"state": "none", "start": "2026-10-10T02:49:00Z", "end": "2026-10-10T03:51:00Z", "turn": "main#1", "next_turn_kind": "human", "label": "limit"},
+        {"state": "none", "start": "2026-10-10T03:52:05Z", "end": "2026-10-10T04:04:00Z", "turn": "main#2", "next_turn_kind": "message", "label": "agentmsg"},
+        {"state": "agents", "start": "2026-10-10T04:07:35Z", "end": "2026-10-10T04:47:35Z", "turn": "main#4", "next_turn_kind": null, "label": "agents"}
+      ],
+      "durations_ms": [1500000, 1320000, 3720000, 715000, 2400000],
+      "session_split_ms": {"model": 325000, "tool": 2000, "agents": 2400000, "none": 7358000},
+      "note": "DM-52, SES-17, QRY-41. Nothing runs 02:01:00-02:48:00, and the human ask T2 starts at 02:26:00 (the call starts at 02:48:00): two rows, 25 min (next_turn_kind human) and 22 min (NULL). Then 62 min of none (02:49:00-03:51:00) before T3 whose label starts 'I hit my usage limit' (label limit). Then 11 min 55 s before the peer message T4 (label agentmsg, next_turn_kind message). The forecast agent runs alone 04:07:35-04:47:35 = 40 min (agents). Gaps under 60 s (5 s starts, 55 s before T5, 28 s before the agent) get no row. Session 10085 s = 325 model + 2 tool + 2400 agents + 7358 none (5+1500+1320+3720+5+715+5+55+5+28)."
+    },
+    "turns": [
+      {"turn_kind": "human", "turn_origin": "typed"},
+      {"turn_kind": "human", "turn_origin": "typed"},
+      {"turn_kind": "human", "turn_origin": "typed"},
+      {"turn_kind": "message", "turn_origin": "peer"},
+      {"turn_kind": "human", "turn_origin": "typed"}
+    ],
+    "limit_label_prefix": "I hit my usage limit"
+  },
+  "case_9_stools": {
+    "failed_bash": {"tool": "toolu_pt1", "exit_code": 1, "step_outcome": "exit:1"},
+    "interrupted": {"tool": "toolu_int1", "interrupted": 1, "step_outcome": "interrupted"},
+    "is_error": {"tool": "toolu_err1", "is_error": 1, "step_outcome": "error"},
+    "ok_bash": {"tool": "toolu_pt2", "exit_code": 0, "is_error": 0, "interrupted": 0},
+    "note": "QRY-37: failed = is_error, exit code other than 0, or interrupted. toolu_pt2 (exit 0) is not failed."
+  },
+  "case_10_sskills": {
+    "events": [
+      {"skill": "mad:bootstrap", "via": "slash", "op": "turn main#0", "step_id": null},
+      {"skill": "demo:alpha", "via": "tool", "step_id": "main#1#0"},
+      {"skill": "demo:beta", "via": "tool", "step_id": "main#1#1"},
+      {"skill": "demo:alpha", "via": "tool", "step_id": "main#2#0"}
+    ],
+    "slash_turn_steps": 0,
+    "turn_main#1_skill_steps": 2,
+    "b3": {
+      "skill_load": {"main#1#0": "demo:alpha", "main#1#1": "demo:beta", "main#2#0": "demo:alpha"},
+      "n_steps_with_skill_load": 3,
+      "attr_cost_usd": {"main#0": 0.5, "main#1": 0.6, "main#2": 0.2},
+      "note": "DM-30: the two Skill tool steps and the single one carry skill_load; the slash turn has no step, so the event's op_id (the turn) is its anchor. CLI-22 `skill` split: main#1 loads two distinct skills, so its 0.60 splits 0.30 / 0.30; demo:alpha gets 0.30 + 0.20, demo:beta 0.30, mad:bootstrap 0.50."
+    },
+    "slash_label": "/mad:bootstrap ARGS"
+  },
+  "case_11_sslow1": {
+    "bash": {"tool": "toolu_slowbash", "dur_ms": 2400000, "time_prov": "derived", "command_key": "make bench", "waits_on_user": null},
+    "ask": {"tool": "toolu_ask1", "dur_ms": 900000, "waits_on_user": 1, "tool_name": "AskUserQuestion"},
+    "b3": {
+      "max_silence_ms": {"toolu_slowbash": 1800000},
+      "note": "DM-40: the call runs 04:02:00-04:42:00. Timestamped records in the bundle: the assistant record that holds the tool_use (04:02:00), a queue-operation record (04:12:00) and the tool_result (04:42:00). Gaps 10 min and 30 min, so the longest silence is 30 min."
+    }
+  },
+  "case_12_sfork": {
+    "duplicates": ["req_t2", "toolu_int1", "toolu_err1"],
+    "owner_session": "stools",
+    "fork_incl_cost_usd": 0.2,
+    "owner_incl_cost_usd": 0.9,
+    "note": "QRY-12: the fork repeats the call req_t2 (0.30) and its two tools with the same occ keys; stools' first line is earlier (05:00 against 05:30), so stools owns them. Counting the copies would raise the store total from 22.75 to 23.05."
+  },
+  "case_13_stools": {
+    "call": "req_t1",
+    "tok_total": 1000,
+    "tools": ["toolu_pt1", "toolu_pt2", "toolu_rd1"],
+    "command_keys": ["uv run pytest", "uv run pytest", null],
+    "b3": {
+      "tasks_by_command_key": {"uv run pytest": {"n": 2, "tok_total_for_this_call": 666.67}, "unassigned_for_this_call": 333.33},
+      "note": "CLI-22: 1000 tokens divided by 3 owned tool calls; the two pytest calls hold 2 x 333.33; the Read has no command_key."
+    }
+  },
+  "case_14_providers": {
+    "somp": {
+      "ttft_ms": [800, 1200],
+      "ttft_prov": "present",
+      "b3": {"n_ttft": 2, "ttft_ms_sum": 2000, "note": "DM-47 rollup columns: both calls have ttft"}
+    },
+    "scodex": {
+      "reasoning_tok": 128,
+      "think_steps": 2,
+      "reasoning_summary": "Weighing cache eviction after the deploy.",
+      "second_summary_empty": true,
+      "note": "DET-63: the first reasoning item has a summary, the second only encrypted content. The pointer resolves to the item itself (payload.type = reasoning)."
+    }
+  },
+  "case_15_stools": {
+    "tool": "toolu_big",
+    "result_bytes": 11264,
+    "note": "API-26 / DET-65: the tool_result text is 11,264 bytes (11 KB), so a client page of 10 KB cuts it."
+  },
+  "case_16_slow": {
+    "sessions": ["sslow1", "sslow2"],
+    "project": "/u/h/slowproj/app",
+    "wall_ms_total": 5400000,
+    "b3": {
+      "time_split_ms": {"model": 585000, "tool": 3300000, "agents": 0, "none": 1515000},
+      "stretches": [
+        {"session": "sslow2", "state": "none", "start": "2026-10-07T06:02:00Z", "end": "2026-10-07T06:27:00Z", "next_turn_kind": "human", "dur_ms": 1500000}
+      ],
+      "slowest_tool": {"tool": "toolu_slowbash", "dur_ms": 2400000, "max_silence_ms": 1800000},
+      "note": "CLI-20 scenario: 60 min + 30 min = 5,400,000 ms. sslow1: model 295 s (L1 115 s + L2 180 s), tool 3300 s (bash 2400 s + ask 900 s), none 5 s. sslow2: model 290 s (115 + 175), none 1510 s (5 + 1500 + 5). Sum 585 + 3300 + 1515 = 5400 s. The 25-min stretch ends where the human ask T2 starts, so `none_split.you` is 1,500,000. The ask call is waits_on_user, so the slowest tool is the bash call."
+    }
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "note": "5m and 1h cache tiers priced separately (1h = 2 x input)",
+  "llm_calls": [
+    {
+      "agent_id": null,
+      "in_tok": 10,
+      "out_tok": 200,
+      "cache_read_tok": 5000,
+      "cache_write_tok": 3000,
+      "cache_write_5m_tok": 1000,
+      "cache_write_1h_tok": 2000,
+      "cost_usd": 0.02028
+    }
+  ],
+  "cost_cache_write_usd": 0.01575
+}

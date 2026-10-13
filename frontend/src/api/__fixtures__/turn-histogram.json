@@ -1,0 +1,69 @@
+{
+  "freshness": {
+    "last_ingest_ms": 1791790200000,
+    "parser_version": "7.0.0",
+    "price_fingerprint": "p-2026-10-12",
+    "schema_version": 7,
+    "api_version": 1
+  },
+  "start_ms": 1791790200000,
+  "bin_ms": 2500,
+  "tail_from_ms": 1791790500000,
+  "bins": [
+    {
+      "cost_usd": 0.0,
+      "main_cost_usd": 0.0,
+      "tok_total": 0,
+      "state_ms": {
+        "model_ms": 0,
+        "tool_ms": 10,
+        "agents_ms": 0,
+        "none_ms": 0
+      },
+      "by_model": {
+        "claude-opus-5-5": [
+          0.0,
+          0
+        ]
+      }
+    },
+    {
+      "cost_usd": 0.1,
+      "main_cost_usd": 0.05,
+      "tok_total": 1000,
+      "state_ms": {
+        "model_ms": 100,
+        "tool_ms": 10,
+        "agents_ms": 0,
+        "none_ms": 0
+      },
+      "by_model": {
+        "claude-opus-5-5": [
+          0.1,
+          1000
+        ]
+      }
+    },
+    {
+      "cost_usd": 0.2,
+      "main_cost_usd": 0.1,
+      "tok_total": 2000,
+      "state_ms": {
+        "model_ms": 200,
+        "tool_ms": 10,
+        "agents_ms": 0,
+        "none_ms": 0
+      },
+      "by_model": {
+        "claude-opus-5-5": [
+          0.2,
+          2000
+        ]
+      }
+    }
+  ],
+  "marks": {
+    "skill_loads": []
+  },
+  "stretches": []
+}

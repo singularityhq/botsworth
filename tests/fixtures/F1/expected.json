@@ -1,0 +1,27 @@
+{
+  "note": "one requestId over four records: one llm_call, usage of the final record; steps in record order",
+  "llm_calls": [
+    {
+      "agent_id": null,
+      "in_tok": 10,
+      "out_tok": 200,
+      "cache_read_tok": 5000,
+      "cache_write_tok": 1000,
+      "cache_write_5m_tok": 1000,
+      "cache_write_1h_tok": 0,
+      "cost_usd": 0.00828
+    }
+  ],
+  "tool_calls": 2,
+  "steps": [
+    [
+      "main#0",
+      [
+        "think",
+        "say",
+        "read",
+        "write"
+      ]
+    ]
+  ]
+}

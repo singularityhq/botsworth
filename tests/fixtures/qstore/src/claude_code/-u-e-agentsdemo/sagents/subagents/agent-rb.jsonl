@@ -1,0 +1,4 @@
+{"type": "user", "sessionId": "sagents", "message": {"role": "user", "content": "load the staging data"}, "timestamp": "2026-10-08T09:02:30.000Z"}
+{"type": "assistant", "requestId": "req_rb0", "message": {"role": "assistant", "model": "synth-model-1", "content": [{"type": "text", "text": "synthetic reply"}], "usage": {"input_tokens": 100, "output_tokens": 20, "cache_read_input_tokens": 0}}, "timestamp": "2026-10-08T09:12:30.000Z"}
+{"type": "user", "sessionId": "sagents", "message": {"role": "user", "content": "load the production data"}, "timestamp": "2026-10-08T10:02:30.000Z"}
+{"type": "assistant", "requestId": "req_rb1", "message": {"role": "assistant", "model": "synth-model-1", "content": [{"type": "text", "text": "synthetic reply"}], "usage": {"input_tokens": 100, "output_tokens": 20, "cache_read_input_tokens": 0}}, "timestamp": "2026-10-08T10:07:30.000Z"}

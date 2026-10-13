@@ -1,0 +1,2 @@
+{"type": "user", "sessionId": "sagents", "message": {"role": "user", "content": "check the table list"}, "timestamp": "2026-10-08T09:04:30.000Z"}
+{"type": "assistant", "requestId": "req_rn0", "message": {"role": "assistant", "model": "synth-model-1", "content": [{"type": "text", "text": "synthetic reply"}], "usage": {"input_tokens": 100, "output_tokens": 20, "cache_read_input_tokens": 0}}, "timestamp": "2026-10-08T09:05:30.000Z"}

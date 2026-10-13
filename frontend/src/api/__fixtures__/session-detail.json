@@ -1,0 +1,100 @@
+{
+  "freshness": {
+    "last_ingest_ms": 1791790200000,
+    "parser_version": "7.0.0",
+    "price_fingerprint": "p-2026-10-12",
+    "schema_version": 7,
+    "api_version": 1
+  },
+  "session": {
+    "project": "/Users/a/bizdemo",
+    "project_name": "bizdemo",
+    "color_slot": 1,
+    "session": "claude_code/a11ce5e5-1111-4222-8333-944455556666/session/-",
+    "session_id": "a11ce5e5-1111-4222-8333-944455556666",
+    "provider": "claude_code",
+    "name": "Fix rbac sync",
+    "title_source": "first_ask",
+    "cwd": "/Users/a/bizdemo",
+    "git_branch": "main",
+    "harness_version": "2.1.0",
+    "entrypoint": "cli",
+    "originator": null,
+    "start_ms": 1791700000000,
+    "end_ms": 1791790000000,
+    "ends_after_days": 1,
+    "is_automated": false,
+    "n_turns": 2,
+    "n_harness_turns": 1,
+    "cost": {
+      "cost_usd": 12.4,
+      "cost_lower_bound": true,
+      "n_unpriced": 1,
+      "main": 4.0,
+      "agents": 8.4,
+      "unattributed": 0.0
+    },
+    "tok_total": 97000000,
+    "wall_ms": 525000,
+    "active_ms": 165000,
+    "time_split": {
+      "model_ms": 120000,
+      "tool_ms": 45000,
+      "agents_ms": 300000,
+      "none_ms": 60000
+    },
+    "none_split": {
+      "you": 30000,
+      "agentmsg": 0,
+      "limit": 30000,
+      "none": 0
+    },
+    "longest": {
+      "model": {
+        "row": {
+          "type": "call",
+          "id": "claude_code/a11ce5e5-1111-4222-8333-944455556666/llm/a1"
+        },
+        "turn": "claude_code/a11ce5e5-1111-4222-8333-944455556666/turn/2",
+        "dur_ms": 125000
+      },
+      "tool": null,
+      "agents": {
+        "row": {
+          "type": "gap",
+          "id": "gap-1791790500000"
+        },
+        "turn": "claude_code/a11ce5e5-1111-4222-8333-944455556666/turn/2",
+        "dur_ms": 300000
+      },
+      "you": null,
+      "agentmsg": null,
+      "limit": {
+        "row": {
+          "type": "gap",
+          "id": "gap-1791786480000"
+        },
+        "turn": "claude_code/a11ce5e5-1111-4222-8333-944455556666/turn/2",
+        "dur_ms": 3720000
+      },
+      "none": null
+    },
+    "n_agents": 2,
+    "n_skill_loads": 1,
+    "n_failed": 1,
+    "n_llm_calls": 14,
+    "models": [
+      {
+        "cost_usd": 12.4,
+        "cost_lower_bound": true,
+        "n_unpriced": 1,
+        "model": "claude-opus-5-5",
+        "n_calls": 14,
+        "model_ms": 120000,
+        "speed_tok_s": 55.2,
+        "speed_basis": "derived",
+        "ttft_ms_mean": 900.5
+      }
+    ]
+  }
+}

@@ -1,0 +1,106 @@
+{
+  "freshness": {
+    "last_ingest_ms": 1791790200000,
+    "parser_version": "7.0.0",
+    "price_fingerprint": "p-2026-10-12",
+    "schema_version": 7,
+    "api_version": 1
+  },
+  "total": 212,
+  "offset": 0,
+  "limit": 200,
+  "stats": {
+    "max_activity_tok": 90000,
+    "max_cost_usd": 550.0,
+    "cost_p90": 80.0
+  },
+  "rows": [
+    {
+      "project": "/Users/a/bizdemo",
+      "project_name": "bizdemo",
+      "color_slot": 1,
+      "cost_usd": 12.4,
+      "cost_lower_bound": true,
+      "n_unpriced": 1,
+      "session": "claude_code/a11ce5e5-1111-4222-8333-944455556666/session/-",
+      "session_id": "a11ce5e5-1111-4222-8333-944455556666",
+      "provider": "claude_code",
+      "name": "Fix rbac sync",
+      "title_source": "first_ask",
+      "start_ms": 1791700000000,
+      "end_ms": 1791790000000,
+      "ends_after_days": 1,
+      "tok_total": 97000000,
+      "wall_ms": 90000000,
+      "active_ms": 3600000,
+      "is_automated": false,
+      "n_agents": 2,
+      "git_branch": "main",
+      "activity": {
+        "bin_ms": 3600000,
+        "tok": [
+          0,
+          120,
+          4000,
+          90000
+        ]
+      },
+      "day_split": [
+        {
+          "day": "2026-10-06",
+          "cost_usd": 4.4,
+          "tok_total": 30000000
+        },
+        {
+          "day": "2026-10-07",
+          "cost_usd": 8.0,
+          "tok_total": 67000000
+        }
+      ]
+    },
+    {
+      "project": "/Users/a/bizdemo",
+      "project_name": "bizdemo",
+      "color_slot": 2,
+      "cost_usd": 12.4,
+      "cost_lower_bound": true,
+      "n_unpriced": 1,
+      "session": "claude_code/aaaa1111-1111-4222-8333-944455556666/session/-",
+      "session_id": "aaaa1111-1111-4222-8333-944455556666",
+      "provider": "codex",
+      "name": "Port the parser",
+      "title_source": "first_ask",
+      "start_ms": 1791700000000,
+      "end_ms": 1791790000000,
+      "ends_after_days": 1,
+      "tok_total": 97000000,
+      "wall_ms": 90000000,
+      "active_ms": 3600000,
+      "is_automated": false,
+      "n_agents": 2,
+      "git_branch": "main",
+      "activity": {
+        "bin_ms": 3600000,
+        "tok": [
+          0,
+          120,
+          4000,
+          90000
+        ]
+      },
+      "day_split": [
+        {
+          "day": "2026-10-06",
+          "cost_usd": 4.4,
+          "tok_total": 30000000
+        },
+        {
+          "day": "2026-10-07",
+          "cost_usd": 8.0,
+          "tok_total": 67000000
+        }
+      ]
+    }
+  ],
+  "groups": null
+}

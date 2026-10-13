@@ -1,0 +1,9 @@
+{
+  "note": "agent whose arrival matches no send: parent = session, basis none, still counted",
+  "engagement": {
+    "parent": "session",
+    "caused_by_basis": "none",
+    "caused_by": null
+  },
+  "out_tok_total": 200
+}

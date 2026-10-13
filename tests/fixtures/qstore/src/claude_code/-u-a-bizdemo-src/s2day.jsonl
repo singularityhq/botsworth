@@ -1,0 +1,4 @@
+{"type": "user", "sessionId": "s2day", "message": {"role": "user", "content": "refactor the cost rollup for the weekly report"}, "timestamp": "2026-10-06T16:59:55.000Z"}
+{"type": "assistant", "requestId": "req_d1", "message": {"role": "assistant", "model": "synth-model-1", "content": [{"type": "text", "text": "synthetic reply"}], "usage": {"input_tokens": 1000, "output_tokens": 200, "cache_read_input_tokens": 0}}, "timestamp": "2026-10-06T17:01:00.000Z"}
+{"type": "user", "sessionId": "s2day", "message": {"role": "user", "content": "now add the daily breakdown to the report"}, "timestamp": "2026-10-06T18:59:55.000Z"}
+{"type": "assistant", "requestId": "req_d2", "message": {"role": "assistant", "model": "synth-model-1", "content": [{"type": "text", "text": "synthetic reply"}], "usage": {"input_tokens": 1000, "output_tokens": 200, "cache_read_input_tokens": 0}}, "timestamp": "2026-10-06T19:01:00.000Z"}

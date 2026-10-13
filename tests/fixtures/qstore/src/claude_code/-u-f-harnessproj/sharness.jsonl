@@ -1,0 +1,10 @@
+{"type": "user", "sessionId": "sharness", "message": {"role": "user", "content": "outline the migration steps for the billing tables"}, "timestamp": "2026-10-08T12:00:00.000Z"}
+{"type": "assistant", "requestId": "req_h1", "message": {"role": "assistant", "model": "synth-model-1", "content": [{"type": "text", "text": "synthetic reply"}], "usage": {"input_tokens": 100, "output_tokens": 20, "cache_read_input_tokens": 0}}, "timestamp": "2026-10-08T12:00:35.000Z"}
+{"type": "user", "sessionId": "sharness", "message": {"role": "user", "content": "<command-name>/clear</command-name>\n<command-message>clear</command-message>\n<command-args></command-args>"}, "timestamp": "2026-10-08T12:01:00.000Z"}
+{"type": "system", "subtype": "local_command", "content": "<local-command-stdout></local-command-stdout>", "timestamp": "2026-10-08T12:01:00.000Z"}
+{"type": "user", "sessionId": "sharness", "message": {"role": "user", "content": "summarize what changed in the schema this week"}, "timestamp": "2026-10-08T12:03:00.000Z"}
+{"type": "assistant", "requestId": "req_h2", "message": {"role": "assistant", "model": "synth-model-1", "content": [{"type": "text", "text": "synthetic reply"}], "usage": {"input_tokens": 100, "output_tokens": 20, "cache_read_input_tokens": 0}}, "timestamp": "2026-10-08T12:03:35.000Z"}
+{"type": "user", "sessionId": "sharness", "message": {"role": "user", "content": "[Request interrupted by user]"}, "timestamp": "2026-10-08T12:05:00.000Z"}
+{"type": "user", "sessionId": "sharness", "message": {"role": "user", "content": ""}, "timestamp": "2026-10-08T12:06:30.000Z"}
+{"type": "user", "sessionId": "sharness", "message": {"role": "user", "content": "continue with the second table now"}, "timestamp": "2026-10-08T12:08:00.000Z"}
+{"type": "assistant", "requestId": "req_h3", "message": {"role": "assistant", "model": "synth-model-1", "content": [{"type": "text", "text": "synthetic reply"}], "usage": {"input_tokens": 100, "output_tokens": 20, "cache_read_input_tokens": 0}}, "timestamp": "2026-10-08T12:08:35.000Z"}

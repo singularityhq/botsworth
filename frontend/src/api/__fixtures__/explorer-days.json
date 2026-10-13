@@ -1,0 +1,67 @@
+{
+  "freshness": {
+    "last_ingest_ms": 1791790200000,
+    "parser_version": "7.0.0",
+    "price_fingerprint": "p-2026-10-12",
+    "schema_version": 7,
+    "api_version": 1
+  },
+  "days": [
+    {
+      "day": "2026-10-06",
+      "from_day": "2026-10-06",
+      "to_day": "2026-10-06",
+      "cost_usd": 120.5,
+      "cost_lower_bound": false,
+      "n_unpriced": 0,
+      "tok_total": 400000000,
+      "n_sessions": 18,
+      "by_project": [
+        {
+          "project": "/Users/a/bizdemo",
+          "project_name": "bizdemo",
+          "color_slot": 1,
+          "cost_usd": 100.0,
+          "tok_total": 300000000
+        },
+        {
+          "project": "/Users/a/scratch",
+          "project_name": "scratch",
+          "color_slot": null,
+          "cost_usd": 20.5,
+          "tok_total": 100000000
+        }
+      ]
+    },
+    {
+      "day": "2026-10-07",
+      "from_day": "2026-10-07",
+      "to_day": "2026-10-07",
+      "cost_usd": 549.89,
+      "cost_lower_bound": true,
+      "n_unpriced": 2,
+      "tok_total": 1847233004,
+      "n_sessions": 18,
+      "by_project": [
+        {
+          "project": "/Users/a/bizdemo",
+          "project_name": "bizdemo",
+          "color_slot": 1,
+          "cost_usd": 549.89,
+          "tok_total": 1847233004
+        }
+      ]
+    },
+    {
+      "day": "2026-10-08",
+      "from_day": "2026-10-08",
+      "to_day": "2026-10-08",
+      "cost_usd": 0,
+      "cost_lower_bound": false,
+      "n_unpriced": 0,
+      "tok_total": 0,
+      "n_sessions": 0,
+      "by_project": []
+    }
+  ]
+}

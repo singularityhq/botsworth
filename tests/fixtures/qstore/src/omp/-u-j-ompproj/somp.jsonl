@@ -1,0 +1,3 @@
+{"type": "message", "id": "m0", "message": {"role": "user", "attribution": "user", "content": [{"type": "text", "text": "profile the startup path of the daemon"}]}, "timestamp": "2026-10-10T10:00:00.000Z"}
+{"type": "message", "id": "resp_o1", "message": {"role": "assistant", "responseId": "resp_o1", "content": [{"type": "text", "text": "synthetic reply"}], "model": "synth-model-1", "usage": {"input": 300, "output": 200}}, "timestamp": "2026-10-10T10:00:09.000Z"}
+{"type": "message", "id": "resp_o2", "message": {"role": "assistant", "responseId": "resp_o2", "content": [{"type": "text", "text": "synthetic reply"}], "model": "synth-model-1", "usage": {"input": 400, "output": 300}}, "timestamp": "2026-10-10T10:00:26.000Z"}

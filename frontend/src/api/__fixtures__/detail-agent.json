@@ -1,0 +1,92 @@
+{
+  "freshness": {
+    "last_ingest_ms": 1791790200000,
+    "parser_version": "7.0.0",
+    "price_fingerprint": "p-2026-10-12",
+    "schema_version": 7,
+    "api_version": 1
+  },
+  "kind": "agent",
+  "position": {
+    "session": "claude_code/a11ce5e5-1111-4222-8333-944455556666/session/-",
+    "turn": "claude_code/a11ce5e5-1111-4222-8333-944455556666/turn/2",
+    "display_id": "T2",
+    "row": {
+      "type": "agent",
+      "id": "claude_code/a11ce5e5-1111-4222-8333-944455556666/engagement/e1"
+    },
+    "depth": 0
+  },
+  "turn_cost_usd": 4.0,
+  "focus_engagement": "claude_code/a11ce5e5-1111-4222-8333-944455556666/engagement/e1",
+  "runs": [
+    {
+      "engagement": "claude_code/a11ce5e5-1111-4222-8333-944455556666/engagement/e1",
+      "agent_name": "explorer",
+      "start_ms": 1791790250000,
+      "end_ms": 1791790600000,
+      "wall_ms": 350000,
+      "ask_src": "src://claude_code/projects/-Users-a-bizdemo/a11ce5e5.jsonl#L120"
+    }
+  ],
+  "top_calls": [
+    {
+      "type": "call",
+      "id": "claude_code/a11ce5e5-1111-4222-8333-944455556666/llm/a1",
+      "cost_usd": 1.0,
+      "cost_lower_bound": false,
+      "n_unpriced": 0,
+      "depth": 0,
+      "start_ms": 1791790200000,
+      "end_ms": 1791790220000,
+      "dur_ms": 20000,
+      "time_prov": "present",
+      "model": "claude-opus-5-5",
+      "tok": {
+        "in": 100,
+        "cache_read": 900000,
+        "cache_write": 1000,
+        "out": 2000,
+        "reasoning": null,
+        "total": 903100
+      },
+      "ttft_ms": 800,
+      "stop_reason": "tool_use",
+      "error_kind": null,
+      "is_final": false,
+      "steps": [
+        {
+          "step_id": "claude_code/a11ce5e5-1111-4222-8333-944455556666/turn/2#1",
+          "verb": "think",
+          "summary": "Plan the fix",
+          "snippet": "Let me look at the rbac module"
+        }
+      ]
+    }
+  ],
+  "other_calls": {
+    "n": 7,
+    "cost_usd": 7.4
+  },
+  "id": "claude_code/a11ce5e5-1111-4222-8333-944455556666/engagement/e1",
+  "cost_usd": 8.4,
+  "cost_lower_bound": false,
+  "n_unpriced": 0,
+  "depth": 0,
+  "caused_by": "claude_code/a11ce5e5-1111-4222-8333-944455556666/tool/b1",
+  "mode": "started",
+  "description": "Explore the repo",
+  "agent_names": [
+    "explorer"
+  ],
+  "agent_type": "Explore",
+  "tok_total": 80000000,
+  "n_llm_calls": 8,
+  "n_tool_calls": 20,
+  "n_errors": 0,
+  "models": [
+    "claude-opus-5-5"
+  ],
+  "run_ms": 350000,
+  "n_rows": 28
+}

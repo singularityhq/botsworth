@@ -1,0 +1,4 @@
+{"type": "event_msg", "payload": {"type": "user_message", "message": "explain why the cache misses spike after deploy"}, "timestamp": "2026-10-10T11:00:00.000Z"}
+{"type": "response_item", "payload": {"type": "reasoning", "summary": [{"type": "summary_text", "text": "Weighing cache eviction after the deploy."}], "encrypted_content": "enc-synthetic-0001"}, "timestamp": "2026-10-10T11:00:04.000Z"}
+{"type": "response_item", "payload": {"type": "reasoning", "summary": [], "encrypted_content": "enc-synthetic-0002"}, "timestamp": "2026-10-10T11:00:04.000Z"}
+{"type": "response_item", "payload": {"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": "synthetic reply"}]}, "timestamp": "2026-10-10T11:00:25.000Z"}

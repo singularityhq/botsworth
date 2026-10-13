@@ -1,0 +1,5 @@
+{"type": "user", "sessionId": "sagents", "message": {"role": "user", "content": "review the migration plan and report"}, "timestamp": "2026-10-08T09:01:00.000Z"}
+{"type": "assistant", "requestId": "req_ra0", "message": {"role": "assistant", "model": "synth-model-1", "content": [{"type": "tool_use", "id": "toolu_spawnN", "name": "Agent", "input": {"target": "checker"}}], "usage": {"input_tokens": 100, "output_tokens": 20, "cache_read_input_tokens": 0}}, "timestamp": "2026-10-08T09:04:00.000Z"}
+{"type": "user", "sessionId": "sagents", "message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "toolu_spawnN", "content": "ok", "is_error": false}]}, "timestamp": "2026-10-08T09:04:30.000Z"}
+{"type": "user", "sessionId": "sagents", "message": {"role": "user", "content": "give the verdict now"}, "timestamp": "2026-10-08T10:00:00.000Z"}
+{"type": "assistant", "requestId": "req_ra1", "message": {"role": "assistant", "model": "synth-model-1", "content": [{"type": "text", "text": "synthetic reply"}], "usage": {"input_tokens": 100, "output_tokens": 20, "cache_read_input_tokens": 0}}, "timestamp": "2026-10-08T10:01:15.000Z"}

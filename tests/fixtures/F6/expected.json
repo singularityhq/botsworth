@@ -1,0 +1,16 @@
+{
+  "note": "unknown model: cost null (missing, never 0), tokens kept; every ancestor is a cost lower bound in the store",
+  "llm_calls": [
+    {
+      "agent_id": "a",
+      "cost_basis": "missing",
+      "cost_usd": null,
+      "out_tok": 200
+    }
+  ],
+  "lower_bound_ancestors": [
+    "engagement",
+    "session",
+    "turn"
+  ]
+}
