@@ -44,4 +44,28 @@ describe('Answers legend (SES-15, SES-26)', () => {
     expect(tip.textContent).toContain('waited for your approval')
     expect(tip.textContent).toContain('the next turn is your message')
   })
+
+  it('lists background under tools and stalled under nothing running, in the tooltips of those items (SES-15, D55)', async () => {
+    const d55: TimeSplit = {
+      parts: [
+        { state: 'model', substate: null, ms: 10 * MIN },
+        { state: 'tool', substate: null, ms: 1 * MIN },
+        { state: 'tool', substate: 'background', ms: 4 * MIN },
+        { state: 'none', substate: 'none', ms: 2 * MIN },
+        { state: 'none', substate: 'stalled', ms: 6 * MIN },
+      ],
+    }
+    render(<Answers cost={undefined} wallMs={23 * MIN} split={d55} onJump={() => {}} />)
+    const none = screen.getByRole('button', { name: /nothing running/ })
+    fireEvent.focus(none)
+    const noneTip = await screen.findByRole('tooltip')
+    expect(noneTip.textContent).toContain('Go to the longest stretch of: Nothing running')
+    expect(noneTip.textContent).toContain('a finished task waited for an agent that was not running')
+    expect(noneTip.textContent).toContain('6m')
+    fireEvent.blur(none)
+    fireEvent.focus(screen.getByRole('button', { name: /tools/ }))
+    const toolTip = await screen.findByRole('tooltip')
+    expect(toolTip.textContent).toContain('a background command ran')
+    expect(toolTip.textContent).toContain('4m')
+  })
 })

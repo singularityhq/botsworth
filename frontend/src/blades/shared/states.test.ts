@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { GAP_GLYPH, GAP_LABEL, gapReason, gapState, isResumeText, kindOf, STATES, STATE_KEYS, stateFill } from './states'
+import { GAP_GLYPH, GAP_LABEL, gapKind, gapReason, gapState, isResumeText, kindOf, STATES, STATE_KEYS, stateFill } from './states'
 
 describe('SES-15 states', () => {
   it('has seven states; the first three are solid and the last four are hatched', () => {
@@ -60,6 +60,24 @@ describe('gap kinds (SES-36, D41 M11)', () => {
   it('before the first message says "your" only when the first turn is a human turn', () => {
     expect(gapReason({ state: 'none', substate: 'before_first' }, { firstTurnIsHuman: true })).toBe('the session was open before your first message')
     expect(gapReason({ state: 'none', substate: 'before_first' }, { firstTurnIsHuman: false })).toBe('the session was open before its first message')
+  })
+
+  it('names the stalled and background gaps (SES-19a, D55)', () => {
+    const c = { firstTurnIsHuman: true }
+    expect(gapKind({ state: 'none', substate: 'stalled' })).toBe('stalled')
+    expect(gapKind({ state: 'tool', substate: 'background' })).toBe('background')
+    expect(GAP_LABEL.stalled).toBe('Stalled')
+    expect(GAP_LABEL.background).toBe('Background command')
+    expect(gapReason({ state: 'none', substate: 'stalled' }, c)).toBe('a finished task waited for an agent that was not running')
+    expect(gapReason({ state: 'tool', substate: 'background' }, c)).toBe('a background command ran; nothing else did')
+    expect(gapState({ state: 'none', substate: 'stalled' })).toBe('none')
+    expect(gapState({ state: 'tool', substate: 'background' })).toBe('tool')
+    expect(GAP_GLYPH.stalled).toBe('hourglass')
+    expect(GAP_GLYPH.background).toBe('terminal')
+  })
+
+  it('a tool stretch without the background substate is a contract violation (DM-52)', () => {
+    expect(() => gapKind({ state: 'tool', substate: null })).toThrow()
   })
 
   it('agents-only names up to three engagements and counts the rest', () => {

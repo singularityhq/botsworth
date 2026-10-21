@@ -47,16 +47,22 @@ export function stateFill(k: StateKey): CSSProperties {
 
 // ---- gaps -----------------------------------------------------------------
 
-/** What a gap shows as: its state, except that the `none`/`before_first` stretch is its own kind (SES-18). */
-export type GapKind = 'you' | 'agentmsg' | 'limit' | 'before_first' | 'none' | 'agents'
+/** What a gap shows as: its state, except that the `none`/`before_first`, `none`/`stalled` and `tool`/`background` stretches are their own kinds (SES-18, SES-19a). */
+export type GapKind = 'you' | 'agentmsg' | 'limit' | 'before_first' | 'stalled' | 'background' | 'none' | 'agents'
 
 type GapLike = Pick<Stretch, 'state' | 'substate'>
 
 export function gapKind(g: GapLike): GapKind {
-  return g.state === 'none' && g.substate === 'before_first' ? 'before_first' : g.state
+  if (g.state === 'none' && g.substate === 'before_first') return 'before_first'
+  if (g.state === 'none' && g.substate === 'stalled') return 'stalled'
+  if (g.state === 'tool') {
+    if (g.substate !== 'background') throw new Error(`a tool stretch has substate background (DM-52), got ${String(g.substate)}`)
+    return 'background'
+  }
+  return g.state
 }
 
-/** The state a gap counts under. `before_first` counts under `none` (SES-18, D41 M11). */
+/** The state a gap counts under. `before_first` and `stalled` count under `none`, `background` under `tool` (SES-18, SES-19a, D41 M11). */
 export function gapState(g: GapLike): StateKey {
   return g.state
 }
@@ -66,6 +72,8 @@ export const GAP_LABEL: Record<GapKind, string> = {
   agentmsg: STATES.agentmsg.label,
   limit: STATES.limit.label,
   before_first: 'Before the first message',
+  stalled: 'Stalled',
+  background: 'Background command',
   none: STATES.none.label,
   agents: STATES.agents.label,
 }
@@ -76,6 +84,8 @@ export const GAP_GLYPH: Record<GapKind, IconName> = {
   agentmsg: GLYPH.gapAgentMessage,
   limit: GLYPH.gapUsageLimit,
   before_first: GLYPH.gapWaiting,
+  stalled: GLYPH.gapWaiting,
+  background: GLYPH.toolShell,
   none: GLYPH.gapWaiting,
   agents: GLYPH.subAgent,
 }
@@ -85,11 +95,17 @@ export const SUBSTATE_WORDING = {
   ask: 'asked you a question',
   permission: 'waited for your approval',
   reply: 'the next turn is your message',
+  background: 'a background command ran',
+  stalled: 'a finished task waited for an agent that was not running',
 } as const
+export type WordedSubstate = keyof typeof SUBSTATE_WORDING
 
-/** The substates of `you`, in SES-15 order. */
-export const YOU_SUBSTATES = ['ask', 'permission', 'reply'] as const
-export type YouSubstate = (typeof YOU_SUBSTATES)[number]
+/** The substates with wording per state, in SES-15 order. The legend tooltip of `you`, `tool` and `none` lists them (SES-15). */
+export const LEGEND_SUBSTATES: Partial<Record<StateKey, readonly WordedSubstate[]>> = {
+  you: ['ask', 'permission', 'reply'],
+  tool: ['background'],
+  none: ['stalled'],
+}
 
 /** TRN-32: the flag on a tool row that waited on the user. */
 export const USER_WAIT_FLAG: Record<'ask' | 'permission', string> = {
@@ -121,6 +137,10 @@ export function gapReason(g: GapLike, ctx: GapContext): string {
       return "the next turn is an agent's message"
     case 'before_first':
       return ctx.firstTurnIsHuman ? 'the session was open before your first message' : 'the session was open before its first message'
+    case 'stalled':
+      return 'a finished task waited for an agent that was not running'
+    case 'background':
+      return 'a background command ran; nothing else did'
     case 'none':
       return 'no model call, tool or agent was running'
     case 'agents': {

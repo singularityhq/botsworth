@@ -1,6 +1,6 @@
 import type { RowRef, SessionDetail, TimeSplit } from '../../api/types'
 import { fmt } from '../../lib/format'
-import { GAP_MIN_MS, LEGEND_MAX, LEGEND_MIN_MS, STATE_KEYS, STATES, YOU_SUBSTATES, type StateKey, type YouSubstate } from './states'
+import { GAP_MIN_MS, LEGEND_MAX, LEGEND_MIN_MS, STATE_KEYS, STATES, LEGEND_SUBSTATES, type StateKey, type WordedSubstate } from './states'
 import type { Rich } from './toastText'
 
 /** The two answers (SES-26; R3 top 5 #1): where the money went, where the time went. Pure rules, shared with the turn header. */
@@ -14,11 +14,11 @@ export function stateTotals(split: TimeSplit): StateTotals {
   return t
 }
 
-/** The `you` time per substate, for the legend tooltip (SES-15). Substates with no time are left out. */
-export function youBreakdown(split: TimeSplit): { substate: YouSubstate; ms: number }[] {
-  return YOU_SUBSTATES.map((substate) => ({
+/** The time per substate of `you`, `tool` or `none`, for the legend tooltip (SES-15). Substates with no time are left out. */
+export function substateBreakdown(split: TimeSplit, state: StateKey): { substate: WordedSubstate; ms: number }[] {
+  return (LEGEND_SUBSTATES[state] ?? []).map((substate) => ({ // FALLBACK-OK: SES-15 (only you, tool and none list substates)
     substate,
-    ms: split.parts.filter((p) => p.state === 'you' && p.substate === substate).reduce((a, p) => a + p.ms, 0),
+    ms: split.parts.filter((p) => p.state === state && p.substate === substate).reduce((a, p) => a + p.ms, 0),
   })).filter((r) => r.ms > 0)
 }
 

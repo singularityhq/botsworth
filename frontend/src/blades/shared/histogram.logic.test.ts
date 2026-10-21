@@ -30,6 +30,11 @@ describe('waitFolds (SES-29)', () => {
     expect(waitFolds([stretch(0, 60, { state: 'agents', substate: null })], T0, T0 + 100 * MIN, 10 * MIN)).toEqual([])
   })
 
+  it('never folds a background-command stretch: it is running time (SES-19a), but folds a stalled one', () => {
+    expect(waitFolds([stretch(0, 60, { state: 'tool', substate: 'background' })], T0, T0 + 100 * MIN, 10 * MIN)).toEqual([])
+    expect(waitFolds([stretch(0, 60, { state: 'none', substate: 'stalled' })], T0, T0 + 100 * MIN, 10 * MIN)).toEqual([{ a: T0, b: T0 + 60 * MIN }])
+  })
+
   it('clips a wait to the axis', () => {
     expect(waitFolds([stretch(-30, 60)], T0, T0 + 100 * MIN, 10 * MIN)).toEqual([{ a: T0, b: T0 + 30 * MIN }])
   })

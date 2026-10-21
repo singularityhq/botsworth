@@ -4,7 +4,7 @@ import { Duration } from '../../ui/figures'
 import { Money } from '../../ui/figures'
 import { Skeleton } from '../../ui/Skeleton'
 import { Tooltip } from '../../ui/Tooltip'
-import { costCaption, legendStates, runningSplit, stateTotals, youBreakdown } from './answers.logic'
+import { costCaption, legendStates, runningSplit, stateTotals, substateBreakdown } from './answers.logic'
 import { SplitBar, type Segment } from './SplitBar'
 import { STATE_KEYS, STATES, SUBSTATE_WORDING, stateFill, type StateKey } from './states'
 
@@ -137,14 +137,15 @@ function TimeAnswer({ wallMs, split, onJump }: { wallMs: number | undefined; spl
   )
 }
 
-/** SES-27 tooltip; SES-15: the `you` item lists its substates with their durations. */
+/** SES-27 tooltip; SES-15: the `you`, `tool` and `none` items list their substates with their durations. */
 function legendTip(k: StateKey, split: TimeSplit): React.ReactNode {
   const go = `Go to the longest stretch of: ${STATES[k].label}`
-  if (k !== 'you') return go
+  const rows = substateBreakdown(split, k)
+  if (rows.length === 0) return go
   return (
     <>
       {go}
-      {youBreakdown(split).map((r) => (
+      {rows.map((r) => (
         <span key={r.substate} className="block">
           {SUBSTATE_WORDING[r.substate]} <span className="fig">{fmt.dur(r.ms)}</span>
         </span>

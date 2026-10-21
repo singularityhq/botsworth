@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { fixtures } from '../../api/__fixtures__'
 import type { TimeSplit } from '../../api/types'
 import {
-  costCaption, gapStartMs, jumpToast, legendStates, planJump, runningSplit, segmentWidths, stateTotals, totalsSum, youBreakdown,
+  costCaption, gapStartMs, jumpToast, legendStates, planJump, runningSplit, segmentWidths, stateTotals, totalsSum, substateBreakdown,
   type Longest,
 } from './answers.logic'
 import { STATE_KEYS } from './states'
@@ -27,8 +27,30 @@ describe('stateTotals (SES-15, SES-16)', () => {
     expect(t.none).toBe(45)
   })
 
+  it('lists background under tool and stalled under none for the legend tooltip, leaving out other substates (SES-15, D55)', () => {
+    const split: TimeSplit = { parts: [
+      { state: 'tool', substate: null, ms: 7 }, { state: 'tool', substate: 'background', ms: 40 },
+      { state: 'none', substate: 'none', ms: 5 }, { state: 'none', substate: 'before_first', ms: 6 }, { state: 'none', substate: 'stalled', ms: 90 },
+    ] }
+    expect(substateBreakdown(split, 'tool')).toEqual([{ substate: 'background', ms: 40 }])
+    expect(substateBreakdown(split, 'none')).toEqual([{ substate: 'stalled', ms: 90 }])
+    expect(substateBreakdown(split, 'model')).toEqual([])
+  })
+
+  it('counts background as running time and stalled as nothing running; the seven totals still sum to the wall (SES-19a, SES-26)', () => {
+    const split: TimeSplit = { parts: [
+      { state: 'model', substate: null, ms: 100 }, { state: 'tool', substate: null, ms: 10 }, { state: 'tool', substate: 'background', ms: 40 },
+      { state: 'none', substate: 'stalled', ms: 90 }, { state: 'none', substate: 'none', ms: 60 },
+    ] }
+    const t = stateTotals(split)
+    expect(t.tool).toBe(50)
+    expect(t.none).toBe(150)
+    expect(totalsSum(t)).toBe(300)
+    expect(runningSplit(t, 300)).toEqual({ running: 150, nothing: 150 })
+  })
+
   it('lists the substates of you for the legend tooltip, in SES-15 order, leaving out empty ones', () => {
-    expect(youBreakdown({ parts: [{ state: 'you', substate: 'reply', ms: 3 }, { state: 'you', substate: 'ask', ms: 100 }, { state: 'model', substate: null, ms: 9 }] })).toEqual([
+    expect(substateBreakdown({ parts: [{ state: 'you', substate: 'reply', ms: 3 }, { state: 'you', substate: 'ask', ms: 100 }, { state: 'model', substate: null, ms: 9 }] }, 'you')).toEqual([
       { substate: 'ask', ms: 100 },
       { substate: 'reply', ms: 3 },
     ])

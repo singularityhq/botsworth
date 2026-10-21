@@ -40,10 +40,10 @@ export interface Axis {
   inv(px: number): number
 }
 
-/** Waits (stretches of any state but `agents`) of at least `minMs`, clipped to [a, b], in time order. Agents-only stretches are never folded: something ran. */
+/** Waits (stretches of any state but `agents` and `tool`) of at least `minMs`, clipped to [a, b], in time order. Agents-only and background-command stretches are never folded: something ran. */
 export function waitFolds(stretches: readonly Stretch[], a: number, b: number, minMs: number): Fold[] {
   return stretches
-    .filter((s) => s.state !== 'agents' && s.dur_ms >= minMs && s.end_ms > a && s.start_ms < b)
+    .filter((s) => s.state !== 'agents' && s.state !== 'tool' && s.dur_ms >= minMs && s.end_ms > a && s.start_ms < b)
     .map((s) => ({ a: Math.max(a, s.start_ms), b: Math.min(b, s.end_ms) }))
     .filter((f) => f.b > f.a)
     .sort((p, q) => p.a - q.a)

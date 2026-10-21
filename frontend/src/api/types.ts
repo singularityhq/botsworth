@@ -28,7 +28,7 @@ export interface Money {
 
 /** DM-50 [D54]: the seven wall states and the substates of `you` and `none`. */
 export type WallState = 'model' | 'tool' | 'agents' | 'you' | 'agentmsg' | 'limit' | 'none'
-export type Substate = 'ask' | 'permission' | 'reply' | 'before_first' | 'none' | null
+export type Substate = 'ask' | 'permission' | 'reply' | 'background' | 'stalled' | 'before_first' | 'none' | null
 
 /** DM-51, DM-53: time per (state, substate), in SES-15 order. */
 export interface TimeSplit {
@@ -197,7 +197,7 @@ export interface Stretch {
   start_ms: number
   end_ms: number
   dur_ms: number
-  state: 'agents' | 'you' | 'agentmsg' | 'limit' | 'none'
+  state: 'agents' | 'tool' | 'you' | 'agentmsg' | 'limit' | 'none'
   substate: Substate
   turn: string | null
   next_turn: NextTurn | null
