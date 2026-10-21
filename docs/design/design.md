@@ -454,7 +454,7 @@ One entry point `botsworth` (D35). Global `--db PATH` (precedence: flag > `confi
 - **Project resolution (D49).** Each `--project` value resolves to a project key: an exact key, else an exact `projects.name` (ASCII case-insensitive), else a unique key suffix
   on a `/` boundary. Several matches or none is exit 1 with up to 5 candidate keys and names (`views/projects.py`). Other filters (`--model`, `--branch`) still return an empty result silently.
 - Exit codes (CLI-4): 0 success; 1 rejected request (bad value, unknown or ambiguous id, missing source, ingest running); 2 usage error, no store, schema mismatch; 3 `serve` could not bind; 130 interrupted.
-- `slow`, `breakdown`, `tasks` end their `--help` with the definitions of their output fields (`time_split`, `none_split`, `time_prov`, `basis`, `unassigned`, `before_first`).
+- `slow`, `breakdown`, `tasks` end their `--help` with the definitions of their output fields (`time_split`, `time_prov`, `user_waits`, `waits`, `basis`, `unassigned`, `before_first`).
 
 ### 6.3 HTTP (UI)
 
@@ -484,7 +484,7 @@ Truth: provider files. The store is a disposable cache over them (D52): no canon
 
 **Stored (schema v7, `data-model.md` §2.2–2.3, §4; `store/schema.py` CONTRACT).** Tables: `ops`, `steps`, `events`, `sessions`, `rollup_time`, `stretches`, `projects`, `src_files`, `names`, `source_files` (the change manifest; `reject_reason` marks a bundle the store refused), `price_table`, `model_aliases`, `accounts`, `meta`; views `ops_v`, `steps_v`, `events_v`.
 
-- `ops`: the tree with nested-set `pre`/`post` (descendants = `root_rowid` and `pre BETWEEN`; DM-15); compact content reference (`src_file`, `src_loc`, `src_h`); `occ_hash`; interned `cwd`, `account`, `path_sig`; v4 columns `turn_kind`, `turn_origin`, `display_ix`, `attr_turn_rowid` and `attr_*` sums (per-turn cost including caused agents, DM-45), `model_ms`…`none_ms` (window split, DM-51), `span_*` (DM-53), `max_silence_ms`, `waits_on_user` (DM-40).
+- `ops`: the tree with nested-set `pre`/`post` (descendants = `root_rowid` and `pre BETWEEN`; DM-15); compact content reference (`src_file`, `src_loc`, `src_h`); `occ_hash`; interned `cwd`, `account`, `path_sig`; v4 columns `turn_kind`, `turn_origin`, `display_ix`, `attr_turn_rowid` and `attr_*` sums (per-turn cost including caused agents, DM-45), `span_wall_ms` (DM-53; the session, window and span splits are rows of `time_split`, DM-51, D54), `max_silence_ms`, `user_wait` (DM-40).
 - `sessions`: title (`title_source`, `display_title`), `n_human_asks`, `is_automated`, activity bins (`activity_bin_ms`, `activity_tok`, ≤ 96 bins), time split, `entrypoint`, `originator`, session-bounds covering every owned leaf (DM-62).
 - `rollup_time`: one bucket size, 15 min aligned to the epoch (`bucket_start_ms = start_ms − start_ms % 900000`), speed and TTFT sums (DM-41 [D50], DM-47). The store holds no zone and no local-day text (D50: all stored times are epoch ms). A local day, week or hour is an epoch range computed at query time in the request zone (`query/zone.py`); every real zone offset is a multiple of 15 min, so its edges fall on bucket edges. A session is in a period when it has buckets with `n_llm_calls > 0` inside the period's epoch range (DM-54).
 - `stretches`: every no-activity (`none`) or agents-only (`agents`) interval of at least 60 s, cut at main-turn starts (DM-52). `projects`: friendly names and counts (DM-60, DM-61).
