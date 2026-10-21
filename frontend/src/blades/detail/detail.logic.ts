@@ -73,14 +73,20 @@ export function costCaption(part: number | null, whole: number | null, basis: 't
 
 /**
  * DET-40: a gap inside the turn's span reads "N% of the turn's wall time"; one between turns or before the first message reads
- * "N% of the session's wall time" (SES-21, SES-36). A gap before the first message is never inside a turn.
+ * "N% of the session's wall time" (SES-21, SES-36). A gap before the first message is never inside a turn. A gap that ends its
+ * turn (the next main row starts another turn, or nothing follows) lies after the turn's span, so it is between turns (SES-36).
  */
-export function gapBasis(g: Pick<GapRow, 'state' | 'substate' | 'turn'>): 'turn' | 'session' {
-  return gapKind(g) === 'before_first' || g.turn === null ? 'session' : 'turn'
+export function gapBasis(g: Pick<GapRow, 'state' | 'substate' | 'turn'>, endsTurn: boolean): 'turn' | 'session' {
+  return gapKind(g) === 'before_first' || g.turn === null || endsTurn ? 'session' : 'turn'
 }
 
-export function gapCaption(g: Pick<GapRow, 'state' | 'substate' | 'turn' | 'dur_ms'>, turnWallMs: number | null, sessionWallMs: number | null): string | null {
-  const basis = gapBasis(g)
+export function gapCaption(
+  g: Pick<GapRow, 'state' | 'substate' | 'turn' | 'dur_ms'>,
+  endsTurn: boolean,
+  turnWallMs: number | null,
+  sessionWallMs: number | null,
+): string | null {
+  const basis = gapBasis(g, endsTurn)
   const s = share(g.dur_ms, basis === 'turn' ? turnWallMs : sessionWallMs)
   return s === null ? null : `${s} of the ${basis === 'turn' ? "turn's" : "session's"} wall time`
 }

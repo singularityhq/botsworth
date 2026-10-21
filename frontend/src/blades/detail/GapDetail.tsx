@@ -31,7 +31,7 @@ function RowLink({ ctx, r }: { ctx: DetailCtx; r: AnyRow }) {
 
 /** DET-40 to DET-43: a gap. Facts only (D29): what the data says about the stretch and what is next to it. */
 export function GapDetailView({ ctx, gap, turnWallMs, sessionWallMs, before, after, startsTurn, sessionEnd }: GapDetailProps) {
-  const caption = gapCaption(gap, turnWallMs, sessionWallMs)
+  const caption = gapCaption(gap, startsTurn !== null || sessionEnd, turnWallMs, sessionWallMs)
   const inference = limitInference(gap, gap.next_turn)
   const running = gap.running.slice(0, GAP_AGENTS_MAX)
   const starts = startsTurn === null ? null : startsTurnLine(startsTurn)

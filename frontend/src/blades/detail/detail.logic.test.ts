@@ -63,12 +63,17 @@ describe('the percent captions (DET-10, DET-30, DET-40)', () => {
   })
   it("a gap inside the turn is a share of the turn's wall time", () => {
     const g: Pick<GapRow, 'state' | 'substate' | 'turn' | 'dur_ms'> = { state: 'none', substate: 'none', turn: 'x/turn/1', dur_ms: 30_000 }
-    expect(gapBasis(g)).toBe('turn')
-    expect(gapCaption(g, 120_000, 3_600_000)).toBe("25% of the turn's wall time")
+    expect(gapBasis(g, false)).toBe('turn')
+    expect(gapCaption(g, false, 120_000, 3_600_000)).toBe("25% of the turn's wall time")
   })
   it("a gap between turns or before the first message is a share of the session's wall time", () => {
-    expect(gapCaption({ state: 'you', substate: 'reply', turn: null, dur_ms: 360_000 }, 120_000, 3_600_000)).toBe("10% of the session's wall time")
-    expect(gapCaption({ state: 'none', substate: 'before_first', turn: 'x/turn/1', dur_ms: 360_000 }, 120_000, 3_600_000)).toBe("10% of the session's wall time")
+    expect(gapCaption({ state: 'you', substate: 'reply', turn: null, dur_ms: 360_000 }, false, 120_000, 3_600_000)).toBe("10% of the session's wall time")
+    expect(gapCaption({ state: 'none', substate: 'before_first', turn: 'x/turn/1', dur_ms: 360_000 }, false, 120_000, 3_600_000)).toBe("10% of the session's wall time")
+  })
+  it("a gap that ends its turn lies after the turn's span, so it is a share of the session's wall time, never over 100 %", () => {
+    const g: Pick<GapRow, 'state' | 'substate' | 'turn' | 'dur_ms'> = { state: 'none', substate: 'stalled', turn: 'x/turn/8', dur_ms: 5_700_000 }
+    expect(gapBasis(g, true)).toBe('session')
+    expect(gapCaption(g, true, 1_620_000, 79_380_000)).toBe("7% of the session's wall time")
   })
 })
 
