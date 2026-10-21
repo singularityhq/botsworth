@@ -17,7 +17,7 @@ TRN-3 — Title: the turn text (SES-34 item 3), 20/600 ink1, one line with ellip
 
 TRN-4 — The two answers, as SES-26 with the turn's figures (the turn header names the same exception to SYS-42 as SES-26, and TRN-5's stat line the same as SES-28; D38 L5) (R3 top 5 #1, §2.2):
 - **Cost**: the turn's cost (SES-12) as the display figure; the split bar main thread / agents; caption "main thread **$X**" and, when agents ≥ $0.01, "agents it started **$Y**" with the tooltip "Whole cost of the agent runs this turn started or messaged, including work after it ended". In a zoom the figures follow the clock rule and the caption reads "agent calls in range" (SES-13).
-- **Time**: the turn's Wall (SES-21) + "wall" + "**A** running · **B** nothing running"; the split bar over the span (or the zoom range) with the states that occur there; the legend (top 4 states with ≥ 30 s). A legend jump searches **this turn** only (R3-proto `jumpState(k, "t")`) and otherwise behaves as SES-27.
+- **Time**: the turn's Wall (SES-21) + "wall" + "**A** running · **B** not running" (SES-26); the split bar over the span (or the zoom range) with the states that occur there; the legend (top 4 states with ≥ 30 s). A legend jump searches **this turn** only (R3-proto `jumpState(k, "t")`) and otherwise behaves as SES-27.
 Grid `minmax(180px, 1fr)` and `minmax(0, 2fr)`, 32 px gap.
   Scenario: Given the 78-turn session, turn 35, then the cost answer reads $25.99 with "main thread $0.88" and "agents it started $25.11", and the agent rows of the ledger sum to $25.11 (R3 §7).
 

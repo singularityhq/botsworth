@@ -27,7 +27,7 @@ named in the legend under the bar.
 
 ## 2. Session
 
-REV-2 — Header claim. In SES-26 line 1, after "**B** nothing running", when `lost_ms` ≥ 60 s: " · " and a button
+REV-2 — Header claim. In SES-26 line 1, after "**B** not running", when `lost_ms` ≥ 60 s: " · " and a button
 "**<lost>** lost" (figure mono 500 in `--color-error`, word ink2; tooltip "Open Review (r)"). It opens Review. When
 `lost_ms` < 60 s nothing is added. The figure equals Review's `lost_ms`.
 
@@ -39,7 +39,7 @@ nothing. A finder key or a search jump sets the view to Ledger and jumps there, 
 
 REV-4 — Layout, top to bottom, padding 16 px 24 px, max text width 760 px:
 1. **Claim** (20/600 ink1), two sentences. First: "<wall> wall. <lost> was lost to stalls." when `lost_ms` ≥ 60 s,
-   else "<wall> wall. Nothing was lost to a stall." When `n_unmeasured` = `n_sessions` (a Codex or omp session), the
+   else, when `lost_ms` is 0, "<wall> wall. Nothing was lost to a stall.", and when it is above 0, "<wall> wall. Under a minute was lost to stalls." (so the claim never contradicts a "stalled" legend item) When `n_unmeasured` = `n_sessions` (a Codex or omp session), the
    first sentence is "<wall> wall. Stalls are not measured for this session." Second: "The largest cause was <label, lower case> (<ms>)." for the
    cause with the most `ms` other than `working`; omitted when every other cause is under 2 min.
 2. **Bars** (REV-5).
@@ -61,7 +61,7 @@ REV-6 — Cards. A card is a 2-column grid (120 px figure column, text), l2 surf
   nothing;
 - heading (14/600 ink1), a claim:
   - `stalled`: "Stalled <ms>: finished tasks waited for <threads> while nothing ran" (threads joined with ", ", at most
-    3, then "+N"; when `threads` is empty, "for an agent");
+    3, then "+N", the thread `main` written "the main thread"; when `threads` is empty, "for an agent");
   - `tests`: "Tests held the session for <ms>";
   - `polling`: "Polling loops held the session for <ms>";
   - `you`: "Waited <ms> on you";
@@ -76,7 +76,7 @@ REV-6 — Cards. A card is a 2-column grid (120 px figure column, text), l2 surf
   - `message`: "<n> waits of 2 min or more. Botsworth does not store message text, so it cannot say why.";
 - evidence (14, struct link): "Longest: HH:MM–HH:MM, <dur> · turn K" (K the turn number, as in SES-51 toasts) (no "· turn" when `turn` is null; no evidence line when `longest` is null, QRY-42).
   Clicking it opens the row like a finder jump (SES-51: the turn opens, the row is the cursor, its detail opens),
-  and the session view is set to Ledger, so Esc from the turn returns to Ledger, not Review;
+  and the session view is set to Ledger, so Esc from the turn returns to Ledger, not Review. The jump adds a history entry over Review (SES-10), so browser Back returns to Review;
 - change (14 ink1, after a 2 px struct-soft rule and the word "Change" in 12 ink3), fixed text:
   - `stalled`: "Wake an agent when its background task finishes, or check sessions where nothing has run for 15 min.";
   - `tests`: "Run the tests a change touches; run the whole suite once at the end.";
@@ -121,7 +121,7 @@ providers, models, branches) and the search text in quotes, then "N sessions" on
 joined by " · ". Below it, REV-4 to REV-6 with
 these changes:
 - claim, first sentence: "<wall> of session time in <n_sessions> sessions. <lost> was lost to stalls." (or
-  "… Nothing was lost to a stall."). When 0 < `n_unmeasured` < `n_sessions`, the stall clause ends "(<n_unmeasured>
+  "… Nothing was lost to a stall." / "… Under a minute was lost to stalls.", as REV-4). When 0 < `n_unmeasured` < `n_sessions`, the stall clause ends "(<n_unmeasured>
   not measured)" before its full stop; when `n_unmeasured` = `n_sessions`, it is "Stalls are not measured for these
   sessions." `wall_ms` is a sum over sessions, so it can exceed the period's clock time;
   the words "session time" say so;
@@ -137,8 +137,8 @@ these changes:
   them adds its start "Ddd HH:MM" (ink3) after the name, as the rail does, and so does its accessible name. A link opens that session as blade 1 in Review
   (`sview=review`), replacing the scope review; Back returns to it;
 - footnote: REV-4's text, then "Sessions count whole (a session active in the period counts in full), so a longest
-  example can lie before the period."; when `n_unmeasured` > 0, "<n> sessions are Codex or omp: stalls are not
-  measured for them, because their logs do not record when a background task finishes." ("1 session is" for one).
+  example can lie outside the period."; when `n_unmeasured` > 0, "<n> sessions are Codex or omp: stalls are not
+  measured for them, because their logs do not record when a background task finishes." (for one: "1 session is Codex or omp: stalls are not measured for it, …").
 
 REV-23 — Scope changes while the blade is open (period, search, filters through the rail search or ⌘K) refetch the
 review; the previous content stays until the new data arrives (EXP-78). With 0 in-scope sessions the blade shows

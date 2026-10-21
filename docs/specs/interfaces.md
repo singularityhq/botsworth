@@ -750,7 +750,7 @@ CLI-21 — `session_breakdown(session, n)`. One session (QRY-6 lookup):
 - `waits` [D54]: the `n` longest waits of the session (CLI-20), as `Wait`. Their `dur_ms` values are the `n` largest values of `find(session, 'waits')`.
 - `test_runs` [D55]: the CLI-20 `TestRuns` over this session only.
 - `review` [D56]: `session_review(session)` (QRY-42) without `freshness`.
-- `--table` [D56]: CLI-20 and CLI-21 print `review` first (wall, lost, then one line per finding: cause, ms, n, longest), so the 2 KB table (CLI-2) shows it.
+- `--table` [D56]: CLI-20 and CLI-21 print `review` first (wall, lost, "N sessions" ("1 session" for one), then one line per finding: cause, ms, n, longest with its `display_id` when it has one), so the 2 KB table (CLI-2) shows it.
 - `models`: the session's `ModelLine[]`.
 - Invariant: every figure equals the one returned by `session_detail`, `session_turns` or `find` for the same session. This command composes those functions; it does not recompute their figures.
 
