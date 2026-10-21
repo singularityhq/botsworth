@@ -681,3 +681,28 @@ Claude only for background runs, notices and stalls (Codex and omp record no
 completion notices); a notice that is never picked up gives no stall; test
 counts need the summary line in the captured output (a `tail -1` that cuts it
 gives NULL); `wait` covers explicit loops and `sleep`, not a tool that blocks.
+
+## D56 — Causes and the Review view (Kai, elevate pass, 2026-10-21; the maintainer away, see tasks/2026-10-21-elevate/SPEC.md Assumptions)
+Builds on D55. The analysis of one 20.8 h session needed about 15 one-off
+scripts to answer "where did this session lose time, and what should change".
+The product showed the log's states (model, tool, agents, waits), not causes.
+Three directions were spiked and picked blind (tasks/2026-10-21-elevate/
+ELEVATE.md): ranked causes with a change each (chosen), an actual-vs-ideal
+timeline, a project morning brief. Chosen:
+- Test and polling time are DM-50 substates (`tool`/`test`, `tool`/`wait`,
+  `agents`/`test`, `agents`/`wait`) from D55's `command_class`, so they are
+  in the stored time split and sum with everything else.
+- Eight causes (DM-56) partition the wall: stalled, tests, polling, you,
+  message, limit, working, idle. Only `stalled` is lost time.
+- `session_review` and `scope_review` (QRY-42) return the causes, the lost
+  time and findings with evidence; the CLI `breakdown` and `slow` carry them
+  as `review`, and the UI shows them in a Review view of the session blade and
+  for a project scope.
+Why: the operator's daily question is what to change; the causes answer it
+from stored facts. Rejected: counting a whole-suite re-run as lost (the suite
+size changes during a session and most edits are not seen, so the rule would
+print a confident number on weak inputs; ELEVATE A4); "what if the suite were
+twice as fast" (an estimate that reads as a fact). Limits: tests and polling
+are recognised by command text only (DM-28); stalls are Claude-only (D55);
+a test run in parallel with agent model work counts as `agents`, so `tests`
+is a lower bound for agent test time.

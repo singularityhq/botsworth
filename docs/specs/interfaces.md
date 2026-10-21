@@ -269,6 +269,24 @@ QRY-41 — Stretches (D37; D54; S2 table `stretches`). A `Stretch` has these fie
 
 The limit label is an inference from the next turn's text (SES-17). The wire carries the label and the turn text; the UI writes "(inferred)".
 
+QRY-42 [D56] — Review. `session_review(session)` and `scope_review(scope)` return the DM-56 causes and the findings built on them. Both read only stored rows (`time_split` scope `session`, `stretches`, `ops`, `events`); nothing is estimated.
+```ts
+type Cause = 'stalled' | 'tests' | 'polling' | 'you' | 'message' | 'limit' | 'working' | 'idle'
+interface CausePart { cause: Cause; ms: number }               // all eight, in this order; Σ ms = wall_ms
+interface Evidence { session: string; row: RowRef | null; turn: string | null; display_id: string | null;
+                     start_ms: number; end_ms: number; dur_ms: number }
+interface Finding { cause: 'stalled' | 'tests' | 'polling' | 'you' | 'message'; ms: number; lost: boolean;
+                    n: number;                                  // stalled, you, message: stretches of ≥ 2 min; tests, polling: tool_calls of that class
+                    longest: Evidence | null;                   // stalled, you, message: the longest stretch (row = gap RowRef); tests, polling: the longest tool_call of that class (row = tool RowRef)
+                    threads: string[];                          // stalled only: the agent names (agent_name, else agent_id; "main" for the main thread) whose notices fall in the stall stretches; else []
+                    sessions: { session: string; session_id: string; name: string; ms: number }[] }  // scope only: the 3 sessions with the most ms of the cause; [] for a session
+interface Review { wall_ms: number; lost_ms: number; n_sessions: number; causes: CausePart[]; findings: Finding[]; test_runs: TestRuns }
+```
+- `findings`: one per cause among `stalled`, `tests`, `polling`, `you`, `message` with `ms` ≥ 120,000; lost findings first, then by `ms` descending, then by the cause order. `you` findings carry the split in the session's `time_split`; the UI reads it there.
+- For a scope, `wall_ms`, `causes` and `test_runs` are sums over the in-scope sessions (QRY-9 full sessions), so `wall_ms` can exceed the clock time of the period; `longest` is the longest over all in-scope sessions.
+- Invariants: Σ `causes.ms` = `wall_ms`; `lost_ms` = the `stalled` part; `test_runs` equals CLI-20/CLI-21's block for the same sessions.
+  Scenario: Given the DM-56 test session, `session_review` → `lost_ms` 95 min, findings in the order `stalled` (lost), `tests`, `you`, `polling`; `causes` sum to the wall.
+
 QRY-39 — `ingest_state()` (D22, D26): never raises for a missing store. Returns `store_state` = `missing | schema_mismatch | ready`, `freshness` (with `last_ingest_ms: null` when missing), `sources` and `last_run` as today, and `ingest` = `{running: bool, started_ms: number|null, pid: number|null}` from the lock file (QRY-40).
 
 QRY-40 — Ingest-in-progress signal: after taking the lock (`store/ingest.py` `_lock`), the ingest writes `{"pid": <pid>, "started_ms": <ms>}` into `<db>.lock` and truncates it on release. `ingest_state` reads the file without locking; `running` = the file holds a pid and that process exists (`os.kill(pid, 0)` succeeds). Probing the flock is not allowed: a probe that takes the lock for an instant can make a starting ingest fail with `IngestLocked`.
@@ -336,7 +354,7 @@ interface Freshness { last_ingest_ms: number | null; parser_version: string; pri
                       schema_version: number; api_version: 1 }   // D50: no tz
 interface Money { cost_usd: number | null; cost_lower_bound: boolean; n_unpriced: number }   // QRY-11
 type WallState = 'model' | 'tool' | 'agents' | 'you' | 'agentmsg' | 'limit' | 'none'
-type Substate = 'ask' | 'permission' | 'reply' | 'background' | 'stalled' | 'before_first' | 'none' | null  // DM-50 [D54, D55]
+type Substate = 'ask' | 'permission' | 'reply' | 'test' | 'wait' | 'background' | 'stalled' | 'before_first' | 'none' | null  // DM-50 [D54, D55, D56]
 interface TimeSplit { parts: { state: WallState; substate: Substate; ms: number }[] } // DM-51, DM-53; SES-15 order
 interface ModelLine extends Money { model: string; n_calls: number; model_ms: number;
                       speed_tok_s: number | null; speed_basis: Provenance; ttft_ms_mean: number | null }
@@ -438,7 +456,7 @@ Shared row types (the session, turn and detail endpoints all use them):
 type RowRef = { type: 'call' | 'tool' | 'agent' | 'gap' | 'turn'; id: string }       // QRY-38a
 interface NextTurn { turn: string; kind: TurnKind; origin: string; label: string; display_id: string | null }
 interface Stretch { start_ms: number; end_ms: number; dur_ms: number;
-  state: 'agents' | 'tool' | 'you' | 'agentmsg' | 'limit' | 'none'; substate: Substate;  // DM-52 [D54]; `tool` only with `background` [D55]
+  state: 'agents' | 'tool' | 'you' | 'agentmsg' | 'limit' | 'none'; substate: Substate;  // DM-52 [D54]; `tool` only with `background` [D55] or, for a background run, `test` [D56]
   turn: string | null; next_turn: NextTurn | null;
   running: { row: string; agent_name: string | null; start_ms: number; end_ms: number; cost_usd: number | null }[] }  // QRY-41
 ```
@@ -486,6 +504,8 @@ API-25 — `GET /api/sessions/{session}/find?kind=&measure=&text=&limit=` [new] 
 `kind` is required (QRY-38). `measure` is `cost`, `time` or `tokens` (default `cost`) and applies to `biggest` only. `search` requires `text`. `limit` defaults to 2000 (max 10000), so a finder normally has every hit in one response. Turn-level `b` in the session blade ranks `TurnRow`s on the client (SES-52).
 
 API-29 — `GET /api/sessions/{session}/resolve?id=` [new] returns `{freshness, row: RowRef, turn: string, depth: number}` (QRY-38a; SES-9).
+
+API-33 [D56] — `GET /api/sessions/{session}/review` returns `{freshness} & Review` (QRY-42 `session_review`); `GET /api/explorer/review?<scope>` returns `{freshness} & Review` (QRY-42 `scope_review`, API-3 scope parameters). Unknown session → 404 `not_found`.
 
 API-31 — `GET /api/sessions/{session}/histogram?bins=&from_ms=&to_ms=` [new] and `GET /api/turns/{turn}/histogram?…` [new] both return `Histogram` (QRY-32a):
 ```ts
@@ -710,6 +730,7 @@ CLI-20 — `project_slow(scope, compare, n)`. The sessions are the in-scope sess
 - `test_runs` [D55]: `TestRuns` = `{n, run_ms, n_failed, n_passed, n_no_result, n_background}` over the owned tool_calls with `command_class = 'test'` (DM-28). `run_ms` = Σ of each call's run: `bg_end_ms − start_ms` for a background run with `bg_end_ms`, else `dur_ms`. `n_failed` = runs with `tests_failed > 0`; `n_passed` = runs with `tests_failed = 0`; `n_no_result` = runs with both counts NULL (DM-29); `n_background` = runs with `bg_end_ms`. The groups of `tools` stay keyed by `command_key`.
 - `waits` [D54]: the `n` longest waits across the sessions, as `Wait` plus `session` and `display_id` of the wait's turn, ordered by `dur_ms` descending, then session, then `start_ms`. A wait is a stretch of 2 min or more (every state), or a main-thread tool_call with `user_wait` set and `dur_ms` of 2 min or more; per session this is the hit set of the `waits` finder (QRY-38). `Wait` has the `Stretch` fields plus `row: RowRef | null`. For a stretch, `row` is null. For a call, `row` is the tool row, `start_ms`, `end_ms` and `dur_ms` are the call's, `state` is `you`, `substate` is its `user_wait`, `turn` is its attributed turn, `next_turn` is null and `running` is empty.
 - `models`: `ModelLine[]` over the sessions' owned llm_calls (QRY-33).
+- `review` [D56]: `scope_review(scope)` (QRY-42) without `freshness`, over the `current` sessions.
 
   Scenario: Given the fixture project with two sessions in the period (walls 60 min and 30 min, a 25-min `none` stretch before a human ask, and one 40-min derived Bash call with a 30-min silence), when `profiler slow --project <p> --from D --to D` runs, then `current.wall_ms` = 5,400,000, `current.time_split` sums to it, `current.time_split` has a `you`/`reply` part that includes 1,500,000, and `slowest_tools[0]` is the Bash call with `time_prov = 'derived'` and `max_silence_ms = 1,800,000`.
 
@@ -721,6 +742,7 @@ CLI-21 — `session_breakdown(session, n)`. One session (QRY-6 lookup):
 - `agents`: the `n` agent rows (QRY-34, any depth) with the largest `cost_usd`, each `{row, turn, display_id, depth, agent_names, cost_usd, cost_lower_bound, n_unpriced, tok_total, run_ms, n_llm_calls}`.
 - `waits` [D54]: the `n` longest waits of the session (CLI-20), as `Wait`. Their `dur_ms` values are the `n` largest values of `find(session, 'waits')`.
 - `test_runs` [D55]: the CLI-20 `TestRuns` over this session only.
+- `review` [D56]: `session_review(session)` (QRY-42) without `freshness`.
 - `models`: the session's `ModelLine[]`.
 - Invariant: every figure equals the one returned by `session_detail`, `session_turns` or `find` for the same session. This command composes those functions; it does not recompute their figures.
 

@@ -65,6 +65,7 @@ SES-6 — Esc, in this order, the first that applies (extends SYS-50; R3-proto `
 5. the turn blade: close it; the session blade's cursor moves to that turn;
 6. a search in the session blade: clear it;
 7. a range on the session histogram: clear it (SES-30);
+7a. [D56] the Review view: close it back to the list (review.md REV-3);
 8. the session blade: close it (SYS-50 "the rightmost blade").
   Scenario: Given a session with search `pytest`, turn 4 open, and the detail open, when the user presses Esc three times, then the detail closes, then the turn closes with turn 4 selected, then the search clears.
 
@@ -79,7 +80,7 @@ SES-8 — URL state. The blades add these query parameters to the explorer's (EX
 | `find` | search text | empty | session and turn |
 | `range` | `<start_ms>-<end_ms>` (session histogram range) | none | session |
 | `over` | `1` (session "Over time" open) | closed | session |
-| `sview` | `waterfall` | `ledger` | session |
+| `sview` | `waterfall`, `review` [D56] | `ledger` | session |
 | `sreal` | `1` (session Waterfall on real time) | folded | session |
 | `info` | `1` (session "Details" open) | closed | session |
 | `t` | the turn's `display_ix` | none (no turn blade) | turn |
@@ -133,7 +134,7 @@ SES-15 — Every instant of a session's wall has exactly one of seven wall state
 | `none` | Nothing running | nothing running | hatched | nothing runs, in every other case (inside a turn, before a harness, plugin, `sdk`, `system` or `exec` turn, or at the session's end); substate `stalled` [D55] while a finished task's notice waits for a thread that is not running (SES-19a), `before_first` before the first numbered turn (SES-18), else `none` |
 
 Solid means something was recorded as running; hatched means nothing was, or a call was waiting on you (R3 top 5 #1; D54). A permission wait includes the approved command's run, which has no record (DM-40). The `you`, `agentmsg` and `limit` states are given only on recorded facts: a call that waited on the user (DM-40), or the kind of the next turn (D34 as amended by D54; S2 Q6), never as a cause.
-  Substate wording, used in tooltips, gap reasons and the detail blade: `you`/`ask` "asked you a question", `you`/`permission` "waited for your approval", `you`/`reply` "the next turn is your message", `tool`/`background` "a background command ran" [D55], `none`/`stalled` "a finished task waited for an agent that was not running" [D55]. The legend shows one item per state with the substates summed; for `you`, `tool` and `none` its tooltip lists the substates with their durations.
+  Substate wording, used in tooltips, gap reasons and the detail blade: `you`/`ask` "asked you a question", `you`/`permission` "waited for your approval", `you`/`reply` "the next turn is your message", `tool`/`background` "a background command ran" [D55], `none`/`stalled` "a finished task waited for an agent that was not running" [D55], `tool`/`test` and `agents`/`test` "a test run ran" [D56], `tool`/`wait` and `agents`/`wait` "a sleep or polling command ran" [D56]. The legend shows one item per state with the substates summed; for `you`, `tool`, `agents` and `none` its tooltip lists the substates with their durations.
   Data: per session the `time_split` parts (DM-51); stretches with state and substate (DM-52); the next turn's origin and label for each stretch (DM-55).
 
 SES-16 — Stretch thresholds (R3 §4; R3-proto `GAP_MIN`; DM-52):
@@ -146,7 +147,7 @@ SES-17 — Usage-limit inference (R3 §7 "Usage-limit time is inferred"; R3-prot
   Scenario: Given session a11ce5e5, when the session opens, then a row "1h02m Usage limit (inferred) · the next turn resumes after a usage limit" sits directly above the resume turn (R3 frame `time-A-usage-limit`), and the legend shows "usage limit 1h02m".
   Not covered: a limit that ends a session segment (a resume gap) lies outside the wall and produces no stretch (DM-52). See Open Q4.
 
-SES-19a [D55] — Stalled. A `none`/`stalled` stretch (DM-50 rule 5) is a gap of kind "Stalled" with the reason "a finished task waited for an agent that was not running". It counts under `none` in the legend. A `tool`/`background` stretch is a gap of kind "Background command" with the reason "a background command ran; nothing else did"; it counts under `tool` and in A of SES-26 (it is running time).
+SES-19a [D55] — Stalled. A `none`/`stalled` stretch (DM-50 rule 5) is a gap of kind "Stalled" with the reason "a finished task waited for an agent that was not running". It counts under `none` in the legend. A `tool`/`background` stretch is a gap of kind "Background command" with the reason "a background command ran; nothing else did"; it counts under `tool` and in A of SES-26 (it is running time). Like an agents-only stretch (SES-19), it is a gap row in the turn ledger and never a row between turns in the session list (SES-36). [D56] A `tool`/`test` stretch (a background test run) is the same kind with the reason "a background test run ran; nothing else did". An `agents` stretch keeps the kind "Only agents running" whatever its substate.
 
 SES-18 — Before the first message. A `none`/`before_first` stretch (DM-50 rule 5) is a gap of kind "Before the first message". It is never in the `you` total: the legend counts it under `none`, whatever the first numbered turn's kind (R3 §7 "Gap order"; D41 M11).
 
@@ -370,6 +371,7 @@ SES-73 — Keys in the session and turn blades (adds to SYS-50; R3-proto `KEYS`)
 | `a` | SES-56 |
 | `1` `2` `3` | measure Cost / Time / Tokens |
 | `v` | Ledger / Waterfall of the focused blade (session or turn) |
+| `r` | Review of the session (review.md REV-3) [D56] |
 | `0` | reset the turn zoom and the session range |
 | `/` | focus the session's search field; from the turn or detail blade, close them first (R3-proto) |
 | `?` | the keys overlay |
