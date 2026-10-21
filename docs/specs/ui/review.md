@@ -52,7 +52,7 @@ REV-5 — Bars. Two 16 px bars on one scale (the wall = full width): "As it ran 
 order, zero parts omitted) and, when `lost_ms` ≥ 60 s, "Without the stalls <wall − lost>" (the same causes without
 `stalled`, so it is shorter by exactly the lost time). Each caption is 14 px: label ink2, figure mono ink1 500. 2 px
 gaps between segments; a segment under 2 px is drawn at 2 px. Segment tooltip "<label> <duration> (<share> %)".
-Under the bars, a legend of the causes present with their durations, largest first. No clock axis: the bars show
+Under the bars, a legend of the causes present with their durations: "stalled" first when present (as in the SES-26 legend), then the rest largest first. No clock axis: the bars show
 amounts, not when (pick review).
 
 REV-6 — Cards. A card is a 2-column grid (120 px figure column, text), l2 surface, `--radius-card`, 16 px padding,
@@ -60,8 +60,7 @@ REV-6 — Cards. A card is a 2-column grid (120 px figure column, text), l2 surf
 - figure: the finding's `ms` (mono 20/500; `--color-error` when `lost`, else ink1); under it "lost" (12, error) or
   nothing;
 - heading (14/600 ink1), a claim:
-  - `stalled`: "Stalled <ms>: finished tasks waited for <threads> while nothing ran" (threads joined with ", ", at most
-    3, then "+N", the thread `main` written "the main thread"; when `threads` is empty, "for an agent");
+  - `stalled`: "Stalled <ms>: finished tasks waited for <threads> while nothing ran" (threads as a list, "a", "a and b", "a, b and c", at most 3, then ", c and N more"; the thread `main` written "the main thread"; when `threads` is empty, "for an agent");
   - `tests`: "Tests held the session for <ms>";
   - `polling`: "Polling loops held the session for <ms>";
   - `you`: "Waited <ms> on you";
@@ -74,7 +73,7 @@ REV-6 — Cards. A card is a 2-column grid (120 px figure column, text), l2 surf
   - `you`: the `you` substates of `Review.you_parts` over 0 s, in SES-15 order and wording, each with its
     duration, the first letter upper case ("Asked you a question 12m · the next turn is your message 1h06m");
   - `message`: "<n> waits of 2 min or more. Botsworth does not store message text, so it cannot say why.";
-- evidence (14, struct link): "Longest: HH:MM–HH:MM, <dur> · turn K" (K the turn number, as in SES-51 toasts) (no "· turn" when `turn` is null; no evidence line when `longest` is null, QRY-42).
+- evidence (14, struct link): "Longest: HH:MM–HH:MM, <dur> · turn K" (K the turn number, as in SES-51 toasts) (no evidence line when `longest` is null, QRY-42). [D56] When `turn` is null (agent work attributed to no turn, DM-45), the row is in no turn's list, so the line is plain text (ink2, not a link): "Longest: HH:MM–HH:MM, <dur> · agent work outside a turn", the same in the scope review (after its session name and date).
   Clicking it opens the row like a finder jump (SES-51: the turn opens, the row is the cursor, its detail opens),
   and the session view is set to Ledger, so Esc from the turn returns to Ledger, not Review. The jump adds a history entry over Review (SES-10), so browser Back returns to Review;
 - change (14 ink1, after a 2 px struct-soft rule and the word "Change" in 12 ink3), fixed text:
