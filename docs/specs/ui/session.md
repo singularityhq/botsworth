@@ -120,32 +120,33 @@ SES-14 — The session cost split: main thread = Σ cost of the session's main-t
 
 ### 2.2 Time states
 
-SES-15 — Every instant of a session's wall has exactly one of seven wall states (R3 §4; DM-50 for the first four and the `none` base; DM-52 and S2 Q6 for the labels of `none`):
+SES-15 — Every instant of a session's wall has exactly one of seven wall states, some with a substate (R3 §4; DM-50 [D54] for all of them):
 
 | State | Label | Legend short form | Solid or hatched | When |
 |---|---|---|---|---|
 | `model` | Model working | model | solid | a main-thread model call runs |
 | `tool` | Tools running | tools | solid | no main-thread call, a main-thread tool call runs |
 | `agents` | Only agents running | agents | solid | nothing on the main thread, an agent's call or tool runs |
-| `you` | Waiting on you | waiting on you | hatched | nothing runs, and the stretch ends where a `human` turn starts (S2 Q6), and SES-17 does not apply |
+| `you` | Waiting on you | waiting on you | hatched | nothing else runs, and either a question tool (substate `ask`) or a permission prompt (substate `permission`) is open on a main-thread or agent call (DM-40), or nothing runs and the stretch ends where a `human` turn starts and SES-17 does not apply (substate `reply`) |
 | `agentmsg` | Waiting for an agent's message | waiting on agent | hatched | nothing runs, and the stretch ends where a `message` turn with origin `peer`, `coordinator`, `teammate` or `agent` starts |
 | `limit` | Usage limit (inferred) | usage limit | hatched | nothing runs, and SES-17 applies |
-| `none` | Nothing running | nothing running | hatched | nothing runs, in every other case (inside a turn, before a harness, plugin, `sdk`, `system` or `exec` turn, or at the session's end) |
+| `none` | Nothing running | nothing running | hatched | nothing runs, in every other case (inside a turn, before a harness, plugin, `sdk`, `system` or `exec` turn, or at the session's end); substate `before_first` before the first numbered turn (SES-18), else `none` |
 
-Solid means something ran; hatched means nothing ran (R3 top 5 #1). The `you`, `agentmsg` and `limit` labels are given only on the stored fact of the next turn's kind (D34; S2 Q6), never as a cause.
-  Data: per session `model_ms`, `tool_ms`, `agents_ms`, `none_ms` (DM-51); idle stretches with `next_turn_kind` (DM-52); the next turn's origin and label for each stretch (needs S3: join on the turn that starts at `end_ms`).
+Solid means something was recorded as running; hatched means nothing was, or a call was waiting on you (R3 top 5 #1; D54). A permission wait includes the approved command's run, which has no record (DM-40). The `you`, `agentmsg` and `limit` states are given only on recorded facts: a call that waited on the user (DM-40), or the kind of the next turn (D34 as amended by D54; S2 Q6), never as a cause.
+  Substate wording, used in tooltips, gap reasons and the detail blade: `you`/`ask` "asked you a question", `you`/`permission` "waited for your approval", `you`/`reply` "the next turn is your message". The legend shows one `you` item with the substates summed; its tooltip lists the substates with their durations.
+  Data: per session the `time_split` parts (DM-51); stretches with state and substate (DM-52); the next turn's origin and label for each stretch (DM-55).
 
 SES-16 — Stretch thresholds (R3 §4; R3-proto `GAP_MIN`; DM-52):
-- the store keeps `none` and `agents` stretches of 60 s or more, with the state in a `state` column (DM-52; D37);
+- the store keeps stretches of 60 s or more that no main-thread call covers, with `state` and `substate` columns (DM-52; D37; D54);
 - a stretch becomes a gap row only at **2 min** or more;
 - shorter stretches count only in the totals, the split bars and the Waiting figure.
-The `you`, `agentmsg` and `limit` totals are the sums of the stored stretches with that label; the rest of `none_ms` (stretches under 60 s and stretches with no labelled next turn) is "Nothing running".
+The 60 s threshold applies to stretches only: every instant counts in the totals (DM-50, DM-51), so a 30 s pause before the user's message counts as `you`/`reply`.
 
 SES-17 — Usage-limit inference (R3 §7 "Usage-limit time is inferred"; R3-proto `RESUME`). A `none` stretch is `limit` when the turn that starts at its end is a `human` turn whose text, trimmed, starts with one of (case-insensitive): `I hit my usage limit`, `Please continue from where you left off`, `continue from where you left off`. The label always carries "(inferred)" in full form, and the gap detail says why (DET-41). The turn that starts there has the kind "Resume after usage limit" (SES-32).
   Scenario: Given session a11ce5e5, when the session opens, then a row "1h02m Usage limit (inferred) · the next turn resumes after a usage limit" sits directly above the resume turn (R3 frame `time-A-usage-limit`), and the legend shows "usage limit 1h02m".
   Not covered: a limit that ends a session segment (a resume gap) lies outside the wall and produces no stretch (DM-52). See Open Q4.
 
-SES-18 — Before the first message. A `none` stretch that ends at the first numbered turn's start and lies before it (`turn_rowid` NULL, DM-52) is a gap of kind "Before the first message". It is never in the `you` total: the legend counts it under `none`, whatever the first numbered turn's kind (R3 §7 "Gap order"; D41 M11).
+SES-18 — Before the first message. A `none`/`before_first` stretch (DM-50 rule 5) is a gap of kind "Before the first message". It is never in the `you` total: the legend counts it under `none`, whatever the first numbered turn's kind (R3 §7 "Gap order"; D41 M11).
 
 SES-19 — Agents-only stretches. A maximal stretch of state `agents` of 2 min or more is a gap of kind "Only agents running" in the turn ledger (`turn.md` TRN-34) and a target of `w` and of the "agents" legend jump (R3-proto `buildFlow`, `jumpState`). It is never a row between turns in the session list (SES-36).
   Data: `stretches` rows with state `agents`, with start and end (D37). The engagements running come from the gap detail's agent list (S3 Q7, D37).
@@ -202,8 +203,9 @@ Exception to SYS-42 (D38 L5): the session header replaces the stat strip with th
   Verify: the seven segments sum to the wall; the legend never shows a state below 30 s.
 
 SES-27 — Legend jump (R3 top 5 #1; R3-proto `jumpState`). Clicking a legend item:
-- `model` / `tool`: goes to the longest main-thread model-call row / tool row of the session (SES-50 "go to");
-- `agents`, `you`, `agentmsg`, `limit`, `none`: goes to the longest gap row of that state (SES-15, SES-19);
+- `model` / `tool`: goes to the longest main-thread model-call row / tool row (`user_wait` NULL) of the session (SES-50 "go to");
+- `you`: goes to the longest of the `you` gap rows and the main-thread tool rows that waited on the user (QRY-29; D54);
+- `agents`, `agentmsg`, `limit`, `none`: goes to the longest gap row of that state (SES-15, SES-19);
 - every legend jump goes to the longest row or stretch of that state (D38 H2, amending D37; QRY-29), and the wait states (`you`, `agentmsg`, `limit`, `none`) need a stretch of at least 2 min;
 - the `none` jump covers the before-first gap of SES-18 too, since that gap counts under `none` (D41 M11);
 - opens the turn that holds it, makes it the cursor, and opens its detail blade;
@@ -279,7 +281,7 @@ SES-35 — Harness folds (D34; SESS-R §7 P2; DM-24). Consecutive harness turns 
 SES-36 — Gap rows between turns (option A; R3 top 5 #2, top 5 #5, §7 "Gap order"; R3-proto `gapBetween`). Every `none` stretch of 2 min or more that ends where a main turn starts, or that lies before the first numbered turn (SES-18), is a row in the turn list:
 - **position**: by time. A gap that ends at a turn's start sits directly above that turn. A gap that lies after a turn's last activity and ends at a harness turn sits above that harness fold;
 - **row** (44 px, l2 fill): When = the gap's start clock; glyph by kind (`hourglass` for Waiting on you, Nothing running and Before the first message; `timer-off` for Usage limit; `ear` for Waiting for an agent's message (D38 L4: no other row of the turn list uses these glyphs; SYS-28)); name = the duration (mono 500 ink1), the label (ink2), and the reason (ink3, ellipsis); the measure-bar slot holds a 12 px hatched bar in the state colour whose length ∝ the gap's duration against the longest gap in the list (minimum 2 %); the Wall column repeats the duration; other columns blank;
-- **reasons** (R3-proto `gapWhy`): Waiting on you "the next turn is your message"; Usage limit (inferred) "the next turn resumes after a usage limit"; Waiting for an agent's message "the next turn is an agent's message"; Before the first message "the session was open before your first message" (or "before its first message" when the first turn is not `human`); Nothing running "no model call, tool or agent was running";
+- **reasons** (R3-proto `gapWhy`): Waiting on you "the next turn is your message" (`reply`), "an agent asked you a question" (`ask`), "an agent waited for your approval" (`permission`); Usage limit (inferred) "the next turn resumes after a usage limit"; Waiting for an agent's message "the next turn is an agent's message"; Before the first message "the session was open before your first message" (or "before its first message" when the first turn is not `human`); Nothing running "no model call, tool or agent was running";
 - **click** opens the gap's turn (SES-37) with the gap row as the cursor and the detail blade open;
 - gap rows are not `j`/`k` stops in the session list (the cursor moves over turns only), and are hidden in the rail.
 Waits inside a turn are not rows here; they are the turn's Waiting figure (SES-21) and rows in the turn ledger (TRN-34).
@@ -324,10 +326,10 @@ SES-51 — Scope (R3 top 5 #4; R3-proto `nextOf`). Every finder searches the **w
 SES-52 — `b` / `B`, Biggest (R3 §1.1 U1, U8; R3-proto `nextBig`):
 - **session blade (no turn open)**: ranks the numbered turns that the list keeps by the measure (cost by SES-12, wall by SES-21, tokens). The first `b` selects the biggest turn (cursor only; Enter opens it); each further `b` selects the next in the ranking, `B` the previous, clamped at the ends. Toast: "Biggest turn by cost: **$24.69** · turn 23", then "2nd biggest turn by cost: …";
 - **turn blade**: ranks every main-thread row (depth 0) of every numbered turn of the session with a value > 0 for the measure: model calls by their cost, time or tokens; tool rows by time; agent rows as one row with their whole cost, run time or tokens (so nothing counts twice; SESS-R §3); gap rows by time. `b` goes to the next row in the ranking (SES-50), crossing turns. Toast: "Biggest row by cost of 412: **$1.77** · turn 2 · <row name, 50 chars>";
-- changing the measure resets the ranking position; the next `b` starts from the biggest. Tool rows with `waits_on_user = 1` or `max_silence_ms ≥ 300,000` are left out of a ranking by time (DM-40; Open Q8).
+- changing the measure resets the ranking position; the next `b` starts from the biggest. Tool rows with `user_wait` set or `max_silence_ms ≥ 300,000` are left out of a ranking by time (DM-40; Open Q8).
   Scenario: Given the 78-turn session in the session blade with measure Time, when the user presses `b`, then the cursor moves to the longest turn by wall and the toast names its wall.
 
-SES-53 — `w` / `W`, waits: the next / previous wait stretch of any state that lasts at least 2 min (SES-36, SES-19, TRN-34; the hit set the chip counts, D38 M4). The detail blade opens when it lands (R3-proto `d.gap`).
+SES-53 — `w` / `W`, waits: the next / previous wait stretch of any state that lasts at least 2 min, or main-thread tool row that waited on the user for at least 2 min (SES-36, SES-19, TRN-34; QRY-38; D54; the hit set the chip counts, D38 M4). The detail blade opens when it lands (R3-proto `d.gap`).
 
 SES-54 — `e`, failures: the next failed tool row (TRN-32), at any depth; the hit set is the one the chip counts (D38 M4). There is no previous-failure key (R3-proto). If the failed-tool finder request fails, its chip shows the error state of SES-31 (D41 M8).
 

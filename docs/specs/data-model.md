@@ -84,10 +84,9 @@ Existing terms (session, engagement, turn, llm_call, tool_call, step, event, own
 | `display_ix` INTEGER | turn | 1-based number among the session's non-harness main turns, in time order; NULL for harness turns and agent turns | DM-24 |
 | `attr_turn_rowid` INTEGER | llm_call, tool_call | rowid of the attributed turn | DM-45 |
 | `attr_cost_usd` REAL, `attr_tok_total` INTEGER, `attr_n_llm_calls` INTEGER, `attr_cost_lower_bound` INTEGER | main turn | sums over owned llm_calls whose `attr_turn_rowid` is this turn | DM-45 |
-| `model_ms`, `tool_ms`, `agents_ms`, `none_ms` INTEGER | main turn, session | window time split, for session sums only (DM-50) | DM-51 |
-| `span_wall_ms`, `span_model_ms`, `span_tool_ms`, `span_agents_ms`, `span_none_ms` INTEGER | main turn | span-based turn wall, split and waiting (D37) | DM-53 |
+| `span_wall_ms` INTEGER | main turn | span-based turn wall (D37). [D54] The span and window splits are rows of `time_split`; the columns `model_ms`..`none_ms` and `span_model_ms`..`span_none_ms` are dropped. | DM-51, DM-53 |
 | `max_silence_ms` INTEGER | tool_call | longest interval inside `[start_ms, end_ms]` with no timestamped record in any file of the bundle | DM-40 |
-| `waits_on_user` INTEGER | tool_call | 1 when the tool asks the user (Claude `AskUserQuestion`, Codex `request_user_input`, omp `ask`) | DM-40 |
+| `user_wait` TEXT [D54] | tool_call | `ask` \| `permission` when the call waited on the user, else NULL (replaces `waits_on_user`) | DM-40 |
 
 `steps`:
 
@@ -104,7 +103,7 @@ Existing terms (session, engagement, turn, llm_call, tool_call, step, event, own
 | `n_human_asks` INTEGER | count of human asks | DM-25 |
 | `is_automated` INTEGER | 1 when `n_human_asks = 0` | DM-25 |
 | `activity_bin_ms` INTEGER, `activity_tok` TEXT (JSON int array) | per-session activity bins | DM-44 |
-| `model_ms`, `tool_ms`, `agents_ms`, `none_ms` INTEGER | session time split | DM-51 |
+| `model_ms`, `tool_ms`, `agents_ms`, `none_ms` INTEGER | **removed** [D54]: the session split is rows of `time_split` | DM-51 |
 | `entrypoint`, `originator` | now filled (today NULL on all rows) | DM-26 |
 
 `rollup_time` (changed meaning and new columns; D50: one row per root, 15-minute bucket and dimension set, every time value is epoch ms):
@@ -119,14 +118,25 @@ Existing terms (session, engagement, turn, llm_call, tool_call, step, event, own
 New tables:
 
 ```sql
--- DM-52 (D37): stretches >= 60 s in state none or agents, for gap rows, `w`, and the "agents" legend jump
+-- DM-52 (D37; D54): stretches >= 60 s that no main-thread call covers, for gap rows, `w`, and legend jumps
 CREATE TABLE stretches(
   root_rowid INTEGER NOT NULL, turn_rowid INTEGER,        -- main turn the stretch lies in; NULL before the first main turn
-  state TEXT NOT NULL CHECK (state IN ('none', 'agents')),
-  start_ms INTEGER NOT NULL, end_ms INTEGER NOT NULL,
-  next_turn_kind TEXT);                                    -- kind of the main turn that starts at end_ms, else NULL
+  state TEXT NOT NULL CHECK (state IN ('agents', 'you', 'agentmsg', 'limit', 'none')),
+  substate TEXT,                                           -- DM-50 substate, NULL for states without one
+  start_ms INTEGER NOT NULL, end_ms INTEGER NOT NULL);
 CREATE INDEX stretches_root ON stretches(root_rowid, start_ms);
 CREATE INDEX stretches_len ON stretches(state, (end_ms - start_ms) DESC);
+
+-- DM-51, DM-53 [D54]: time per (state, substate) of a session, a main turn's window and a main turn's span
+CREATE TABLE time_split(
+  root_rowid INTEGER NOT NULL,
+  op_rowid INTEGER NOT NULL,                               -- the session op for scope 'session', else the main turn
+  scope TEXT NOT NULL CHECK (scope IN ('session', 'window', 'span')),
+  state TEXT NOT NULL CHECK (state IN ('model', 'tool', 'agents', 'you', 'agentmsg', 'limit', 'none')),
+  substate TEXT,
+  ms INTEGER NOT NULL);                                    -- rows with 0 ms are not stored
+CREATE INDEX time_split_op ON time_split(op_rowid, scope);
+CREATE INDEX time_split_root ON time_split(root_rowid);
 
 -- DM-60: friendly project names
 CREATE TABLE projects(
@@ -147,7 +157,7 @@ CREATE INDEX ops_parent_kind_start ON ops(parent_rowid, kind, start_ms);        
 CREATE INDEX ops_caused_by ON ops(caused_by_rowid) WHERE caused_by_rowid IS NOT NULL;  -- D37: agent runs per turn (DM-55); column per DM-14
 ```
 
-`meta` has no `tz` key [D50] (DM-41; the keys are `schema_version`, `parser_version`, `price_fingerprint`, `last_ingest_ms`, `n_ownership_disagreements`). `TABLES` gains `stretches` and `projects`.
+`meta` has no `tz` key [D50] (DM-41; the keys are `schema_version`, `parser_version`, `price_fingerprint`, `last_ingest_ms`, `n_ownership_disagreements`). `TABLES` gains `stretches`, `projects` and [D54] `time_split`.
 
 ### 2.3 Content references and stored previews (D39)
 
@@ -261,11 +271,15 @@ Turn boundaries stay as today (design §4.5, claude/tree.py `is_boundary`), exce
 ### 3.4 Time capture
 
 - **DM-40 [v4]** Derived tool durations (deferred.md "Long tool durations are mostly derived"; REVIEW-v4-detail.md §Data 1). Facts: Claude has `toolUseResult.durationMs` for 1,002 calls only; 194,421 Claude tool durations are `derived` = result-record time − tool_use time. The long ones include a permission or usage-limit wait or a suspended machine: the 10h44m `Read` (e5f6a7b9, L5176–5177) has a `queue-operation` record 28 min before its result; the 2h29m "Run contrast checks" (f6a7b8c0 agent file, L1239–1241) has no record between 10:38:13 and 13:07:55. Fix:
-  - `waits_on_user = 1` for Claude `AskUserQuestion`, Codex `request_user_input`, omp `ask`.
+  - [D54] `user_wait` on a tool_call, set by the adapter from the record:
+    - `ask`: Claude `AskUserQuestion`, Codex `request_user_input`, omp `ask` (every call, answered or declined);
+    - `permission`: a Claude tool result whose `permissionDecision.source` starts with `user` (Claude Code 2.1.293 and later), or whose result text starts with "The user doesn't want to proceed" (any version), when the call is not an `ask`;
+    - NULL otherwise, including a `permissionDecision.source` value that is neither `user*` nor `config` (adapter tests pin the known values).
+    Known limits: approvals before Claude Code 2.1.293 leave no record and stay tool time; Codex and omp record no approvals; a permission wait includes the run after approval, because no record separates them. The store keeps only the category, never the result text (D39).
   - The store computes `max_silence_ms` for every tool_call with `time_prov = derived`: the longest sub-interval of `[start_ms, end_ms]` that contains no timestamped record of any file of the bundle. (Adapters emit the sorted record timestamps per file as a new `source_file` field `ts_list`, or the store uses the start/end of all ops and steps in the bundle; the implementer chooses, the result must match on the test.)
   - `dur_ms` and `time_prov` are not changed.
-  Display rule (for S1/S3): a derived duration is shown with `≈`; "longest commands" lists exclude `waits_on_user = 1` and list a call with `max_silence_ms ≥ 300,000` separately as "no records for <max_silence>". Threshold 5 min (Q2, resolved).
-  Tests: a fixture tool_use at t, a `queue-operation` record at t+10 min, result at t+40 min, nothing else → `max_silence_ms` = 30 min. Tool_use and result 4 s apart → `max_silence_ms` ≤ 4 s.
+  Display rule (for S1/S3): a derived duration is shown with `≈`; "longest commands" and "slowest tools" lists exclude calls with `user_wait` set and list a call with `max_silence_ms ≥ 300,000` separately as "no records for <max_silence>". Threshold 5 min (Q2, resolved).
+  Tests: a fixture tool_use at t, a `queue-operation` record at t+10 min, result at t+40 min, nothing else → `max_silence_ms` = 30 min. Tool_use and result 4 s apart → `max_silence_ms` ≤ 4 s. [D54] An AskUserQuestion → `ask`; a result with `{decision: accept, source: user_temporary}` → `permission`; `{decision: reject, source: config}` → NULL; a result whose text starts with the rejection text and has no `permissionDecision` → `permission`.
 - **DM-36 [v4]** Agent run time (deferred.md "Turn detail data gaps"; REVIEW-v4-session-r2.md §5). No new capture: every engagement already has `start_ms`, `end_ms`, `wall_ms`, `active_ms` (6,693 of 6,693). Rule for readers: an agent row's run time is its **engagement** `wall_ms` (the engagement caused by that Agent or SendMessage call, found by `caused_by`), not the agent's first-to-last span; `runs` and `run_ms` are per agent row, that is per causing call (D38 M12): `runs` = the number of engagements with `caused_by` = that call, `run_ms` = the union of their intervals (Σ `wall_ms` when they do not overlap, Q7). A later SendMessage is a separate row. Test (D38 M12): one spawn call that caused two engagements, #0 (10 min) and #1 (5 min) one hour apart → one row, `run_ms` 15 min, `runs` 2.
 - **DM-37 [v4]** Claude ttft and llm `dur_ms` (deferred.md; design §4.6). No source field exists: 0 of 189,107 Claude calls have ttft; `dur_ms` is the gap from the previous non-assistant record (includes queue and hook time). Nothing to capture. Readers label Claude and Codex speed with basis `derived` (DM-47); ttft appears only where `ttft_ms` is not null (omp).
 
@@ -303,15 +317,18 @@ Turn boundaries stay as today (design §4.5, claude/tree.py `is_boundary`), exce
 
 ### 4.5 Time split and no-activity stretches
 
-- **DM-50 [v4]** States. Inside a session's wall (the union of its segments, invariant 4), each instant has exactly one state, by priority:
+- **DM-50 [v4] [D54]** States and substates. Inside a session's wall (the union of its segments, invariant 4), each instant has exactly one (state, substate), by the first rule that matches:
   1. `model` — a main-transcript llm_call (`agent_id` NULL) interval covers it;
-  2. `tool` — a main-transcript tool_call interval covers it;
-  3. `agents` — some engagement's own llm_call or tool_call interval covers it;
-  4. `none` — nothing runs.
-  Source: D34 ("Idle time is measured as no-activity stretches split at turn boundaries, not as waiting for you"); REVIEW-v4-steps-r3.md §2 (state priority), with its waiting sub-states removed by D34. Async tool calls (`is_async = 1`) count as `tool`.
-- **DM-51 [v4]** `model_ms`, `tool_ms`, `agents_ms`, `none_ms` on the session and on each main turn. Per D37 the per-turn window figures exist only so that session sums add up; the UI's turn Wall, Waiting and split use DM-53. A main turn's window is `[turn.start_ms, next main turn start_ms)`; the last turn's window ends at the session's wall end. Invariant: on the session, the four sum to `wall_ms`; over the main turns plus the part before the first turn, each state sums to the session's figure. Test: session wall 60 min; main llm 10 min, main tool 5 min, agent-only 20 min, nothing 25 min → 10/5/20/25 and the sum = 60.
-- **DM-52 [v4]** `stretches` rows (D37): every maximal interval of state `none` or of state `agents` (DM-50) of at least 60 s, with `state` set, split at main-turn starts (an interval that crosses a turn start becomes two rows; each part is kept if it is at least 60 s). `turn_rowid` = the main turn whose window holds the row (it can be a harness turn). `turn_rowid` is a storage detail: S3 (QRY-41) recomputes the attached turn per SES-37 and does not read it (D38 M11); `next_turn_kind` = the kind of the main turn that starts exactly at `end_ms`, else NULL. Resume gaps lie outside the wall and produce no rows. Minimum length 60 s (Q3, resolved). Test: nothing runs 13:45–14:32 and a human ask starts at 14:10 → two `none` rows, 13:45–14:10 (previous turn, `next_turn_kind` = human) and 14:10–14:32 (new turn, NULL). Only agents run 15:00–15:40 → one `agents` row. Agents run 30 s → no row.
-- **DM-53 [v4]** Span-based turn figures (D37; session.md Q2). For each main turn, span = the turn op's stored `[start_ms, end_ms]` (D38 H1). It is not widened over engagements the turn caused: 965 of 5,944 such engagements end after their turn's `end_ms`, and that agent time after the end is a Waterfall tail, not turn wall. `span_wall_ms` = end − start. `span_model_ms`, `span_tool_ms`, `span_agents_ms`, `span_none_ms` = time in each DM-50 state inside the span; they sum to `span_wall_ms`. The turn's Waiting figure = `span_agents_ms + span_none_ms`, the time in the span when nothing ran on the main thread (session.md SES-21; Kai 2026-10-12, interfaces Q14). The time from `turn.end_ms` to the next main turn's start is not in the turn; it is a gap row (a `stretches` row when ≥ 60 s). Test: turn 10:00–10:30 with 10 min model, 5 min tool, 15 min nothing, next turn at 11:00 → span 30 min, 10/5/0/15; the 10:30–11:00 interval is a `none` stretch row, not part of the turn. Test (D38 H1): a turn whose agent ends 10 min after the turn's last main-thread record → `span_wall_ms` excludes those 10 min, the turn op's `end_ms` is unchanged, and the agent run (DM-55) ends 10 min after `end_ms`.
+  2. `tool` — a main-transcript tool_call with `user_wait` NULL covers it;
+  3. `agents` — some engagement's own llm_call, or own tool_call with `user_wait` NULL, covers it;
+  4. `you` / `ask` or `you` / `permission` — a tool_call with that `user_wait` covers it; main-transcript calls before agent calls, `ask` before `permission`;
+  5. nothing above covers it (an idle run; idle runs are cut at every main-turn start): the main turn that starts where the idle run ends decides. Before the first numbered turn (no numbered main turn starts at or before the run's start) → `none` / `before_first`; a `human` turn whose label matches SES-17 → `limit`; another `human` turn → `you` / `reply`; a `message` turn with origin `peer`, `coordinator`, `teammate` or `agent` → `agentmsg`; else (another kind, or no turn starts there) → `none` / `none`. When several main turns share a start, the one with the lowest `seq` (`pre` when `seq` is NULL) decides.
+  The states are the seven of SES-15. `you` has the substates `ask`, `permission`, `reply`; `none` has `before_first` and `none`; the other states have none (NULL). One function in `store/timesplit.py` computes the runs; load and the query layer (zoom ranges, the histogram state lane) call it with the same inputs, so the query figures over a whole session equal the stored ones.
+  Source: D34 as amended by D54 (the `you` state is given only on recorded facts: a user-wait call, or the kind of the next turn); REVIEW-v4-steps-r3.md §2 (state priority). Async tool calls (`is_async = 1`) count as `tool`. Anything recorded as running beats a wait on the user: a question asked while an agent works shows as `agents` for that time (D54).
+  Tests: the DM-51 test; a main AskUserQuestion 10:00–10:20 with nothing else → 20 min `you`/`ask`; the same while an agent runs 10:05–10:10 → 15 min `you`/`ask` and 5 min `agents`; an agent Bash with `user_wait = permission` 10:00–10:04, main idle, no other agent → 4 min `you`/`permission`; idle 30 s before a human turn → 30 s `you`/`reply`; a main tool_call in parallel with a main AskUserQuestion → `tool` for the overlap.
+- **DM-51 [v4] [D54]** `time_split` rows with scope `session` (the session op) and `window` (each main turn). A main turn's window is `[turn.start_ms, next main turn start_ms)`; the last turn's window ends at the session's wall end. When several main turns share a start, the one with the lowest `seq` holds the window and the others get none. Per D37 the window figures exist only so that session sums add up; the UI's turn Wall, Waiting and split use DM-53. Invariants: on the session, Σ `ms` = `wall_ms`; per (state, substate), Σ over the windows plus the part before the first turn = the session's figure. Test: session wall 60 min; main llm 10 min, main tool 5 min, agent-only 20 min, nothing 25 min with no turn starting at its end → `model` 10, `tool` 5, `agents` 20, `none`/`none` 25, sum 60.
+- **DM-52 [v4] [D54]** `stretches` rows (D37): every maximal run of at least 60 s of one (state, substate) that no main-transcript call covers — states `agents`, `you` (substate `reply`, or `ask`/`permission` from an agent's call), `agentmsg`, `limit`, `none` — split at main-turn starts (a run that crosses a turn start becomes two rows; each part is kept if it is at least 60 s). A main-transcript call that waits on the user is a tool row already and gets no stretch. `turn_rowid` = the main turn whose window holds the row (it can be a harness turn). `turn_rowid` is a storage detail: S3 (QRY-41) recomputes the attached turn per SES-37 and does not read it (D38 M11). Resume gaps lie outside the wall and produce no rows. Minimum length 60 s (Q3, resolved). Test: nothing runs 13:45–14:32 and a human ask starts at 14:10 → two rows, 13:45–14:10 `you`/`reply` (previous turn) and 14:10–14:32 `none`/`none` (new turn; no turn starts at 14:32). Only agents run 15:00–15:40 → one `agents` row. Agents run 30 s → no row. A main AskUserQuestion of 10 min → no row.
+- **DM-53 [v4] [D54]** Span-based turn figures (D37; session.md Q2). For each main turn, span = the turn op's stored `[start_ms, end_ms]` (D38 H1). It is not widened over engagements the turn caused: 965 of 5,944 such engagements end after their turn's `end_ms`, and that agent time after the end is a Waterfall tail, not turn wall. `span_wall_ms` = end − start. The `time_split` rows with scope `span` = time in each DM-50 (state, substate) inside the span; they sum to `span_wall_ms`. Time in the span outside the wall (a resume gap, D48) counts as `none`/`none`. The turn's Waiting figure = `span_wall_ms` − span `model` − span `tool`, the time in the span when no main-thread model call or tool was working (session.md SES-21; Kai 2026-10-12, interfaces Q14; D54: time waiting on the user is in Waiting, not in tool). The time from `turn.end_ms` to the next main turn's start is not in the turn; it is a gap row (a `stretches` row when ≥ 60 s). Test: turn 10:00–10:30 with 10 min model, 5 min tool, 15 min nothing, next turn at 11:00 → span 30 min, `model` 10, `tool` 5, `none` 15; the 10:30–11:00 interval is a stretch row, not part of the turn. Test (D54): a turn 10:00–10:30 with a 12 min AskUserQuestion and 18 min model → span `you`/`ask` 12, Waiting 12. Test (D38 H1): a turn whose agent ends 10 min after the turn's last main-thread record → `span_wall_ms` excludes those 10 min, the turn op's `end_ms` is unchanged, and the agent run (DM-55) ends 10 min after `end_ms`.
 - **DM-54 [v4] [D50]** Period membership (D37). A session belongs to a period when it has at least one `rollup_time` row with `n_llm_calls > 0` and `bucket_start_ms` inside the period's epoch range (`[local midnight of the first day, local midnight after the last day)` in the request zone). A day with only tool activity does not make the session a member. Test: a session with calls on Oct 6 and only a tool result on Oct 7 is not in the period Oct 7.
 - **DM-55 [v4]** Joins S3 needs (D37); no new columns, because both are derivable from v7 fields:
   - next turn's origin and label: the next main turn of the same session by `start_ms` (`ops` with `parent_rowid` = session rowid, `kind = 'turn'`, `agent_id` NULL; index `ops_parent_kind_start`), reading its `turn_origin`, `turn_kind` and `label`;
@@ -353,7 +370,7 @@ Turn boundaries stay as today (design §4.5, claude/tree.py `is_boundary`), exce
 | Top project by count is a bot (`/private/tmp/helperbot`, 356) | 356 + 58 | DM-25, DM-61 | v4 |
 | Hotspots default query 5.8–8.2 s (deferred T8) | — | No data change. S3: start from narrow scopes or turns (turn-only 0.05 s). | later |
 | Baseline ("4.2× median") definitions disagree (ui-redesign-inputs) | — | Dropped for v4: D29 rules out analysis; no baseline is stored. | — |
-| Gap attribution "waiting for you" (ui-redesign-inputs) | — | Replaced by D34: no-activity stretches (DM-50–52); `next_turn_kind` is a fact, not a cause | v4 |
+| Gap attribution "waiting for you" (ui-redesign-inputs) | — | Replaced by D34: no-activity stretches (DM-50–52); the next turn's kind is a fact, not a cause. D54 adds the recorded user-wait calls (DM-40) | v4 |
 | `taxonomy.clip` trailing space (deferred) | — | Fix when touching `common/turns.clip`: strip after cutting | later |
 | omp async job durations; Codex/omp `git_branch`/version gaps (deferred) | — | No source field; display `—` | later |
 | Rejected bundle visible only in one run's report (deferred T11) | 0 rejected now | `source_files.status` gains `rejected` when the UI needs a list | later |
@@ -382,7 +399,7 @@ All recommendations accepted as written.
 | Q3 | Minimum stored stretch (DM-52) = 60 s; D37 extends storage to `agents` stretches. |
 | Q4 | No path list for helper projects; the session rule (DM-25, DM-61) marks them automated. |
 | Q5 | A Codex `exec` prompt is not a human ask. |
-| Q6 | Store `next_turn_kind`. The UI labels a gap "Waiting on you" exactly when `next_turn_kind = 'human'`. That label rests on the stored fact; D34 forbids it without that fact. |
+| Q6 | Store `next_turn_kind`. The UI labels a gap "Waiting on you" exactly when `next_turn_kind = 'human'`. That label rests on the stored fact; D34 forbids it without that fact. [D54] Superseded in form: the load decides the label from the same fact (DM-50 rule 5) and stores it as the stretch's state and substate; `next_turn_kind` is dropped. |
 | Q7 | Agent run time across engagements = union of engagement intervals (equals the sum when they do not overlap). |
 
 ## Sources

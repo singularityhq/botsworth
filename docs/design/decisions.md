@@ -426,7 +426,8 @@ prominent.
   numbered turns.
 - Plugin and agent messages get their own kind.
 - Idle time is no-activity stretches split at turn boundaries, not "waiting
-  for you".
+  for you". (Amended by D54: a recorded user-wait call is waiting
+  on you.)
 - Turn cost = its llm_calls plus agents linked by `caused_by` from Agent and
   SendMessage calls.
 - Skill load = verb `skill` plus target (a Codex shell read of SKILL.md counts).
@@ -630,3 +631,20 @@ size.
 
 ## D53 — Repository history (maintainer, 2026-10-13)
 Process only: the repository was published as a single commit.
+
+## D54 — Waiting on you from recorded calls; states with substates (maintainer, 2026-10-21)
+Amends D34's idle-time rule. A tool call that waited on the user is time
+waiting on the user, not tool or agent time: a question tool (`ask`), or a
+permission prompt that the user approved or rejected (`permission`, from the
+tool result's `permissionDecision` or the rejection text). Together with the
+existing next-turn rule (`reply`), these are substates of the one `you`
+state. `none` has the substates `before_first` and `none`. Every instant of
+the wall gets one (state, substate) from one ordered rule list in the store,
+used at load and at query time. Anything recorded as running beats a wait on
+the user. "Waiting on you" is still never inferred from idle time alone.
+Why: in the analysis store 69 h of 125 h of main-thread tool time was a
+question or a prompt waiting on the user, and the turn Waiting figure left it
+out. Limits: approvals before Claude Code 2.1.293 and all Codex/omp
+approvals leave no record; a permission wait includes the run after
+approval. Evidence and design: tasks/2026-10-21-session-analysis (not in the
+repository).

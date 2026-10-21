@@ -51,7 +51,7 @@ TRN-32 — Tool row (R3-proto; DET for status rules):
 - glyph by tool (SYS-28: shell `terminal`, read/edit/write `file-text`/`file-pen`/`file-plus`, search `search-code`, web `globe`, skill `book-open`, other `puzzle`);
 - name: the step summary (the tool's description), else the tool name; then the target (command, file path, pattern or URL) in mono ink3 when it differs from the name. A leading `cd <path> && ` is removed from a shown command (TURN-R §3);
 - **skill load** (SES-55): glyph `book-open` in ink1, name = the skill name at 600, sub-text "skill loaded" or "SKILL.md read" (ink3). Weight is its only landmark cue in the row (SESS-R §7);
-- flags: when failed, `circle-alert` + "exit N", "error" or "interrupted" in `--color-error` (SYS-8). Failed = `is_error`, or an exit code other than 0, or `interrupted`, or a step outcome `exit:N` with N ≠ 0 (REVIEW-v4-detail §5.4). When `max_silence_ms ≥ 300,000`: `hourglass` + "no records <duration>" (ink3). When `waits_on_user = 1`: `hourglass` + "waits on you" (ink3) (DM-40);
+- flags: when failed, `circle-alert` + "exit N", "error" or "interrupted" in `--color-error` (SYS-8). Failed = `is_error`, or an exit code other than 0, or `interrupted`, or a step outcome `exit:N` with N ≠ 0 (REVIEW-v4-detail §5.4). When `max_silence_ms ≥ 300,000`: `hourglass` + "no records <duration>" (ink3). When `user_wait` is `ask`: `hourglass` + "asked you" (ink3); when `permission`: `hourglass` + "waited for your approval" (ink3) (DM-40; D54);
 - Cost blank (zero by construction, SYS-31), Tokens blank; Time = duration, prefixed by `≈` when `time_prov = derived` with the tooltip "End taken from the next record" (DM-40).
 
 TRN-33 — Agent row (R3-proto `label` agent; TURN-R §3; DM-36). A spawn (`Agent`/`Task`) or `SendMessage` tool call that caused an engagement is shown as an agent row, not a tool row:
@@ -63,7 +63,7 @@ TRN-33 — Agent row (R3-proto `label` agent; TURN-R §3; DM-36). A spawn (`Agen
 
 TRN-34 — Gap row in the ledger (R3 §2.1 U2; R3-proto `itemRow` gap). Every stretch of 2 min or more inside the turn's span, and every gap that SES-37 attaches to this turn (the gap before the first turn; the gap after this turn's last activity), is a row in time position:
 - glyph and label by kind (SES-36 glyphs; "Only agents running" uses `bot`); name = the duration (mono 500 ink1), the label (ink2), the reason (ink3);
-- reasons as SES-36, plus: Nothing running inside a turn "no model call, tool or agent was running"; Only agents running "N agents running: a, b, c +N" (names of up to 3 engagements running during it);
+- reasons as SES-36, plus: Nothing running inside a turn "no model call, tool or agent was running"; Waiting on you from an agent's call "an agent asked you a question" (`ask`) or "an agent waited for your approval" (`permission`) (D54); Only agents running "N agents running: a, b, c +N" (names of up to 3 engagements running during it);
 - the measure-bar slot holds the hatched (or, for agents-only, solid `--st-agents`) bar ∝ duration against the list's largest time; Time = duration; Cost and Tokens blank;
 - row fill l2 (R3-proto `.opt-A .row.k-gap`); on the cursor, struct-soft.
   Data: SES-19 (agents-only stretches, the `stretches` rows with state `agents`; D37).
@@ -145,7 +145,7 @@ TRN-64 — Missing data in rows: a null start sorts by `seq` and leaves When bla
 
 | Need | Used by | Status |
 |---|---|---|
-| Rows of a turn: model calls with their steps (DM-46), tool calls, engagements caused (`caused_by`), with start, duration, `time_prov`, cost, tokens, model, summary/snippet, target, tool name, status fields (`exit_code`, `is_error`, `interrupted`, `outcome`), `skill_load`, `max_silence_ms`, `waits_on_user` | TRN-30–33 | S2 DM-30, DM-36, DM-40, DM-46; shape needs S3 |
+| Rows of a turn: model calls with their steps (DM-46), tool calls, engagements caused (`caused_by`), with start, duration, `time_prov`, cost, tokens, model, summary/snippet, target, tool name, status fields (`exit_code`, `is_error`, `interrupted`, `outcome`), `skill_load`, `max_silence_ms`, `user_wait` | TRN-30–33 | S2 DM-30, DM-36, DM-40, DM-46; shape needs S3 |
 | An engagement's rows (paged), on `l` | TRN-35 | needs S3 |
 | Gap rows inside the turn span, incl. agents-only | TRN-34 | S2 DM-52, with state `agents` stored too (D37) |
 | Per-turn state times over the span; in a zoom, over the range | TRN-4 | needs S2/S3 |

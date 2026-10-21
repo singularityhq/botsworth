@@ -47,7 +47,8 @@ A tool with no duration shows `—` as the hero (SYS-31 "not in data" applies to
 
 DET-21 — Time flags (DM-40), each one `info` line (ink3) under the hero:
 - `max_silence_ms ≥ 300,000`: "No records for <duration> inside this call. Its duration includes that time.";
-- `waits_on_user = 1`: "This tool waits for your answer. Its duration includes your reply."
+- `user_wait = ask`: "This tool waits for your answer. Its duration includes your reply.";
+- `user_wait = permission`: "This call waited for your approval. Its duration includes the wait and the run after it." (D54)
 
 DET-22 — Skill load (SES-55): one line under the hero, `book-open` + "**<skill>** loaded here." (ink2).
 
@@ -121,7 +122,7 @@ DET-70 — Loading the blade: the header and hero render from the row data the t
 | Need | Used by | Status |
 |---|---|---|
 | Per model call: in, cache read, cache write, out, reasoning tokens, `stop_reason`, `ttft_ms`, `time_prov`, model, cost; its steps with `src` | DET-10–14 | exists (design §4); shape needs S3 |
-| Per tool call: `exit_code`, `is_error`, `interrupted`, step `outcome`, `result_bytes`, `time_prov`, `max_silence_ms`, `waits_on_user`, `skill_load`, `src` | DET-20–24 | S2 DM-30, DM-40; shape needs S3 |
+| Per tool call: `exit_code`, `is_error`, `interrupted`, step `outcome`, `result_bytes`, `time_prov`, `max_silence_ms`, `user_wait`, `skill_load`, `src` | DET-20–24 | S2 DM-30, DM-40; shape needs S3 |
 | Per engagement: run time (union across engagements), call and tool counts, errors, models, `caused_by` `src` for the ask, top 5 calls by cost + rest | DET-30–34 | S2 DM-36; needs S3 |
 | Gap: neighbours, next turn text, engagements overlapping it with cost | DET-40–43 | needs S3 |
 | Source text by pointer, part, offset, max bytes; total size | DET-60, DET-65 | exists (`/api/source`); S3 confirms |

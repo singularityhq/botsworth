@@ -133,11 +133,11 @@ Date parsing for date rows is client-side (FE-10); their facts come from `day_se
 QRY-29 — `session_detail(session)` returns the session header (§3.6; SES-24–28).
 - `cost.main` = Σ cost of owned llm_calls with `agent_id IS NULL`, and `cost.agents` = total − main (SES-14).
 - `cost.unattributed` = Σ cost of leaves with `attr_turn_rowid IS NULL` (DM-45; SES-28 "Agent work with no turn").
-- `time_split` holds the session's `model_ms`, `tool_ms`, `agents_ms` and `none_ms` (DM-51). They sum to `wall_ms`.
-- `none_split` divides `none_ms` into the SES-15 labels: `you`, `agentmsg`, `limit` and `none`. Each labelled part is the sum of the session's `none` stretches with that label (QRY-41). The rest of `none_ms` is `none` (SES-16). A `before_first` stretch is never folded into `you`: it counts under `none` in `none_split`, and `longest.none` covers it (D41 M11, which drops the earlier SES-18 fold).
+- `time_split` holds the session's `time_split` rows with scope `session` (DM-51; D54): one part per (state, substate) with time above 0. The parts sum to `wall_ms`. `none`/`before_first` is never folded into `you` (D41 M11).
 - `longest` maps each of the seven states to its longest jump target, or null:
-  - `model` and `tool`: the longest main-thread llm_call or tool_call;
-  - `agents`, `you`, `agentmsg`, `limit` and `none`: the longest stretch with that state or label.
+  - `model`: the longest main-thread llm_call; `tool`: the longest main-thread tool_call with `user_wait` NULL;
+  - `you`: the longest of the `you` stretches and the main-thread tool_calls with `user_wait` set (D54);
+  - `agents`, `agentmsg`, `limit` and `none`: the longest stretch with that state.
 
   Each target is `{row: RowRef, turn, dur_ms}`. A target exists only at 2 min or more; otherwise it is null (SES-27; D37). Every legend jump goes to the longest row or stretch of its state; no jump uses a "largest share" turn (D38 H2).
 - `models`: per QRY-33.
@@ -149,14 +149,14 @@ QRY-30 — `session_turns(session, min_gap_ms)` returns every main turn and ever
 - Turn order is `start_ms`, then `seq`. Turns with null `start_ms` (198 today, S2 §5) sort by `seq` among their neighbours.
 - Turn figures use the **turn span** `[start_ms, end_ms]` (D37; SES-21):
   - `wall_ms` = `span_wall_ms` (DM-53);
-  - `time_split` = `{model_ms: span_model_ms, tool_ms: span_tool_ms, agents_ms: span_agents_ms, none_ms: span_none_ms}` (DM-53);
-  - `waiting_ms` = `span_agents_ms + span_none_ms`, which is the time when nothing ran on the main thread (SES-21). (D38 L2)
+  - `time_split` = the turn's `time_split` rows with scope `span` (DM-53);
+  - `waiting_ms` = `wall_ms` − span `model` − span `tool`, the time when no main-thread model call or tool was working (SES-21; D38 L2; D54: time waiting on the user counts here, not as tool);
   - `cost_usd` = `attr_cost_usd` (SES-12);
   - `cost_main` = Σ cost of the turn's own main-thread llm_calls;
   - `models` = the main-thread models, each with its cost, most costly first (SES-34 item 4);
   - `n_agents` = the number of agent rows (QRY-34), `n_skill_loads` (SES-55), and `n_failed` (failed tool rows, QRY-37);
   - `agent_runs` = `{engagement, agent_name, start_ms, end_ms}` for each engagement whose `caused_by` tool_call has `attr_turn_rowid` = this turn. This is the DM-55 join, and these are the same engagements as the turn's agent rows (QRY-34). They draw the Waterfall agent tails (SES-42; D37).
-- Gap rows are `none` stretches with `dur_ms ≥ min_gap_ms` (default 120000, SES-16) that end where a main turn starts or that lie before the first numbered turn (SES-36). `agents` stretches are never gap rows here (SES-19).
+- Gap rows are stretches of state `you`, `agentmsg`, `limit` or `none` with `dur_ms ≥ min_gap_ms` (default 120000, SES-16) that end where a main turn starts or that lie before the first numbered turn (SES-36). `agents` stretches are never gap rows here (SES-19).
 - Invariant: Σ turns' `cost_usd` + `session.cost.unattributed` = the session's `cost.total` (DM-45).
 
   Scenario: Given session a11ce5e5, then a 1h02m gap row with `label = 'limit'` sits directly above the resume turn, and its `next_turn.label` starts with "I hit my usage limit" (SES-17).
@@ -165,8 +165,8 @@ QRY-31 — `turn_rows(turn, from_ms=None, to_ms=None)` returns the Ledger and Wa
 - one `CallRow` per owned llm_call whose parent is this turn. It carries its own think, say and answer steps (`steps`) for the row name and the "final" tag (TRN-31);
 - one `ToolRow` per tool_call of those calls that caused no engagement (TRN-32);
 - one `AgentRow` per tool_call (spawn or SendMessage) that caused one or more engagements (TRN-33; QRY-34). Engagements caused by a later turn's SendMessage appear in that later turn (DM-45 walk);
-- one `GapRow` per stretch (`none` or `agents`) of 60 s or more that SES-37 attaches to this turn, with its `state` and label (QRY-41). The UI applies its 2 min threshold (SES-16);
-- with `from_ms`/`to_ms` (a brushed zoom, TRN-24), `range` holds the clock-rule figures (SES-13): `cost`, `cost_main`, `cost_agents`, `time_split` over the range, and per agent row `{row, cost_usd, tok_total, n_calls_in_range, n_calls}`. Without a range, `range` is null.
+- one `GapRow` per stretch (any state) of 60 s or more that SES-37 attaches to this turn, with its `state` and `substate` (QRY-41). The UI applies its 2 min threshold (SES-16);
+- with `from_ms`/`to_ms` (a brushed zoom, TRN-24), `range` holds the clock-rule figures (SES-13): `cost`, `cost_main`, `cost_agents`, `time_split` over the range (computed by the DM-50 function, so a range equal to the span gives the stored span split), and per agent row `{row, cost_usd, tok_total, n_calls_in_range, n_calls}`. Without a range, `range` is null.
 - Invariant: Σ `CallRow.cost_usd` + Σ `AgentRow.cost_usd` = the turn's `attr_cost_usd`. Both sides skip nulls; tool rows and gaps carry no cost.
 
 QRY-32 — `agent_rows(engagement_or_row, offset, limit)` returns the rows inside one agent row (TRN-35). These are the call, tool, nested-agent and gap rows of the row's engagements, as it ran, each with `depth` = the nesting level (1–3; deeper rows report 3). Pages use `offset` (default 0) and `limit` (default 500, max 2000), with a `total`.
@@ -178,7 +178,7 @@ QRY-32a — `histogram(scope_op, bins, from_ms, to_ms)` covers the turn histogra
 - Bin fields:
   - `cost_usd` and `tok_total`;
   - `by_model` (`{model: [cost_usd, tok_total]}`; turn only);
-  - `state_ms` (`{model, tool, agents, none}`): the DM-50 state time inside the bin, for the state lane (SES-29). The UI gets the labelled `none` sub-states from `stretches`.
+  - `state_ms` (a `TimeSplit`): the DM-50 (state, substate) time inside the bin, for the state lane (SES-29), computed by the same function as the stored figures (D54).
 - `marks` holds `turn_starts` (`[{turn, display_id, start_ms}]`; session only) and `skill_loads` (`[{row, start_ms, skill}]`) (SES-29 marks).
 - `stretches` holds every stretch of 60 s or more in the range, as `Stretch` (QRY-41). The UI folds waits of 10 min or more on the axis.
 
@@ -244,8 +244,8 @@ QRY-38 — `find(session, kind, measure, text, limit)` returns hits over the who
 
 | `kind` | Hits | Order |
 |---|---|---|
-| `biggest` | every depth-0 row of every numbered turn whose `measure` value is above 0. `cost` and `tokens` cover call and agent rows; `time` covers call, tool, agent and gap rows. Tool rows with `waits_on_user = 1` or `max_silence_ms ≥ 300000` are left out of `time` (SES-52) | value, descending |
-| `waits` | gap rows of every state and label with `dur_ms` of 2 min or more (SES-53; D38 M4) | session order |
+| `biggest` | every depth-0 row of every numbered turn whose `measure` value is above 0. `cost` and `tokens` cover call and agent rows; `time` covers call, tool, agent and gap rows. Tool rows with `user_wait` set or `max_silence_ms ≥ 300000` are left out of `time` (SES-52) | value, descending |
+| `waits` | gap rows of every state with `dur_ms` of 2 min or more, plus main-thread tool rows with `user_wait` set and `dur_ms` of 2 min or more (SES-53; D38 M4; D54) | session order |
 | `failures` | failed tool rows (QRY-37) at any depth (SES-54) | session order |
 | `skills` | skill-load rows; a slash turn with an event and no step is a hit on the turn (SES-55) | session order |
 | `agents` | agent rows at any depth (SES-56) | session order |
@@ -262,16 +262,10 @@ QRY-38a — `resolve(session, id)` (SES-9) accepts any of these ids:
 
 It returns `{row: RowRef, turn, depth}`. An id with no matching row raises `NotFound`. `RowRef` = `{type: 'call'|'tool'|'agent'|'gap'|'turn', id}`: the op_id for ops (a message is not a row; its detail is encoded as `RowRef` type `'turn'` with the turn's op_id, so a reload reopens it; D38 L6), `gap-<start_ms>` for gaps, and E1's op_id for agent rows.
 
-QRY-41 — Stretches (D37; S2 table `stretches`, with column `state` ∈ {`none`, `agents`}). A `Stretch` has these fields:
-- `start_ms`, `end_ms`, `dur_ms`, `state` (`none` or `agents`) and `turn` (the attached turn). QRY-41 recomputes `turn` by SES-37 (the latest numbered turn, never a harness turn) and does not read `stretches.turn_rowid` (D38 M11);
-- `label`, which is `state` for `agents`. For `none` it is one of:
-  - `you`, when the next main turn is `human` and SES-17 does not apply;
-  - `limit`, when SES-17's text prefixes match the next turn's label;
-  - `agentmsg`, when the next turn is a `message` with origin `peer`, `coordinator`, `teammate` or `agent`;
-  - `before_first`, when the stretch lies before the first numbered turn (SES-18);
-  - `none` otherwise;
-- `next_turn` = `{turn, kind, origin, label, display_id}` from the DM-55 join. That join reads `turn_kind`, `turn_origin` and `label` from the session's next main turn by `start_ms`. `next_turn` is set only when that turn's `start_ms` = the stretch's `end_ms`; otherwise it is null, so a stretch that is not followed directly by a turn gets no `you`, `limit` or `agentmsg` label (SES-15; DET-41; D37);
-- `running` (`agents` stretches only): up to 8 engagements whose run overlaps the stretch, each `{row, agent_name, start_ms, end_ms, cost_usd}`, with the whole engagement cost (DET-43; TRN-34). It is `[]` for `none` stretches.
+QRY-41 — Stretches (D37; D54; S2 table `stretches`). A `Stretch` has these fields:
+- `start_ms`, `end_ms`, `dur_ms`, `state` and `substate` as stored (DM-50, DM-52: `agents`, `you` with `reply`/`ask`/`permission`, `agentmsg`, `limit`, `none` with `before_first`/`none`), and `turn` (the attached turn). QRY-41 recomputes `turn` by SES-37 (the latest numbered turn, never a harness turn) and does not read `stretches.turn_rowid` (D38 M11). QRY-41 does not compute labels: the load decided them (DM-50 rule 5);
+- `next_turn` = `{turn, kind, origin, label, display_id}` from the DM-55 join. That join reads `turn_kind`, `turn_origin` and `label` from the session's next main turn by `start_ms` (lowest `seq` at a shared start). `next_turn` is set only when that turn's `start_ms` = the stretch's `end_ms`; otherwise it is null (SES-15; DET-41; D37);
+- `running` (`agents` stretches, and `you` stretches from an agent's call): up to 8 engagements whose run overlaps the stretch, each `{row, agent_name, start_ms, end_ms, cost_usd}`, with the whole engagement cost (DET-43; TRN-34). It is `[]` for other stretches.
 
 The limit label is an inference from the next turn's text (SES-17). The wire carries the label and the turn text; the UI writes "(inferred)".
 
@@ -341,7 +335,9 @@ type TurnKind = 'human' | 'message' | 'harness'
 interface Freshness { last_ingest_ms: number | null; parser_version: string; price_fingerprint: string;
                       schema_version: number; api_version: 1 }   // D50: no tz
 interface Money { cost_usd: number | null; cost_lower_bound: boolean; n_unpriced: number }   // QRY-11
-interface TimeSplit { model_ms: number; tool_ms: number; agents_ms: number; none_ms: number } // DM-51
+type WallState = 'model' | 'tool' | 'agents' | 'you' | 'agentmsg' | 'limit' | 'none'
+type Substate = 'ask' | 'permission' | 'reply' | 'before_first' | 'none' | null       // DM-50 [D54]
+interface TimeSplit { parts: { state: WallState; substate: Substate; ms: number }[] } // DM-51, DM-53; SES-15 order
 interface ModelLine extends Money { model: string; n_calls: number; model_ms: number;
                       speed_tok_s: number | null; speed_basis: Provenance; ttft_ms_mean: number | null }
 interface ProjectRef { project: string; project_name: string; color_slot: 1|2|3|4|5|6 | null }
@@ -441,8 +437,8 @@ Shared row types (the session, turn and detail endpoints all use them):
 ```ts
 type RowRef = { type: 'call' | 'tool' | 'agent' | 'gap' | 'turn'; id: string }       // QRY-38a
 interface NextTurn { turn: string; kind: TurnKind; origin: string; label: string; display_id: string | null }
-interface Stretch { start_ms: number; end_ms: number; dur_ms: number; state: 'none' | 'agents';
-  label: 'you' | 'agentmsg' | 'limit' | 'before_first' | 'none' | 'agents';
+interface Stretch { start_ms: number; end_ms: number; dur_ms: number;
+  state: 'agents' | 'you' | 'agentmsg' | 'limit' | 'none'; substate: Substate;           // DM-52 [D54]
   turn: string | null; next_turn: NextTurn | null;
   running: { row: string; agent_name: string | null; start_ms: number; end_ms: number; cost_usd: number | null }[] }  // QRY-41
 ```
@@ -458,8 +454,7 @@ API-20 — `GET /api/sessions/{session}` [new] returns `SessionDetail`:
     n_turns: number; n_harness_turns: number;
     cost: Money & { main: number | null; agents: number | null; unattributed: number | null },  // SES-14, SES-28
     tok_total: number | null; wall_ms: number; active_ms: number;
-    time_split: TimeSplit;
-    none_split: { you: number; agentmsg: number; limit: number; none: number },   // SES-15/16 seven states
+    time_split: TimeSplit;                                                  // SES-15/16 seven states with substates
     longest: Record<'model'|'tool'|'agents'|'you'|'agentmsg'|'limit'|'none',
                     { row: RowRef; turn: string; dur_ms: number } | null>,       // SES-27
     n_agents: number; n_skill_loads: number; n_failed: number; n_llm_calls: number;
@@ -521,7 +516,7 @@ interface ToolRow { type: 'tool'; id: string; depth: number; step_id: string | n
   start_ms: number; end_ms: number | null; dur_ms: number | null; time_prov: Provenance;
   status: string | null; failed: boolean; exit_code: number | null; is_error: boolean; interrupted: boolean;
   skill_load: string | null; skill_via: 'tool' | 'read' | 'slash' | null;   // "skill loaded" / "SKILL.md read"
-  waits_on_user: boolean; max_silence_ms: number | null; result_bytes: number | null; src: string }
+  user_wait: 'ask' | 'permission' | null; max_silence_ms: number | null; result_bytes: number | null; src: string }
 interface AgentRow extends Money { type: 'agent'; id: string; depth: number; caused_by: string;
   mode: 'started' | 'messaged'; description: string | null; agent_names: string[];
   agent_type: string | null; tok_total: number | null; n_llm_calls: number; n_tool_calls: number;
@@ -706,19 +701,19 @@ Added by the M2 architect, 2026-10-12 (PLAN.md E2; APPROVAL: overnight build). T
 | `tasks` | scope flags, `--by command_key\|tool\|verb\|skill\|agent_type\|slash` (required), `--measure tokens\|cost\|time\|count` (default tokens), `-n` (default 20, max 500) | `top_tasks(scope, by, measure, n)` → `TaskGroups` | "Which common tasks use the most tokens?" |
 
 CLI-20 — `project_slow(scope, compare, n)`. The sessions are the in-scope sessions (QRY-3–QRY-8). Every figure uses full sessions (QRY-9): a session that crosses the period boundary counts whole, the same rule as the explorer list.
-- `current`: a `SlowBlock` = `{n_sessions, wall_ms, active_ms, time_split: TimeSplit, none_split: {you, agentmsg, limit, none}, n_llm_calls, n_tool_calls, tok_total, cost: Money}`. `time_split` is Σ of the sessions' DM-51 figures, so it sums to `wall_ms`. `none_split` labels each session's `none` stretches by QRY-41, summed over sessions; the remainder of `none_ms` is `none` (as in QRY-29).
+- `current`: a `SlowBlock` = `{n_sessions, wall_ms, active_ms, time_split: TimeSplit, n_llm_calls, n_tool_calls, tok_total, cost: Money}`. `time_split` is Σ of the sessions' DM-51 parts per (state, substate), so it sums to `wall_ms`.
 - `previous`: the same block for the period of the same number of days that ends the day before `from_day`, under the same filters. It is null when `compare` is false or the scope is all time.
-- `sessions`: the `n` sessions with the largest `wall_ms`, each `{session, session_id, name, project_name, start_ms, wall_ms, active_ms, time_split, cost: Money, tok_total, longest_wait: Stretch | null}`. `longest_wait` is the session's longest `none` stretch of 2 min or more.
-- `tools`: owned tool_calls of the sessions with `waits_on_user = 0`, grouped by (`tool_name`, `command_key`). `command_key` is null for tools without a command. Each group is `{tool_name, command_key, n, n_sessions, dur_ms, p50_ms, p90_ms, max_ms, n_derived, n_no_records}`, where `dur_ms` = Σ `dur_ms`, `n_derived` = calls with `time_prov = 'derived'`, and `n_no_records` = calls with `max_silence_ms ≥ 300000` (DM-40). Percentiles are nearest-rank over non-null `dur_ms`. The `n` groups with the largest `dur_ms` are listed.
-- `slowest_tools`: the `n` owned tool_calls with the largest `dur_ms` and `waits_on_user = 0`, each `{row: RowRef, session, turn, display_id, tool_name, command_key, summary, dur_ms, time_prov, max_silence_ms}`. `summary` is the stored step summary (a 160-char preview, D39).
-- `waits_on_user`: `{n, dur_ms}` over tool_calls with `waits_on_user = 1`.
-- `waits`: the `n` longest stretches (both states, 2 min or more) across the sessions, as `Stretch` plus `session` and `display_id` of the attached turn.
+- `sessions`: the `n` sessions with the largest `wall_ms`, each `{session, session_id, name, project_name, start_ms, wall_ms, active_ms, time_split, cost: Money, tok_total, longest_wait: Stretch | null}`. `longest_wait` is the session's longest stretch of state `you`, `agentmsg`, `limit` or `none`, of 2 min or more.
+- `tools`: owned tool_calls of the sessions with `user_wait` NULL, grouped by (`tool_name`, `command_key`). `command_key` is null for tools without a command. Each group is `{tool_name, command_key, n, n_sessions, dur_ms, p50_ms, p90_ms, max_ms, n_derived, n_no_records}`, where `dur_ms` = Σ `dur_ms`, `n_derived` = calls with `time_prov = 'derived'`, and `n_no_records` = calls with `max_silence_ms ≥ 300000` (DM-40). Percentiles are nearest-rank over non-null `dur_ms`. The `n` groups with the largest `dur_ms` are listed.
+- `slowest_tools`: the `n` owned tool_calls with the largest `dur_ms` and `user_wait` NULL, each `{row: RowRef, session, turn, display_id, tool_name, command_key, summary, dur_ms, time_prov, max_silence_ms}`. `summary` is the stored step summary (a 160-char preview, D39).
+- `user_waits`: `{ask: {n, dur_ms}, permission: {n, dur_ms}}` over tool_calls with that `user_wait` (D54).
+- `waits`: the `n` longest stretches (every state, 2 min or more) across the sessions, as `Stretch` plus `session` and `display_id` of the attached turn.
 - `models`: `ModelLine[]` over the sessions' owned llm_calls (QRY-33).
 
-  Scenario: Given the fixture project with two sessions in the period (walls 60 min and 30 min, a 25-min `none` stretch before a human ask, and one 40-min derived Bash call with a 30-min silence), when `profiler slow --project <p> --from D --to D` runs, then `current.wall_ms` = 5,400,000, `current.time_split` sums to it, `current.none_split.you` includes 1,500,000, and `slowest_tools[0]` is the Bash call with `time_prov = 'derived'` and `max_silence_ms = 1,800,000`.
+  Scenario: Given the fixture project with two sessions in the period (walls 60 min and 30 min, a 25-min `none` stretch before a human ask, and one 40-min derived Bash call with a 30-min silence), when `profiler slow --project <p> --from D --to D` runs, then `current.wall_ms` = 5,400,000, `current.time_split` sums to it, `current.time_split` has a `you`/`reply` part that includes 1,500,000, and `slowest_tools[0]` is the Bash call with `time_prov = 'derived'` and `max_silence_ms = 1,800,000`.
 
 CLI-21 — `session_breakdown(session, n)`. One session (QRY-6 lookup):
-- `session`: `{session, session_id, name, project_name, provider, start_ms, end_ms, wall_ms, active_ms, cost: Money, tok_total, time_split, none_split}`. The values equal `session_detail`'s (QRY-29).
+- `session`: `{session, session_id, name, project_name, provider, start_ms, end_ms, wall_ms, active_ms, cost: Money, tok_total, time_split}`. The values equal `session_detail`'s (QRY-29).
 - `turns_by_time` and `turns_by_tokens`: the `n` numbered turns (harness turns excluded) with the largest `wall_ms` and the largest `tok_total`, as `TurnRow` (QRY-30).
 - `rows_by_time`, `rows_by_cost` and `rows_by_tokens`: the first `n` hits of `find(session, 'biggest', measure)` for `time`, `cost` and `tokens` (QRY-38), with the same hit shape.
 - `tools`: the CLI-20 tool groups over this session only.
@@ -747,7 +742,7 @@ CLI-23 — Output size: each use-case command's JSON for `-n 10` on the real v7 
 
 CLI-24 — Latency on the real v7 store, p95 warm: `slow --since 7d --project <largest project>` ≤ 1.5 s; `breakdown b2c3d4e6` ≤ 1.5 s; `tasks --since 30d --by command_key` ≤ 2 s. Measured by Q4 (TST-5). No target in `make check`.
 
-TST-7 — Use-case tests on the TST-1 fixture, one per rule: CLI-20's scenario; `previous` is null for all time; `waits_on_user` calls are not in `tools` or `slowest_tools`; CLI-21's invariant against `session_detail`, `session_turns` and `find`; CLI-22's scenario; the partition for `issuing_call_split` and `nearest_engagement`; `skill` splits a turn that loaded two skills evenly; `slash` keys `/mad:bootstrap ARGS` as `/mad:bootstrap`; `--by bogus` → exit 2; the JSON output equals `asdict` of the function's result.
+TST-7 — Use-case tests on the TST-1 fixture, one per rule: CLI-20's scenario; `previous` is null for all time; calls with `user_wait` set are not in `tools` or `slowest_tools`; CLI-21's invariant against `session_detail`, `session_turns` and `find`; CLI-22's scenario; the partition for `issuing_call_split` and `nearest_engagement`; `skill` splits a turn that loaded two skills evenly; `slash` keys `/mad:bootstrap ARGS` as `/mad:bootstrap`; `--by bogus` → exit 2; the JSON output equals `asdict` of the function's result.
 
 ## 6. Frontend wiring
 
@@ -865,7 +860,7 @@ TST-6 — Frontend tests:
 |---|---|---|
 | Session meta line, title, `+Nd` (SES-24, SES-25) | `name`, `title_source`, `project_name`, `start_ms`, `end_ms`, `ends_after_days`, `n_turns` | API-20 |
 | Cost answer, main/agents split (SES-14, SES-26) | `cost.cost_usd`, `cost.main`, `cost.agents`, `cost_lower_bound` | API-20 |
-| Time answer, seven states, legend (SES-15, SES-16, SES-26) | `time_split`, `none_split` | API-20 |
+| Time answer, seven states, legend (SES-15, SES-16, SES-26) | `time_split` | API-20 |
 | Legend jumps (SES-27; D37) | `longest[state]` | API-20 |
 | Details stat line, unattributed, model table (SES-28) | `tok_total`, `n_llm_calls`, `active_ms`, `n_agents`, `cost.unattributed`, `models` | API-20 |
 | Over time: bins, state lane, turn ticks, skill pins, folds (SES-29) | `Histogram` (session) | API-31 |
@@ -883,7 +878,7 @@ TST-6 — Frontend tests:
 | Turn histogram by model, incl. caused agents (TRN-21, TRN-22) | `Histogram.bins[].by_model` | API-31 |
 | Zoom: clock-rule totals, per-agent in-range figures, range split (TRN-4, TRN-24, TRN-33) | `TurnRows.range` | API-22 |
 | Call detail (DET-10–14) | `Detail` `call`: `turn_cost_usd`, `tok`, `ttft_ms`, `stop_reason`, `speed_*`, `sections` | API-24 |
-| Tool detail: duration flags, skill load, command, output (DET-20–24) | `Detail` `tool`: `time_prov`, `max_silence_ms`, `waits_on_user`, `skill_load`, `command`, `output_src`, `result_bytes` | API-24 |
+| Tool detail: duration flags, skill load, command, output (DET-20–24) | `Detail` `tool`: `time_prov`, `max_silence_ms`, `user_wait`, `skill_load`, `command`, `output_src`, `result_bytes` | API-24 |
 | Agent detail (DET-30–34) | `Detail` `agent`: `runs[].ask_src`, `top_calls`, `other_calls`, `n_rows` | API-24 |
 | Gap detail (DET-40–43; D37) | `GapRow` (`next_turn`, `running`) plus turn and session `wall_ms`; no endpoint | API-21, API-22 |
 | Message detail (DET-50) | `Detail` `message`, `text_src`; URL-encoded as `RowRef` type `'turn'` (D38 L6) | API-24 |
