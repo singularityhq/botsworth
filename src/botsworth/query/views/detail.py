@@ -200,7 +200,7 @@ def _neighbours(conn: sqlite3.Connection, o: sqlite3.Row) -> wire.Neighbours:
     forest = R.Forest(conn, o["root_rowid"])
     builder = R.RowBuilder(conn, o["root_rowid"], forest, R.scan_turn(conn, forest, turn))
     entries, depth = _siblings(conn, o, forest, builder, turn)
-    at = next((i for i, e in enumerate(entries) if e.row["rowid"] == o["rowid"] and e.kind != "gap"), None)
+    at = next((i for i, e in enumerate(entries) if e.kind != "gap" and e.row["rowid"] == o["rowid"]), None)
     if at is None:
         # FALLBACK-OK: interfaces.md API-24 (a duplicate is in no row list: no neighbours)
         return wire.Neighbours([], [])

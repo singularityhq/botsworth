@@ -461,3 +461,63 @@ def test_breakdown_table_shows_the_review_first_within_2_kb(tmp_path, capsys):
     assert "n=1 longest 1h 35m at" in lines[1] and "lost" in lines[1]
     cli.main(["--db", str(tmp_path / "s.db"), "slow", "--table"])
     assert capsys.readouterr().out.splitlines()[0].startswith("review: wall")
+
+
+def bg_test_session(sid="bgt", with_stretch=True):
+    """A main background pytest from min 1 to min 10 inside one turn: a `tool`/`test` stretch."""
+    b = B(sid, start=0, end=20 * M)
+    t = b.turn("t", start=0, end=20 * M, turn_kind="human")
+    l1 = b.llm("l1", t, 0, M, occ=f"{sid}:l1")
+    end = 10 * M if with_stretch else M + 30_000
+    b.tool(
+        "pytest", l1, M, M + 1000, tool_name="Bash", command_class="test", bg_end_ms=T0 + end, occ=f"{sid}:p"
+    )
+    l2 = b.llm("l2", t, 12 * M, 13 * M, occ=f"{sid}:l2")
+    b.tool("after", l2, 12 * M, 12 * M + 1000, tool_name="Bash", occ=f"{sid}:after")
+    return b
+
+
+def test_detail_of_a_tool_call_in_a_turn_with_an_in_turn_gap_row(tmp_path):
+    from botsworth.query.views.detail import detail
+
+    c = store(tmp_path)
+    load(c, bg_test_session())
+    st = [(r["state"], r["substate"]) for r in c.execute("SELECT * FROM stretches ORDER BY start_ms")]
+    assert ("tool", "test") in st  # the turn's row list holds the "Background command" gap row
+    d = detail("claude_code/bgt/tool_call/pytest", db=c)
+    assert d.kind == "tool"
+    for op in ("pytest", "after"):
+        assert detail(f"claude_code/bgt/tool_call/{op}", db=c).kind == "tool"
+    gaps = [x for x in d.neighbours.before + d.neighbours.after if x.type == "gap"]
+    assert ("tool", "test") in [(g.state, g.substate) for g in gaps]
+
+
+def test_longest_test_of_a_main_background_run_is_its_first_tool_test_stretch(tmp_path):
+    c = store(tmp_path)
+    load(c, bg_test_session())
+    (f,) = [f for f in R.session_review("bgt", db=c).findings if f.cause == "tests"]
+    first = c.execute("SELECT start_ms FROM stretches WHERE state = 'tool' AND substate = 'test'").fetchone()[
+        0
+    ]
+    assert f.longest.row == wire.RowRef("gap", f"gap-{first}")
+    assert f.longest.dur_ms == 9 * M and f.longest.turn == "claude_code/bgt/turn/t"  # the whole run
+    assert f.longest.display_id == "T1"
+
+
+def test_longest_test_of_a_main_background_run_without_a_stretch_is_the_tool_row(tmp_path):
+    c = store(tmp_path)
+    b = bg_test_session("bgn", with_stretch=False)
+    b.tool(
+        "long",
+        next(o.op_id for o in b.ops if o.kind == "llm_call"),
+        14 * M,
+        17 * M,
+        tool_name="Bash",
+        command_class="test",
+        occ="bgn:long",
+    )
+    load(c, b)
+    assert c.execute("SELECT COUNT(*) FROM stretches WHERE substate = 'test'").fetchone()[0] == 0
+    # 30 s of background run, then a 3 min foreground pytest: the longest is the foreground call
+    (f,) = [f for f in R.session_review("bgn", db=c).findings if f.cause == "tests"]
+    assert f.longest.row == wire.RowRef("tool", "claude_code/bgn/tool_call/long")
