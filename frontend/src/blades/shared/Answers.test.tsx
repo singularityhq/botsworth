@@ -45,7 +45,7 @@ describe('Answers legend (SES-15, SES-26)', () => {
     expect(tip.textContent).toContain('the next turn is your message')
   })
 
-  it('lists background under tools and stalled under nothing running, in the tooltips of those items (SES-15, D55)', async () => {
+  it('lists background under tools, and shows stalled as its own item, listed first, outside nothing running (SES-15, D55, SES-26 D56)', async () => {
     const d55: TimeSplit = {
       parts: [
         { state: 'model', substate: null, ms: 10 * MIN },
@@ -56,16 +56,65 @@ describe('Answers legend (SES-15, SES-26)', () => {
       ],
     }
     render(<Answers cost={undefined} wallMs={23 * MIN} split={d55} onJump={() => {}} />)
+    const items = screen.getAllByRole('button').map((b) => b.textContent)
+    expect(items[0]).toMatch(/^stalled\s*6m$/) // first, though model (10m) is larger
+    expect(items.find((t) => t!.startsWith('nothing running'))).toMatch(/2m$/) // stalled is not in it
+    const stalled = screen.getByRole('button', { name: /^stalled/ })
+    fireEvent.focus(stalled)
+    const stalledTip = await screen.findByRole('tooltip')
+    expect(stalledTip.textContent).toBe('Go to the longest stretch of: Stalled')
+    fireEvent.blur(stalled)
     const none = screen.getByRole('button', { name: /nothing running/ })
     fireEvent.focus(none)
-    const noneTip = await screen.findByRole('tooltip')
-    expect(noneTip.textContent).toContain('Go to the longest stretch of: Nothing running')
-    expect(noneTip.textContent).toContain('a finished task waited for an agent that was not running')
-    expect(noneTip.textContent).toContain('6m')
+    expect((await screen.findByRole('tooltip')).textContent).toBe('Go to the longest stretch of: Nothing running') // no substate list
     fireEvent.blur(none)
     fireEvent.focus(screen.getByRole('button', { name: /tools/ }))
     const toolTip = await screen.findByRole('tooltip')
     expect(toolTip.textContent).toContain('a background command ran')
     expect(toolTip.textContent).toContain('4m')
+  })
+})
+
+describe('Answers time line and split bar (SES-26 [D56])', () => {
+  const withStall: TimeSplit = {
+    parts: [
+      { state: 'model', substate: null, ms: 10 * MIN },
+      { state: 'you', substate: 'reply', ms: 3 * MIN },
+      { state: 'limit', substate: null, ms: 1 * MIN },
+      { state: 'none', substate: 'none', ms: 2 * MIN },
+      { state: 'none', substate: 'stalled', ms: 6 * MIN },
+    ],
+  }
+
+  it('reads "B not running", not "nothing running", on line 1', () => {
+    render(<Answers cost={undefined} wallMs={22 * MIN} split={withStall} lostMs={6 * MIN} onOpenReview={() => {}} />)
+    expect(screen.getByText(/not running/).textContent).toContain('10m running · 12m not running')
+    expect(screen.queryByText(/\bnothing running\b.*\blost\b/)).toBeNull()
+    expect(screen.getByRole('button', { name: '6m lost' })).toBeTruthy() // REV-2 follows "not running"
+  })
+
+  it('draws stalled as its own segment directly before none, filled with the REV-1 stalled fill', () => {
+    render(<Answers cost={undefined} wallMs={22 * MIN} split={withStall} onJump={() => {}} />)
+    const segs = Array.from(screen.getByRole('img', { name: 'Time split by state' }).querySelectorAll('i')) as HTMLElement[]
+    expect(segs).toHaveLength(5) // model, you, limit, stalled, none
+    const stalled = segs[3]
+    expect(stalled.style.background).toContain('var(--color-error)') // hatched error fill (REV-1)
+    expect(stalled.style.background).toContain('repeating-linear-gradient')
+    expect(stalled.style.boxShadow).toBe('inset 0 0 0 1px var(--color-error)')
+    expect(segs[4].style.background).toContain('var(--st-none)') // none follows, in its own fill
+  })
+
+  it('words the stalled segment tooltip "Stalled <dur>"', async () => {
+    render(<Answers cost={undefined} wallMs={22 * MIN} split={withStall} onJump={() => {}} />)
+    const seg = Array.from(screen.getByRole('img', { name: 'Time split by state' }).querySelectorAll('i'))[3]
+    fireEvent.focus(seg.parentElement!)
+    expect((await screen.findByRole('tooltip')).textContent).toBe('Stalled 6m')
+  })
+
+  it('jumps with the stalled key when the stalled legend item is clicked', () => {
+    const keys: string[] = []
+    render(<Answers cost={undefined} wallMs={22 * MIN} split={withStall} onJump={(k) => keys.push(k)} />)
+    fireEvent.click(screen.getByRole('button', { name: /^stalled/ }))
+    expect(keys).toEqual(['stalled'])
   })
 })

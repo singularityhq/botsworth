@@ -6,6 +6,8 @@ import type { ReviewReport } from '../../api/types'
 import { responseCache } from '../../api/useApi'
 import { CrumbProvider } from '../../shell/CrumbProvider'
 import { useGlobalKeys } from '../../shell/keys'
+import { createNav } from '../../state/nav'
+import { browserUrl } from '../../state/url'
 import { StatusHost, StatusProvider } from '../shared/status'
 import { SessionBlade } from './index'
 
@@ -90,7 +92,7 @@ describe('REV-2 header claim', () => {
   it('shows nothing below 60 s', async () => {
     const calls = serve(() => reply(200, { ...R, lost_ms: 59_000 }))
     mount()
-    await screen.findByText('nothing running', { exact: false })
+    await screen.findByText('not running', { exact: false })
     await waitFor(() => expect(calls.some((c) => c.endsWith('/review'))).toBe(true))
     await act(async () => {}) // let the review response land
     expect(screen.queryByText('lost')).toBeNull()
@@ -99,7 +101,7 @@ describe('REV-2 header claim', () => {
   it('is omitted when the review request fails', async () => {
     const calls = serve(() => reply(500, { error: 'boom', code: 'internal' }))
     mount()
-    await screen.findByText('nothing running', { exact: false })
+    await screen.findByText('not running', { exact: false })
     await waitFor(() => expect(calls.some((c) => c.endsWith('/review'))).toBe(true))
     await act(async () => {})
     expect(screen.queryByText('lost')).toBeNull()
@@ -222,15 +224,28 @@ describe('REV-6 cards and the evidence link', () => {
     expect(params().get('detail')).toBe('1')
   })
 
-  it('sets the session view to Ledger as its own history step, so going back from the opened turn lands on Ledger, not Review', async () => {
+  it('adds a history entry for the evidence jump, so browser Back returns to Review (SES-10 [D56])', async () => {
     serve()
     mount('&sview=review')
     const link = await screen.findByRole('button', { name: /^Longest: .*1h02m · turn 2$/ })
     await waitFor(() => expect((link as HTMLButtonElement).disabled).toBe(false))
     fireEvent.click(link)
     expect(params().get('t')).toBe('2')
-    window.history.back() // what closing the turn blade does after an opening step (SYS-50)
+    expect(params().get('sview')).toBeNull() // Ledger in the new entry
+    window.history.back()
     await waitFor(() => expect(params().get('t')).toBeNull())
+    expect(params().get('sview')).toBe('review')
+    expect(params().get('s')).toBe(S)
+  })
+
+  it('returns to Ledger, not Review, when Esc closes the turn opened from an evidence link', async () => {
+    serve()
+    mount('&sview=review')
+    const link = await screen.findByRole('button', { name: /^Longest: .*1h02m · turn 2$/ })
+    await waitFor(() => expect((link as HTMLButtonElement).disabled).toBe(false))
+    fireEvent.click(link)
+    createNav(browserUrl).closeTo('session') // what Esc on the turn blade calls (SES-6 step 5)
+    expect(params().get('t')).toBeNull()
     expect(params().get('sview')).toBeNull()
     expect(params().get('s')).toBe(S)
   })

@@ -51,9 +51,12 @@ describe('REV-4 claim', () => {
     expect(claim(R)).toEqual(['3h37m wall. 1h35m was lost to stalls.', 'The largest cause was stalled (1h35m).'])
   })
 
-  it('says nothing was lost below 60 s, and names the largest other cause', () => {
-    const r = withCauses({ working: 600_000, you: 300_000, stalled: 30_000 }, 30_000)
-    expect(claim(r)).toEqual(['16m wall. Nothing was lost to a stall.', 'The largest cause was waiting on you (5m).'])
+  it('says nothing was lost at 0, "under a minute" from 1 ms to 59.999 s, and the figure from 60 s; and names the largest other cause', () => {
+    const at = (lost: number) => claim(withCauses({ working: 600_000, you: 300_000, stalled: lost }, lost))
+    expect(at(0)).toEqual(['15m wall. Nothing was lost to a stall.', 'The largest cause was waiting on you (5m).'])
+    expect(at(13_000)).toEqual(['15m wall. Under a minute was lost to stalls.', 'The largest cause was waiting on you (5m).'])
+    expect(at(59_999)[0]).toBe('16m wall. Under a minute was lost to stalls.')
+    expect(at(60_000)[0]).toBe('16m wall. 1m was lost to stalls.')
   })
 
   it('omits the second sentence when every cause other than working is under 2 min', () => {
@@ -114,7 +117,7 @@ describe('REV-5 bars', () => {
 
 describe('REV-6 card text', () => {
   it('words each heading as a claim', () => {
-    expect(heading(finding('stalled'))).toBe('Stalled 1h35m: finished tasks waited for main, reviewer, builder +1 while nothing ran')
+    expect(heading(finding('stalled'))).toBe('Stalled 1h35m: finished tasks waited for the main thread, reviewer, builder +1 while nothing ran')
     expect(heading(finding('tests'))).toBe('Tests held the session for 20m')
     expect(heading(finding('polling'))).toBe('Polling loops held the session for 5m')
     expect(heading(finding('you'))).toBe('Waited 15m on you')
@@ -124,6 +127,9 @@ describe('REV-6 card text', () => {
   it('says "an agent" when a stalled finding has no threads, and lists at most three', () => {
     expect(heading({ ...finding('stalled'), threads: [] })).toBe('Stalled 1h35m: finished tasks waited for an agent while nothing ran')
     expect(threadsText(['a', 'b', 'c'])).toBe('a, b, c')
+    expect(threadsText(['reviewer', 'main'])).toBe('reviewer, the main thread')
+    expect(threadsText(['a', 'b', 'c', 'main'])).toBe('a, b, c +1')
+    expect(threadsText(['main', 'b', 'c', 'd'])).toBe('the main thread, b, c +1')
     expect(threadsText(['a', 'b', 'c', 'd', 'e'])).toBe('a, b, c +2')
   })
 
@@ -177,7 +183,9 @@ describe('REV-22 scope variants', () => {
 
   it('words the claim as session time in n sessions, with and without lost time', () => {
     expect(claim(S, true)).toEqual(['27h47m of session time in 35 sessions. 2h00m was lost to stalls (3 not measured).', 'The largest cause was tests (8h20m).'])
-    expect(claim({ ...S, n_unmeasured: 0, lost_ms: 30_000, n_sessions: 1 }, true)[0]).toBe('27h47m of session time in 1 session. Nothing was lost to a stall.')
+    expect(claim({ ...S, n_unmeasured: 0, lost_ms: 0, n_sessions: 1 }, true)[0]).toBe('27h47m of session time in 1 session. Nothing was lost to a stall.')
+    expect(claim({ ...S, n_unmeasured: 0, lost_ms: 13_000 }, true)[0]).toBe('27h47m of session time in 35 sessions. Under a minute was lost to stalls.')
+    expect(claim({ ...S, n_unmeasured: 2, lost_ms: 13_000 }, true)[0]).toBe('27h47m of session time in 35 sessions. Under a minute was lost to stalls (2 not measured).')
   })
 
   it('names the session and the day in the evidence line, with no turn', () => {
@@ -188,10 +196,10 @@ describe('REV-22 scope variants', () => {
   it('adds the whole-sessions sentence and the Codex or omp line with the unmeasured count, singular for one', () => {
     expect(footnote({ n_unmeasured: 3 }, true)).toEqual([
       expect.stringMatching(/^Measured from the log\./),
-      'Sessions count whole (a session active in the period counts in full), so a longest example can lie before the period.',
+      'Sessions count whole (a session active in the period counts in full), so a longest example can lie outside the period.',
       '3 sessions are Codex or omp: stalls are not measured for them, because their logs do not record when a background task finishes.',
     ])
-    expect(footnote({ n_unmeasured: 1 }, true)[2]).toMatch(/^1 session is Codex or omp: /)
+    expect(footnote({ n_unmeasured: 1 }, true)[2]).toBe('1 session is Codex or omp: stalls are not measured for it, because its log does not record when a background task finishes.')
     expect(footnote({ n_unmeasured: 0 }, true)).toHaveLength(2)
     expect(footnote({ n_unmeasured: 1234 }, true)[2]).toMatch(/^1,234 sessions are /)
   })

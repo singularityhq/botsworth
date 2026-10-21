@@ -1,5 +1,5 @@
 import type { GapRow } from '../../api/types'
-import { gapState, stateFill } from '../shared/states'
+import { gapFill } from '../shared/causes'
 import { LedgerFrame, Glyph, When, TimeCell, type RowEnv } from './rowKit'
 import { gapName } from './rowName'
 import type { RowNode } from './rowList.logic'
@@ -31,7 +31,7 @@ export function GapRowTurn({ node, env, firstTurnIsHuman, maxMs }: { node: RowNo
         ),
         bar: (
           <span aria-hidden="true" className="flex w-[104px] justify-end">
-            <i className="block h-3 rounded-[2px]" style={{ width: `${pct}%`, ...stateFill(gapState(g)) }} />
+            <i className="block h-3 rounded-[2px]" style={{ width: `${pct}%`, ...gapFill(g) }} />
           </span>
         ),
         time: <TimeCell ms={g.dur_ms} env={env} />,

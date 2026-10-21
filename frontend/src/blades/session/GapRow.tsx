@@ -2,7 +2,8 @@ import { Duration } from '../../ui/figures'
 import { Icon } from '../../ui/Icon'
 import { FigureCell, Row } from '../../ui/Row'
 import { fmt } from '../../lib/format'
-import { GAP_GLYPH, GAP_LABEL, gapKind, stateFill } from '../shared/states'
+import { gapFill } from '../shared/causes'
+import { GAP_GLYPH, GAP_LABEL, gapKind } from '../shared/states'
 import { gapBarPct, GRID_GAP, GRID_PAD, type ColumnId, type ListEntry } from './turnList.logic'
 import { WhenStack, type RowShared } from './TurnRow'
 
@@ -41,7 +42,7 @@ export function GapRowView({ entry, prevStartMs, maxMs, onOpen, tz, singleDay, c
       </span>
       {has('bar') ? (
         <span aria-hidden="true" className="flex justify-end" style={{ width: 104 }}>
-          <i className="block h-3 rounded-[2px]" style={{ width: `${gapBarPct(g.dur_ms, maxMs)}%`, ...stateFill(entry.state) }} />
+          <i className="block h-3 rounded-[2px]" style={{ width: `${gapBarPct(g.dur_ms, maxMs)}%`, ...gapFill(g) }} />
         </span>
       ) : null}
       {has('cost') ? <span /> : null}

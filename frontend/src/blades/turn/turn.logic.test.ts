@@ -118,6 +118,13 @@ describe('longestInTurn (TRN-4 legend jump)', () => {
     expect(l.none).toBeNull() // 100 s is under 2 min
     expect(l.limit).toBeNull()
   })
+
+  it('keeps a stalled gap out of none and finds the longest stalled gap for its own legend item (SES-26 [D56])', () => {
+    const rows = [gap(100, 300, { state: 'none', substate: 'stalled' }), gap(500, 900, { state: 'none', substate: 'stalled' }), gap(1500, 200, { state: 'none', substate: 'none' })]
+    const l = longestInTurn(rows, 'T')
+    expect(l.stalled).toMatchObject({ dur_ms: 900_000, row: { type: 'gap' } })
+    expect(l.none).toMatchObject({ dur_ms: 200_000 }) // only the none/none gap
+  })
 })
 
 describe('skillCounter (TRN-52)', () => {

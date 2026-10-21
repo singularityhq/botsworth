@@ -251,3 +251,30 @@ describe('scope review blade (REV-21)', () => {
     expect(env.query()).toBe('')
   })
 })
+
+describe('a turn opened over the session Review (REV-6, SES-10 [D56])', () => {
+  it('adds a history entry, so Back returns to Review, while closing the turn rewrites the URL and keeps Ledger', () => {
+    const env = fakeEnv('s=a&sview=review')
+    const nav = createNav(env)
+    nav.openBlade('turn', { t: 2, step: 'gap-1', detail: true, sview: 'ledger' })
+    expect(env.query()).toBe('s=a&t=2&step=gap-1&detail=1') // Ledger is the default and is omitted
+    nav.closeTo('session') // Esc
+    expect(env.log.at(-1)!.how).toBe('replace')
+    expect(env.query()).toBe('s=a')
+  })
+
+  it('Back from the jump lands on Review', () => {
+    const env = fakeEnv('s=a&sview=review')
+    createNav(env).openBlade('turn', { t: 2, sview: 'ledger' })
+    env.back()
+    expect(env.query()).toBe('s=a&sview=review')
+  })
+
+  it('a turn opened from the Ledger still goes back one step on close', () => {
+    const env = fakeEnv('s=a')
+    const nav = createNav(env)
+    nav.openBlade('turn', { t: 2 })
+    nav.closeTo('session')
+    expect(env.log.at(-1)!.how).toBe('back')
+  })
+})

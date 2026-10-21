@@ -10,14 +10,13 @@ import { useUrlState } from '../../state/url'
 import { useBrowserZone } from '../../state/zone'
 import { ErrorCard } from '../../ui/ErrorCard'
 import { Icon } from '../../ui/Icon'
-import { planJump, jumpToast } from '../shared/answers.logic'
+import { planJump, jumpToast, type DisplayKey } from '../shared/answers.logic'
 import {
   biggestRowToast, finderToast, goPlan, matchingRows, noHitToast, rankStep, stepHit, turnPositions, type FinderKind, type Hit,
 } from '../shared/finders'
 import { KeysOverlay } from '../shared/KeysOverlay'
 import { StatusPos } from '../shared/StatusBar'
 import { useStatus } from '../shared/statusCtx'
-import type { StateKey } from '../shared/states'
 import { useFinders } from '../shared/useFinders'
 import { useToast } from '../shared/useToast'
 import { keptTurns, SEARCH_DEBOUNCE_MS, searchRequest } from '../session/sessionSearch'
@@ -359,7 +358,7 @@ export function TurnBlade({ width, compact }: { width: number; compact: boolean 
 
   // ---- legend jump inside this turn (TRN-4) ----
   const jump = useCallback(
-    (state: StateKey) => {
+    (state: DisplayKey) => {
       if (turnOp === null) return
       const plan = planJump(state, longestInTurn(top, turnOp))
       if (plan.kind === 'none') {

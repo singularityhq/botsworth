@@ -5,7 +5,7 @@ import { modelFamily } from '../../lib/model'
 import { EmptyState } from '../../ui/EmptyState'
 import { Icon } from '../../ui/Icon'
 import { Skeleton } from '../../ui/Skeleton'
-import { gapState, stateFill } from '../shared/states'
+import { gapFill } from '../shared/causes'
 import { useElementWidth } from '../shared/useElementWidth'
 import { AxisHead, Bar, Track } from '../shared/Waterfall'
 import { barBox, MIN_BAR_PX } from '../shared/waterfall.logic'
@@ -152,7 +152,7 @@ export function TurnWaterfall(p: TurnWaterfallProps) {
               <b className="fig shrink-0 font-medium text-ink1">{g.dur}</b>
               <span className="truncate text-ink2">{g.label}</span>
             </>
-          ), bar(stateFill(gapState(r)), g.label), <span className="fig text-ink2">{g.dur}</span>, { cursor, onClick: open, className: 'bg-l2', title: `${g.dur} ${g.label}, ${g.reason}` })
+          ), bar(gapFill(r), g.label), <span className="fig text-ink2">{g.dur}</span>, { cursor, onClick: open, className: 'bg-l2', title: `${g.dur} ${g.label}, ${g.reason}` })
         }
       }
     },

@@ -4,10 +4,10 @@ import { Duration } from '../../ui/figures'
 import { Money } from '../../ui/figures'
 import { Skeleton } from '../../ui/Skeleton'
 import { Tooltip } from '../../ui/Tooltip'
-import { LOST_MIN_MS } from './causes'
-import { costCaption, legendStates, runningSplit, stateTotals, substateBreakdown } from './answers.logic'
+import { causeFill, LOST_MIN_MS } from './causes'
+import { costCaption, DISPLAY_KEYS, displayInfo, legendStates, runningSplit, stateTotals, substateBreakdown, type DisplayKey } from './answers.logic'
 import { SplitBar, type Segment } from './SplitBar'
-import { STATE_KEYS, STATES, SUBSTATE_WORDING, stateFill, type StateKey } from './states'
+import { SUBSTATE_WORDING, stateFill } from './states'
 
 export interface AnswersCost {
   cost_usd: number | null
@@ -27,8 +27,8 @@ interface AnswersProps {
   /** A caveat shown as a tooltip on the cost figure (TRN-4, TRN-24: the zoomed cost does not equal the turn's total). */
   costNote?: string
   /** Legend click (SES-27). Without it the legend buttons are inert (the data to jump with has not arrived). */
-  onJump?: (state: StateKey) => void
-  /** REV-2: the session's lost time (the Review's `lost_ms`), shown after "nothing running" from 60 s. Absent until the review has loaded. */
+  onJump?: (state: DisplayKey) => void
+  /** REV-2: the session's lost time (the Review's `lost_ms`), shown after "not running" from 60 s. Absent until the review has loaded. */
   lostMs?: number
   /** REV-2: opens Review. */
   onOpenReview?: () => void
@@ -99,7 +99,7 @@ function CostAnswer({ cost, causal, note }: { cost: AnswersCost | undefined; cau
   )
 }
 
-function TimeAnswer({ wallMs, split, onJump, lostMs, onOpenReview }: { wallMs: number | undefined; split: TimeSplit | undefined; onJump?: (s: StateKey) => void; lostMs?: number; onOpenReview?: () => void }) {
+function TimeAnswer({ wallMs, split, onJump, lostMs, onOpenReview }: { wallMs: number | undefined; split: TimeSplit | undefined; onJump?: (s: DisplayKey) => void; lostMs?: number; onOpenReview?: () => void }) {
   if (wallMs === undefined || !split) {
     return (
       <div aria-busy="true">
@@ -111,14 +111,14 @@ function TimeAnswer({ wallMs, split, onJump, lostMs, onOpenReview }: { wallMs: n
   }
   const totals = stateTotals(split)
   const { running, nothing } = runningSplit(totals, wallMs)
-  const segments: Segment[] = STATE_KEYS.map((k) => ({ key: k, value: totals[k], style: stateFill(k), title: `${STATES[k].label} ${fmt.dur(totals[k])}` }))
+  const segments: Segment[] = DISPLAY_KEYS.map((k) => ({ key: k, value: totals[k], style: fillOf(k), title: `${displayInfo(k).label} ${fmt.dur(totals[k])}` }))
   return (
     <div>
       <div className="flex items-baseline gap-2.5 whitespace-nowrap">
         <span className="fig text-display font-medium text-ink1">{fmt.dur(wallMs)}</span>
         <span className="text-ink3">wall</span>
         <span className="ml-2 text-ink2">
-          <b className="fig font-medium">{fmt.dur(running)}</b> running · <b className="fig font-medium">{fmt.dur(nothing)}</b> nothing running
+          <b className="fig font-medium">{fmt.dur(running)}</b> running · <b className="fig font-medium">{fmt.dur(nothing)}</b> not running
           {lostMs !== undefined && lostMs >= LOST_MIN_MS ? (
             <>
               {' · '}
@@ -131,7 +131,7 @@ function TimeAnswer({ wallMs, split, onJump, lostMs, onOpenReview }: { wallMs: n
           ) : null}
         </span>
       </div>
-      <SplitBar segments={segments} label="Time split over seven states" />
+      <SplitBar segments={segments} label="Time split by state" />
       <div className="flex flex-wrap gap-x-5 gap-y-1">
         {legendStates(totals).map((k) => (
           <Tooltip key={k} content={legendTip(k, split)}>
@@ -141,8 +141,8 @@ function TimeAnswer({ wallMs, split, onJump, lostMs, onOpenReview }: { wallMs: n
               onClick={() => onJump?.(k)}
               className="inline-flex items-center gap-1.5 rounded-chip px-0.5 text-ink3 transition-colors duration-150 hover:text-struct disabled:cursor-default disabled:hover:text-ink3"
             >
-              <i className="block h-2.5 w-2.5 shrink-0 rounded-[2px]" style={stateFill(k)} />
-              {STATES[k].short}
+              <i className="block h-2.5 w-2.5 shrink-0 rounded-[2px]" style={fillOf(k)} />
+              {displayInfo(k).short}
               <Duration ms={totals[k]} ink="ink1" className="font-medium" />
             </button>
           </Tooltip>
@@ -152,10 +152,13 @@ function TimeAnswer({ wallMs, split, onJump, lostMs, onOpenReview }: { wallMs: n
   )
 }
 
+/** The fill of a split-bar segment or legend swatch: `stalled` is REV-1's fill (SES-26 [D56]), the rest are SES-20's. */
+const fillOf = (k: DisplayKey) => (k === 'stalled' ? causeFill('stalled') : stateFill(k))
+
 /** SES-27 tooltip; SES-15: the `you`, `tool` and `none` items list their substates with their durations. */
-function legendTip(k: StateKey, split: TimeSplit): React.ReactNode {
-  const go = `Go to the longest stretch of: ${STATES[k].label}`
-  const rows = substateBreakdown(split, k)
+function legendTip(k: DisplayKey, split: TimeSplit): React.ReactNode {
+  const go = `Go to the longest stretch of: ${displayInfo(k).label}`
+  const rows = k === 'stalled' ? [] : substateBreakdown(split, k)
   if (rows.length === 0) return go
   return (
     <>

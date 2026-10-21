@@ -12,7 +12,7 @@ import { EmptyState } from '../../ui/EmptyState'
 import { ErrorCard } from '../../ui/ErrorCard'
 import { Icon } from '../../ui/Icon'
 import { Tooltip } from '../../ui/Tooltip'
-import { planJump, jumpToast } from '../shared/answers.logic'
+import { planJump, jumpToast, longestStalled, type DisplayKey } from '../shared/answers.logic'
 import {
   biggestTurnToast, finderToast, goPlan, noHitToast, rankStep, rankTurns, stepHit, turnPositions, turnValue, type FinderKind, type From, type Hit,
 } from '../shared/finders'
@@ -33,7 +33,6 @@ import { firstKept, keptTurns, SEARCH_DEBOUNCE_MS, searchRequest } from './sessi
 import { SessionWaterfall, ViewToggle } from './SessionWaterfall'
 import { TurnList } from './TurnList'
 import { buildEntries, cursorStops, initialCursor, moveCursor, withinOneDay, type ListEntry } from './turnList.logic'
-import type { StateKey } from '../shared/states'
 
 const EMPTY_ITEMS: TurnListWire['items'] = []
 
@@ -148,19 +147,19 @@ export function SessionBlade({ width, compact }: { width: number; compact: boole
         show(['That stretch is not inside a numbered turn.'])
         return
       }
-      const patch: Patch = { t: ix, step: ev.row.type === 'turn' ? null : ev.row.id, detail: true, zoom: null, order: null }
-      leaveReview()
+      // SES-10 [D56]: the jump adds a history entry over Review, so Back returns to it; the view is Ledger in the new entry, so Esc from the turn returns to Ledger.
+      const patch: Patch = { t: ix, step: ev.row.type === 'turn' ? null : ev.row.id, detail: true, zoom: null, order: null, sview: 'ledger' }
       if (url.t === null) nav.openBlade('turn', patch)
-      else nav.replace(patch)
+      else nav.push(patch)
     },
-    [ixByOp, nav, show, url.t, leaveReview],
+    [ixByOp, nav, show, url.t],
   )
 
   // ---- legend jump (SES-27) ----
   const jump = useCallback(
-    (state: StateKey) => {
+    (state: DisplayKey) => {
       if (!s) return
-      const plan = planJump(state, s.longest)
+      const plan = planJump(state, { ...s.longest, stalled: longestStalled(items.filter((i): i is GapRowWire => i.type === 'gap')) })
       if (plan.kind === 'none') {
         show(plan.toast)
         return
@@ -174,7 +173,7 @@ export function SessionBlade({ width, compact }: { width: number; compact: boole
       show(jumpToast(plan, ix, tz))
       openTurn(ix, { step: plan.row.id, detail: true })
     },
-    [s, ixByOp, openTurn, show, tz],
+    [s, items, ixByOp, openTurn, show, tz],
   )
 
   // ---- finders: go to a hit (SES-50, SES-57) ----

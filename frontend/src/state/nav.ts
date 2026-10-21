@@ -15,7 +15,7 @@ const TAB = Math.random().toString(36).slice(2)
 interface OpenedTag {
   opened: BladeLevel
   tab: string
-  /** A session opened from the scope review: closing to the explorer closes every blade instead of going back to the review (EXP-9, REV-21). */
+  /** Opened over a Review (the scope review, or the session Review's evidence link): closing rewrites the URL instead of going back, so Esc and the "Sessions" crumb do not return to the Review (EXP-9, REV-6, REV-21). Browser Back still does. */
   fromReview?: boolean
 }
 function isOpenedTag(v: unknown): v is OpenedTag {
@@ -68,14 +68,14 @@ export function createNav(env: UrlEnv): Nav {
           ? { ...reset(current(), ORDER), ...patch, review: true }
           : { ...reset(current(), ORDER.slice(ORDER.indexOf(level))), ...patch },
         'push',
-        { opened: level, tab: TAB, fromReview: level !== 'review' && current().review },
+        { opened: level, tab: TAB, fromReview: level !== 'review' && (current().review || current().sview === 'review') },
       ),
     closeTo: (level) => {
       const cur = current()
       const open = openBlades(cur)
       const top = open[open.length - 1]
       const tag = env.getState()
-      if (top !== 'explorer' && open.indexOf(top) - open.indexOf(level) === 1 && isOpenedTag(tag) && tag.opened === top && !(tag.fromReview && level === 'explorer')) {
+      if (top !== 'explorer' && open.indexOf(top) - open.indexOf(level) === 1 && isOpenedTag(tag) && tag.opened === top && !tag.fromReview) {
         env.back()
         return
       }

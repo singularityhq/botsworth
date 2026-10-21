@@ -1,6 +1,7 @@
 import type { AnyRow, GapRow, NextTurn } from '../../api/types'
 import { fmt } from '../../lib/format'
-import { gapKind, gapReason, GAP_LABEL, gapState, stateFill } from '../shared/states'
+import { gapFill } from '../shared/causes'
+import { gapKind, gapReason, GAP_LABEL } from '../shared/states'
 import { clockSec } from '../turn/turn.logic'
 import { ContextRow } from './ContextRow'
 import { GAP_AGENTS_MAX, gapCaption, limitInference, startsTurnLine } from './detail.logic'
@@ -44,7 +45,7 @@ export function GapDetailView({ ctx, gap, turnWallMs, sessionWallMs, before, aft
           {caption ? <span className="text-ink3">{caption}</span> : null}
         </Hero>
         <p className="flex items-center gap-2 text-ink2">
-          <i aria-hidden="true" className="inline-block h-2.5 w-2.5 shrink-0 rounded-chip" style={stateFill(gapState(gap))} />
+          <i aria-hidden="true" className="inline-block h-2.5 w-2.5 shrink-0 rounded-chip" style={gapFill(gap)} />
           <span>
             {GAP_LABEL[gapKind(gap)]}: {reason}.
           </span>

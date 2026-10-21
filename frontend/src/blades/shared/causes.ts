@@ -1,6 +1,6 @@
 import type { CSSProperties } from 'react'
-import type { Cause } from '../../api/types'
-import { hatch } from './states'
+import type { Cause, Stretch } from '../../api/types'
+import { hatch, stateFill } from './states'
 
 /** REV-1: the eight causes of wall time, in DM-56 order. One table for the header claim, the bars and the cards. */
 export const CAUSE_KEYS: readonly Cause[] = ['stalled', 'tests', 'polling', 'you', 'message', 'limit', 'working', 'idle']
@@ -38,3 +38,11 @@ export function causeFill(c: Cause): CSSProperties {
 
 /** REV-2, REV-4, REV-5: lost time is shown from 60 s. */
 export const LOST_MIN_MS = 60_000
+
+/** SES-19a, SES-20 [D56]: a `none`/`stalled` stretch is drawn as the `stalled` cause (REV-1: `--color-error`, hatched) wherever stretches are drawn. */
+export const isStalled = (g: Pick<Stretch, 'state' | 'substate'>): boolean => g.state === 'none' && g.substate === 'stalled'
+
+/** The fill of a stretch's bar or swatch: the `stalled` fill for a stalled stretch, else its state's fill. */
+export function gapFill(g: Pick<Stretch, 'state' | 'substate'>): CSSProperties {
+  return isStalled(g) ? causeFill('stalled') : stateFill(g.state)
+}

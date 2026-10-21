@@ -7,11 +7,12 @@ import { Icon } from '../../ui/Icon'
 import { Segmented } from '../../ui/Segmented'
 import { Skeleton } from '../../ui/Skeleton'
 import { makeAxis } from '../shared/histogram.logic'
-import { GAP_GLYPH, GAP_LABEL, gapKind, kindOf, stateFill } from '../shared/states'
+import { gapFill } from '../shared/causes'
+import { GAP_GLYPH, GAP_LABEL, gapKind, kindOf } from '../shared/states'
 import { AxisHead, Bar, Track } from '../shared/Waterfall'
 import { useElementWidth } from '../shared/useElementWidth'
 import {
-  agentTails, axisCaption, barBox, gapBarState, gapFolds, SESSION_FOLD_MIN_MS, SESSION_FOLD_PX, turnSpan, TAIL_PX,
+  agentTails, axisCaption, barBox, gapFolds, SESSION_FOLD_MIN_MS, SESSION_FOLD_PX, turnSpan, TAIL_PX,
 } from '../shared/waterfall.logic'
 import { HarnessFold } from './HarnessFold'
 import { waterfallTemplate } from './sessionWaterfall.logic'
@@ -223,7 +224,7 @@ function WfGapRow({ entry, prevStartMs, onOpen, tz, singleDay, template, axis }:
       <span className="flex justify-end">
         <Duration ms={g.dur_ms} />
       </span>
-      <Track>{axis ? <Bar box={barBox(axis, g.start_ms, g.end_ms)} height={BAR_H} style={stateFill(gapBarState(g))} title={GAP_LABEL[gapKind(g)]} /> : null}</Track>
+      <Track>{axis ? <Bar box={barBox(axis, g.start_ms, g.end_ms)} height={BAR_H} style={gapFill(g)} title={GAP_LABEL[gapKind(g)]} /> : null}</Track>
       <span />
     </div>
   )

@@ -2,18 +2,17 @@ import { describe, expect, it } from 'vitest'
 import { fixtures } from '../../api/__fixtures__'
 import type { TimeSplit } from '../../api/types'
 import {
-  costCaption, gapStartMs, jumpToast, legendStates, planJump, runningSplit, segmentWidths, stateTotals, totalsSum, substateBreakdown,
+  costCaption, DISPLAY_KEYS, gapStartMs, longestStalled, jumpToast, legendStates, planJump, runningSplit, segmentWidths, stateTotals, totalsSum, substateBreakdown,
   type Longest,
 } from './answers.logic'
-import { STATE_KEYS } from './states'
 
 const S = fixtures.sessionDetail.session
 
 describe('stateTotals (SES-15, SES-16)', () => {
-  it('the seven segments sum to the wall (fixture session)', () => {
+  it('the eight segments (seven states and stalled) sum to the wall (fixture session)', () => {
     const t = stateTotals(S.time_split as TimeSplit)
     expect(totalsSum(t)).toBe(S.wall_ms)
-    expect(t).toEqual({ model: 120000, tool: 45000, agents: 300000, you: 30000, agentmsg: 0, limit: 30000, none: 0 })
+    expect(t).toEqual({ model: 120000, tool: 45000, agents: 300000, you: 30000, agentmsg: 0, limit: 30000, stalled: 0, none: 0 })
   })
 
   it('the legend `you` sums its substates (SES-15, D54)', () => {
@@ -27,13 +26,13 @@ describe('stateTotals (SES-15, SES-16)', () => {
     expect(t.none).toBe(45)
   })
 
-  it('lists background under tool and stalled under none for the legend tooltip, leaving out other substates (SES-15, D55)', () => {
+  it('lists background under tool for the legend tooltip, leaving out other substates, and lists no substate under none: stalled has its own item (SES-15, D55, D56)', () => {
     const split: TimeSplit = { parts: [
       { state: 'tool', substate: null, ms: 7 }, { state: 'tool', substate: 'background', ms: 40 },
       { state: 'none', substate: 'none', ms: 5 }, { state: 'none', substate: 'before_first', ms: 6 }, { state: 'none', substate: 'stalled', ms: 90 },
     ] }
     expect(substateBreakdown(split, 'tool')).toEqual([{ substate: 'background', ms: 40 }])
-    expect(substateBreakdown(split, 'none')).toEqual([{ substate: 'stalled', ms: 90 }])
+    expect(substateBreakdown(split, 'none')).toEqual([])
     expect(substateBreakdown(split, 'model')).toEqual([])
   })
 
@@ -46,16 +45,17 @@ describe('stateTotals (SES-15, SES-16)', () => {
     expect(substateBreakdown(split, 'agents')).toEqual([{ substate: 'test', ms: 20 }])
   })
 
-  it('counts background as running time and stalled as nothing running; the seven totals still sum to the wall (SES-19a, SES-26)', () => {
+  it('counts background as running time and stalled as its own total, outside none; the totals still sum to the wall (SES-19a, SES-26 [D56])', () => {
     const split: TimeSplit = { parts: [
       { state: 'model', substate: null, ms: 100 }, { state: 'tool', substate: null, ms: 10 }, { state: 'tool', substate: 'background', ms: 40 },
       { state: 'none', substate: 'stalled', ms: 90 }, { state: 'none', substate: 'none', ms: 60 },
     ] }
     const t = stateTotals(split)
     expect(t.tool).toBe(50)
-    expect(t.none).toBe(150)
+    expect(t.stalled).toBe(90)
+    expect(t.none).toBe(60)
     expect(totalsSum(t)).toBe(300)
-    expect(runningSplit(t, 300)).toEqual({ running: 150, nothing: 150 })
+    expect(runningSplit(t, 300)).toEqual({ running: 150, nothing: 150 }) // B = wall - A still holds the stalled time
   })
 
   it('lists the substates of you for the legend tooltip, in SES-15 order, leaving out empty ones', () => {
@@ -72,7 +72,7 @@ describe('stateTotals (SES-15, SES-16)', () => {
 })
 
 describe('legendStates (SES-26)', () => {
-  const base = Object.fromEntries(STATE_KEYS.map((k) => [k, 0])) as ReturnType<typeof stateTotals>
+  const base = Object.fromEntries(DISPLAY_KEYS.map((k) => [k, 0])) as ReturnType<typeof stateTotals>
 
   it('keeps states of 30 s or more, largest first', () => {
     const t = { ...base, model: 120000, tool: 45000, agents: 300000, you: 30000, limit: 29999 }
@@ -91,6 +91,17 @@ describe('legendStates (SES-26)', () => {
   it('before_first sits inside none: a session whose only wait is before the first message lists "nothing running" (D41 M11)', () => {
     const t = stateTotals({ parts: [{ state: 'model', substate: null, ms: 100000 }, { state: 'none', substate: 'before_first', ms: 1860000 }] })
     expect(legendStates(t)).toEqual(['none', 'model'])
+  })
+
+  it('lists stalled first when it is 30 s or more, even when other states are larger, and counts it toward the four', () => {
+    expect(legendStates({ ...base, stalled: 30000, model: 900000, tool: 800000, agents: 700000, you: 600000 })).toEqual(['stalled', 'model', 'tool', 'agents'])
+    expect(legendStates({ ...base, stalled: 29999, model: 900000 })).toEqual(['model'])
+  })
+
+  it('leaves stalled out of nothing running: a session with only stalled time lists "stalled" and no "nothing running"', () => {
+    const t = stateTotals({ parts: [{ state: 'model', substate: null, ms: 100000 }, { state: 'none', substate: 'stalled', ms: 600000 }, { state: 'none', substate: 'none', ms: 10000 }] })
+    expect(t).toMatchObject({ stalled: 600000, none: 10000 })
+    expect(legendStates(t)).toEqual(['stalled', 'model'])
   })
 
   it('ties keep the SES-15 order', () => {
@@ -150,6 +161,18 @@ describe('planJump (SES-27)', () => {
     expect(planJump('none', short).kind).toBe('none')
     const ok = { ...L, none: { row: { type: 'gap' as const, id: 'gap-1' }, turn: 't', dur_ms: 120000 } }
     expect(planJump('none', ok).kind).toBe('go')
+  })
+
+  it('a click on stalled goes to the longest stalled stretch, found among the gap rows, and not to a longer none stretch', () => {
+    const gap = (id: string, dur_ms: number, substate: string) => ({ id, turn: 't2', dur_ms, state: 'none' as const, substate })
+    const stalled = longestStalled([gap('gap-1', 600000, 'stalled'), gap('gap-2', 900000, 'none'), gap('gap-3', 1200000, 'stalled'), gap('gap-4', 99000, 'stalled')])
+    expect(stalled).toEqual({ row: { type: 'gap', id: 'gap-3' }, turn: 't2', dur_ms: 1200000 })
+    expect(planJump('stalled', { ...L, stalled })).toMatchObject({ kind: 'go', state: 'stalled', durMs: 1200000, row: { id: 'gap-3' } })
+    expect(longestStalled([gap('gap-2', 900000, 'none')])).toBeNull()
+  })
+
+  it('stalled with no stretch of 2 min says so', () => {
+    expect(planJump('stalled', { ...L, stalled: null })).toEqual({ kind: 'none', toast: ['No single stretch of stalled is 2 min or longer; the total is many short pauses.'] })
   })
 
   it('no tool run at all gives its own toast', () => {

@@ -102,12 +102,11 @@ export const SUBSTATE_WORDING = {
 } as const
 export type WordedSubstate = keyof typeof SUBSTATE_WORDING
 
-/** The substates with wording per state, in SES-15 order. The legend tooltip of `you`, `tool` and `none` lists them (SES-15). */
+/** The substates with wording per state, in SES-15 order. The legend tooltip of `you`, `tool` and `agents` lists them (SES-15); `none`/`stalled` has its own legend item (D56). */
 export const LEGEND_SUBSTATES: Partial<Record<StateKey, readonly WordedSubstate[]>> = {
   you: ['ask', 'permission', 'reply'],
   tool: ['background', 'test', 'wait'],
   agents: ['test', 'wait'],
-  none: ['stalled'],
 }
 
 /** TRN-32: the flag on a tool row that waited on the user. */

@@ -1,10 +1,12 @@
-import type { AnyRow, GapRow, RowRef, SessionDetail, TurnRow } from '../../api/types'
+import type { AnyRow, GapRow, RowRef, TurnRow } from '../../api/types'
 import { fmt } from '../../lib/format'
 import type { Bars, MsRange } from '../../state/url'
 import { excludedFromTimeRanking, clip } from '../shared/finders'
 import { makeAxis, tzOffsetMs, type Axis } from '../shared/histogram.logic'
 import { gapFolds } from '../shared/waterfall.logic'
 import { GAP_MIN_MS, gapState } from '../shared/states'
+import { isStalled } from '../shared/causes'
+import type { LongestWithStalled } from '../shared/answers.logic'
 import type { Rich } from '../shared/toastText'
 import { hasRows } from '../session/turnList.logic'
 import type { AnswersCost } from '../shared/Answers'
@@ -153,13 +155,10 @@ export function sessionEdgeToast(dir: 1 | -1): Rich {
 
 // ---- legend jump inside the turn (TRN-4) ----------------------------------------------------------------------------------------
 
-type Longest = SessionDetail['session']['longest']
-
 /** The longest main-thread call, tool and gap of each state (`you` also counts tool rows that waited on the user) in this turn: what a legend click in the turn blade goes to (R3-proto `jumpState(k, "t")`). */
-export function longestInTurn(rows: readonly AnyRow[], turn: string): Longest {
-  const none: Longest = { model: null, tool: null, agents: null, you: null, agentmsg: null, limit: null, none: null }
-  const out = { ...none }
-  const take = (state: keyof Longest, row: RowRef, dur: number | null) => {
+export function longestInTurn(rows: readonly AnyRow[], turn: string): LongestWithStalled {
+  const out: LongestWithStalled = { model: null, tool: null, agents: null, you: null, agentmsg: null, limit: null, none: null, stalled: null }
+  const take = (state: keyof LongestWithStalled, row: RowRef, dur: number | null) => {
     if (dur === null || (out[state] !== null && out[state]!.dur_ms >= dur)) return
     out[state] = { row, turn, dur_ms: dur }
   }
@@ -167,7 +166,7 @@ export function longestInTurn(rows: readonly AnyRow[], turn: string): Longest {
     if (r.type === 'call' && r.depth === 0) take('model', { type: 'call', id: r.id }, r.dur_ms)
     else if (r.type === 'tool' && r.depth === 0 && r.user_wait !== null) take('you', { type: 'tool', id: r.id }, r.dur_ms) // QRY-29: a main-thread call that waited on the user is a `you` target (D54)
     else if (r.type === 'tool' && r.depth === 0 && !excludedFromTimeRanking(r)) take('tool', { type: 'tool', id: r.id }, r.dur_ms)
-    else if (r.type === 'gap' && r.dur_ms >= GAP_MIN_MS) take(gapState(r), { type: 'gap', id: r.id }, r.dur_ms)
+    else if (r.type === 'gap' && r.dur_ms >= GAP_MIN_MS) take(isStalled(r) ? 'stalled' : gapState(r), { type: 'gap', id: r.id }, r.dur_ms)
   }
   return out
 }

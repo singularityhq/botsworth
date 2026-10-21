@@ -43,4 +43,14 @@ describe('gap rows of D55 (SES-19a)', () => {
     expect(screen.getByText('Background command')).toBeTruthy()
     expect(screen.getByText('a background test run ran; nothing else did')).toBeTruthy()
   })
+
+  it('draws the bar of a Stalled gap with the stalled fill (--color-error, hatched) and no other gap with it (SES-19a [D56])', () => {
+    mount(gapEntry({ state: 'none', substate: 'stalled' }))
+    const bar = document.querySelector('i.rounded-\\[2px\\]') as HTMLElement
+    expect(bar.style.background).toContain('var(--color-error)')
+    expect(bar.style.boxShadow).toBe('inset 0 0 0 1px var(--color-error)')
+    cleanup()
+    mount(gapEntry({ state: 'none', substate: 'none' }))
+    expect((document.querySelector('i.rounded-\\[2px\\]') as HTMLElement).style.background).toContain('var(--st-none)')
+  })
 })

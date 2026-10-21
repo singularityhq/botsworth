@@ -27,7 +27,9 @@ export function claim(r: ClaimInput, scope = false): string[] {
   if (unmeasured) stalls = scope ? 'Stalls are not measured for these sessions.' : 'Stalls are not measured for this session.'
   else {
     const part = r.n_unmeasured > 0 ? ` (${fmt.count(r.n_unmeasured)} not measured)` : ''
-    stalls = hasLoss(r) ? `${fmt.dur(r.lost_ms)} was lost to stalls${part}.` : `Nothing was lost to a stall${part}.`
+    // 60 s and more is shown as a figure; under that, "Under a minute" never contradicts a stalled legend item; 0 is nothing (REV-4).
+    if (hasLoss(r)) stalls = `${fmt.dur(r.lost_ms)} was lost to stalls${part}.`
+    else stalls = r.lost_ms > 0 ? `Under a minute was lost to stalls${part}.` : `Nothing was lost to a stall${part}.`
   }
   const largest = largestCause(r.causes)
   return largest === null ? [`${lead} ${stalls}`] : [`${lead} ${stalls}`, `The largest cause was ${CAUSES[largest.cause].label.toLowerCase()} (${fmt.dur(largest.ms)}).`]
@@ -90,7 +92,7 @@ export function legend(causes: readonly CausePart[]): CausePart[] {
 
 /** "reviewer, builder, scout +1": at most 3 names, then "+N". */
 export function threadsText(threads: readonly string[]): string {
-  const shown = threads.slice(0, 3).join(', ')
+  const shown = threads.slice(0, 3).map((t) => (t === 'main' ? 'the main thread' : t)).join(', ')
   return threads.length > 3 ? `${shown} +${threads.length - 3}` : shown
 }
 
@@ -174,11 +176,13 @@ export function evidenceText(f: Finding, tz: string, scope = false): string | nu
 export function footnote(r: Pick<ReviewReport, 'n_unmeasured'>, scope = false): string[] {
   const base = 'Measured from the log. Only stalls count as lost: a finished task waited for an agent that was not running. Tests and polling count only while nothing else on that thread ran.'
   const out = [base]
-  if (scope) out.push('Sessions count whole (a session active in the period counts in full), so a longest example can lie before the period.')
+  if (scope) out.push('Sessions count whole (a session active in the period counts in full), so a longest example can lie outside the period.')
   if (r.n_unmeasured > 0) {
     out.push(
       scope
-        ? `${fmt.count(r.n_unmeasured)} ${r.n_unmeasured === 1 ? 'session is' : 'sessions are'} Codex or omp: stalls are not measured for them, because their logs do not record when a background task finishes.`
+        ? r.n_unmeasured === 1
+          ? '1 session is Codex or omp: stalls are not measured for it, because its log does not record when a background task finishes.'
+          : `${fmt.count(r.n_unmeasured)} sessions are Codex or omp: stalls are not measured for them, because their logs do not record when a background task finishes.`
         : 'Stalls are not measured for Codex and omp sessions: their logs do not record when a background task finishes.',
     )
   }

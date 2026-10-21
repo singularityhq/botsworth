@@ -9,7 +9,7 @@ import { Tooltip } from '../../ui/Tooltip'
 import { Answers, type AnswersCost } from '../shared/Answers'
 import { showUnattributed } from '../shared/answers.logic'
 import { ModelTable } from '../shared/ModelTable'
-import type { StateKey } from '../shared/states'
+import type { DisplayKey } from '../shared/answers.logic'
 
 type Session = SessionDetail['session']
 
@@ -37,7 +37,7 @@ interface HeaderProps {
   onToggleInfo: () => void
   onClearRange: () => void
   /** SES-27; undefined until the turn list has loaded. */
-  onJump: ((state: StateKey) => void) | undefined
+  onJump: ((state: DisplayKey) => void) | undefined
   /** REV-2: the Review's `lost_ms`, once the review has loaded; opens Review. */
   lostMs?: number
   onOpenReview?: () => void

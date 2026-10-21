@@ -8,7 +8,8 @@ import { Tooltip } from '../../ui/Tooltip'
 import { Answers, type AnswersCost } from '../shared/Answers'
 import { costFromRow, ZOOM_COST_NOTE } from './turn.logic'
 import { ModelTable } from '../shared/ModelTable'
-import { kindOf, type StateKey } from '../shared/states'
+import { kindOf } from '../shared/states'
+import type { DisplayKey } from '../shared/answers.logic'
 
 type Turn = TurnRows['turn']
 
@@ -69,7 +70,7 @@ export interface TurnHeaderProps {
   onToggleInfo: () => void
   onClearZoom: () => void
   onOpenMessage: () => void
-  onJump: ((state: StateKey) => void) | undefined
+  onJump: ((state: DisplayKey) => void) | undefined
   /** Replaces the answers when the rows request failed (TRN-61). */
   answersError?: React.ReactNode
 }
