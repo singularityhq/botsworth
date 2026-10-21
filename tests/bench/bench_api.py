@@ -9,12 +9,13 @@ GUARANTEES:
   commands are timed by calling `project_slow`, `session_breakdown` and `top_tasks` with `db=<path>`.
 - Warm: 3 discarded runs, then `--runs` (default 20) timed runs. p50 and p95 by linear interpolation.
 - Arguments are chosen from the store (largest session by llm_calls, largest main turn, largest
-  agent row, 7-day and all-time periods in the machine zone ending at `meta.last_ingest_ms`) and are written to the
-  report with the store size and row counts.
+  agent row, 7-day and all-time periods in the machine zone ending on the day of the newest non-automated
+  session's start, so every window holds data however long ago the store was ingested) and are written to
+  the report with the store size and row counts.
 - For every case over its target the report carries the slowest statements of one traced run, each with
   its `EXPLAIN QUERY PLAN`. A traced run of every case also tells which API-51 indexes a plan uses.
 - Exit 1 when a request fails, an API-51 index is missing, or a p95 exceeds its target by more than
-  50 % (TST-5). Exit 0 with a message when the store is missing or its schema is not 7.
+  50 % (TST-5). Exit 0 with a message when the store is missing or its schema is not 10.
 - `--self-test --db STORE [--roots DIR]` runs every case once against a fixture store, no targets, no
   report file; `DIR` holds one subdirectory per provider (the `qroots` layout).
 EXPECTS: a schema 10 store with `ANALYZE` run (DM-5).
@@ -132,7 +133,9 @@ def choose(db: Path) -> Args:
     conn = ro(db)
     meta = dict(conn.execute("SELECT key, value FROM meta").fetchall())
     tz, last = resolve_tz(), int(meta["last_ingest_ms"])  # D50: the zone is a request parameter
-    today = local_day(last, tz).date()
+    newest = conn.execute("SELECT MAX(first_ms) FROM sessions WHERE is_automated = 0").fetchone()[0]
+    assert newest is not None, "the store has no non-automated session"
+    today = local_day(newest, tz).date()  # the windows end at the newest data, not at the ingest time
     day = lambda n: (today - timedelta(days=n)).isoformat()  # noqa: E731
 
     top = conn.execute(
@@ -532,7 +535,7 @@ def render(a: Args, results: list[Result], idx: dict[str, bool], runs: int, db: 
     lines += [f"| {k} | {v:,} |" for k, v in a.counts.items()]
     lines += ["", "## Arguments", ""]
     lines += [
-        f"- tz `{a.tz}`; last ingest {local_day(a.last_ingest_ms, a.tz).isoformat()}; today {a.today};"
+        f"- tz `{a.tz}`; last ingest {local_day(a.last_ingest_ms, a.tz).isoformat()}; windows end {a.today} (newest session);"
         f" 7d = {a.day7_from}..{a.today}; 30d from {a.day30_from}; 92-day window from {a.day92_from}.",
         f"- Largest session by llm_calls: `{a.session}` ({a.session_n_calls:,} calls). Second: `{a.session2}`.",
         f"- Session with the most main turns: `{a.turns_session}` ({a.turns_session_n} turns).",
