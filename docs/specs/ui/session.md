@@ -81,6 +81,7 @@ SES-8 — URL state. The blades add these query parameters to the explorer's (EX
 | `range` | `<start_ms>-<end_ms>` (session histogram range) | none | session |
 | `over` | `1` (session "Over time" open) | closed | session |
 | `sview` | `waterfall`, `review` [D56] | `ledger` | session |
+| `review` | `1` (the scope review blade, review.md REV-21) [D56] | closed | scope review |
 | `sreal` | `1` (session Waterfall on real time) | folded | session |
 | `info` | `1` (session "Details" open) | closed | session |
 | `t` | the turn's `display_ix` | none (no turn blade) | turn |

@@ -100,6 +100,44 @@ adds no figure of its own except `wall − lost` and shares.
 
 ## 3. Project (slice 3)
 
-REV-20 — Scope review. Reserved for elevate slice 3 (J3): the same claim, bars and cards over `scope_review` for the
-explorer's current scope, with each card listing its top sessions (`sessions`) as links that open the session in
-Review. Specified when slice 3 starts.
+REV-20 — Scope review (elevate slice 3, J3 "the Friday check"). The same claim, bars and cards over
+`scope_review` (API-33 `GET /api/explorer/review`) for the explorer's current scope: period, search and every filter,
+the same in-scope sessions as the list (EXP-2, QRY-9 full sessions). It answers "where did this project lose time
+this week, and in which sessions?".
+
+REV-21 — Entry. The explorer totals line (EXP-12) ends with one more item, 16 px after the last: a text button that
+reads "**<lost>** lost" (figure mono 500 `--color-error`, word ink2) when the scope's `lost_ms` ≥ 60 s, else
+"Review" (ink2); tooltip "Where this scope lost time (r)". While the scope review is loading or failed, the item is
+not shown. `r`, when the explorer list has focus and no blade is open, opens it too. It opens the scope review as
+blade 1 (SYS-46), replacing an open session blade and closing blades to its right; the explorer shows the rail
+(EXP-60). URL `review=1` (EXP-74; omitted when closed; `review` and `s` are never both set, the later action wins).
+Opening it adds a history entry (EXP-76). Esc or Back closes it (SYS-50).
+
+REV-22 — Blade layout. Header (SES-26 padding): title "Review" 20/600, then on line 2 in 14 ink3 the period title
+(EXP-10 text) and "· N sessions"; with any filter or search active, also "· filtered". Below it, REV-4 to REV-6 with
+these changes:
+- claim, first sentence: "<wall> of session time in <n_sessions> sessions. <lost> was lost to stalls." (or
+  "… Nothing was lost to a stall."). `wall_ms` is a sum over sessions, so it can exceed the period's clock time;
+  the words "session time" say so;
+- bars: as REV-5, captions "As it ran" and "Without the stalls";
+- cards: as REV-6, and the evidence line names the session: "Longest: <name>, <Ddd Mon D> HH:MM–HH:MM, <dur>"
+  (`Evidence.name`, QRY-42); it opens that session at the row (SES-51 jump, view Ledger) as blade 1, replacing the
+  scope review; Back returns to it;
+- each card adds a line "Most in:" (14 ink3) followed by up to 3 session links from `sessions`, each "<name>
+  <ms>" (name 14 struct, ms mono ink2), separated by " · ". A link opens that session as blade 1 in Review
+  (`sview=review`), replacing the scope review; Back returns to it;
+- footnote: REV-4's text; when `n_unmeasured` > 0, "<n_unmeasured> sessions are Codex or omp: stalls are not
+  measured for them, because their logs do not record when a background task finishes."
+
+REV-23 — Scope changes while the blade is open (period, search, filters through the rail search or ⌘K) refetch the
+review; the previous content stays until the new data arrives (EXP-78). With 0 in-scope sessions the blade shows
+"No sessions in this scope." (14 ink2) and no bars or cards.
+
+REV-24 — States: as REV-7 (skeletons; the SYS-56 error card with retry). A scope review does not depend on any
+session blade.
+
+REV-25 — Truth: every figure is a field of the API-33 scope response, except `wall − lost` and shares.
+  Scenario: Given the real store, project acme/src and the last 4 days, when the user presses `r` in the
+  explorer, then the claim names 35 sessions and the lost figure equals `slow --project acme/src --since 4d`
+  `review.lost_ms`, the stalled card's "Most in:" starts with master-control-acme, and clicking it opens that
+  session in Review.

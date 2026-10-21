@@ -273,7 +273,8 @@ QRY-42 [D56] — Review. `session_review(session)` and `scope_review(scope)` ret
 ```ts
 type Cause = 'stalled' | 'tests' | 'polling' | 'you' | 'message' | 'limit' | 'working' | 'idle'
 interface CausePart { cause: Cause; ms: number }               // all eight, in this order; Σ ms = wall_ms
-interface Evidence { session: string; session_id: string; row: RowRef | null; turn: string | null; display_id: string | null;
+interface Evidence { session: string; session_id: string; name: string;   // name: the session's display name (as `sessions[].name`)
+                     row: RowRef | null; turn: string | null; display_id: string | null;
                      start_ms: number; end_ms: number; dur_ms: number }
 interface Finding { cause: 'stalled' | 'tests' | 'polling' | 'you' | 'message'; ms: number; lost: boolean;
                     n: number;                                  // stalled, you, message: stretches of ≥ 2 min; tests, polling: tool_calls of that class
