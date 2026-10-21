@@ -598,12 +598,39 @@ def test_ingest_on_old_store_swaps(tmp_path, logs, monkeypatch, capsys):
     assert code == 0 and json.loads(out)["mode"] == "incremental"
 
 
-def test_ingest_rebuild_flag_swaps_a_current_store(tmp_path, logs, capsys):
+@pytest.fixture
+def all_logs(tmp_path, monkeypatch, logs) -> dict[str, Path]:
+    """Every provider root is a test folder: Claude Code holds the F2 fixture (`logs`), the others are empty.
+    `--rebuild` reads all providers (it takes no `--provider`), so a root left at its default would read the
+    user's real ~/.codex or ~/.omp."""
+    roots = {"claude_code": logs}
+    for provider in pipeline.DEFAULT_ROOTS:
+        if provider not in roots:
+            roots[provider] = tmp_path / f"empty-{provider}"
+            roots[provider].mkdir()
+            monkeypatch.setitem(pipeline.DEFAULT_ROOTS, provider, roots[provider])
+    assert dict(pipeline.DEFAULT_ROOTS) == roots
+    return roots
+
+
+def test_ingest_rebuild_flag_swaps_a_current_store(tmp_path, all_logs, capsys):
+    # D52: `--rebuild` on a store that is already current builds a new store from every provider's logs and
+    # renames it over the old one. It loads what a full ingest of the same logs loads and leaves no files.
     db = tmp_path / "s.sqlite"
-    assert _ingest(capsys, db)[0] == 0
+    code, out, _ = run(capsys, "--db", str(db), "ingest")
+    first = json.loads(out)
+    assert code == 0 and first["mode"] == "rebuild"  # a missing store is built new
+    assert _meta(db)["schema_version"] == str(schema.SCHEMA_VERSION)  # so the next run sees a current store
     code, out, err = run(capsys, "--db", str(db), "ingest", "--rebuild")
     assert (code, err) == (0, "")
-    assert json.loads(out)["mode"] == "rebuild" and json.loads(out)["store"]["loaded"] == 1
+    report = json.loads(out)
+    assert report["mode"] == "rebuild"
+    assert set(report["providers"]) == set(all_logs)  # every provider is read, each from its test folder
+    for provider, root in all_logs.items():
+        got = report["providers"][provider]
+        assert Path(got["root"]) == root, provider
+        assert got["rebuilt"] == got["discovered"] == (1 if provider == "claude_code" else 0), provider
+    assert report["store"]["loaded"] == first["store"]["loaded"] == 1
     assert _meta(db)["schema_version"] == str(schema.SCHEMA_VERSION)
     assert _leftovers(db) == []
 
