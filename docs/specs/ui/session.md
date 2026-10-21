@@ -394,7 +394,7 @@ SES-86 — Reduced motion (SYS-59): no blade slide, no toast fade, no histogram 
 |---|---|---|
 | Session: `display_title`, `title_source`, project name, dot slot, first/last ms, `incl_cost_usd`, `cost_lower_bound`, `wall_ms`, `active_ms`, `incl_tok_total` | header, rail | S2 DM-10, DM-60; exists |
 | Session: `model_ms`, `tool_ms`, `agents_ms`, `none_ms` | time answer | S2 DM-51 |
-| Idle stretches with `next_turn_kind` | gap rows, legend, `w` | S2 DM-52 |
+| Idle stretches with their stored state and substate [D54] | gap rows, legend, `w` | S2 DM-52 |
 | Per stretch: the next turn's origin and label (for `agentmsg`, `limit`) | SES-15, SES-17 | needs S3 (join) |
 | Agents-only stretches ≥ 2 min (state `agents` in `stretches`), with the engagements running | SES-19, `w`, legend | D37 |
 | Per main turn: `turn_kind`, `turn_origin`, `display_ix`, label, start/end, `attr_cost_usd`, `attr_tok_total`, `attr_cost_lower_bound` | rows, `b` | S2 DM-20–24, DM-45 |
@@ -424,7 +424,7 @@ SES-86 — Reduced motion (SYS-59): no blade slide, no toast fade, no histogram 
 | Q5 | `crosshair` (Biggest chip), `keyboard` (keys button) are not in SYS-28's glyph map. | Add both to SYS-28 with a sign-off line: Biggest finder = `crosshair`; keyboard overlay = `keyboard`. | D37 |
 | Q6 | The histograms are mouse-only (R3 §8). | Add keyboard range selection later, with the explorer chart's pattern (EXP-38a). | D37 |
 | Q7 | D33 says "model shown on turns"; R3 removed model marks from turn rows. | D33 wins: compact marks in the flags slot (SES-34). R3's concern was clutter, so at most 2 shapes. | D37 |
-| Q8 | DM-40: long derived tool durations (`max_silence_ms ≥ 5 min`) and `waits_on_user` tools would top any ranking by time. | Keep them as rows with `≈` and their flag (TRN-32). Leave them out of `b` by time, and sort them after all other rows in the Duration order (TRN-14). | D37 |
+| Q8 | DM-40: long derived tool durations (`max_silence_ms ≥ 5 min`) and tools with `user_wait` set [D54] would top any ranking by time. | Keep them as rows with `≈` and their flag (TRN-32). Leave them out of `b` by time, and sort them after all other rows in the Duration order (TRN-14). | D37 |
 | Q9 | A subagents-only session has no main turns, so its agent work has no turn and the list is empty. | Show the empty state (SES-83) and the cost in "Agent work with no turn"; a list of its agents is a later item. | D37 |
 
 ## 11. Open questions (with the answer this spec applies)

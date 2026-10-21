@@ -159,7 +159,7 @@ QRY-30 — `session_turns(session, min_gap_ms)` returns every main turn and ever
 - Gap rows are stretches of state `you`, `agentmsg`, `limit` or `none` with `dur_ms ≥ min_gap_ms` (default 120000, SES-16) that end where a main turn starts or that lie before the first numbered turn (SES-36). `agents` stretches are never gap rows here (SES-19).
 - Invariant: Σ turns' `cost_usd` + `session.cost.unattributed` = the session's `cost.total` (DM-45).
 
-  Scenario: Given session a11ce5e5, then a 1h02m gap row with `label = 'limit'` sits directly above the resume turn, and its `next_turn.label` starts with "I hit my usage limit" (SES-17).
+  Scenario: Given session a11ce5e5, then a 1h02m gap row with `state = 'limit'` sits directly above the resume turn, and its `next_turn.label` starts with "I hit my usage limit" (SES-17).
 
 QRY-31 — `turn_rows(turn, from_ms=None, to_ms=None)` returns the Ledger and Waterfall rows of one main turn, at depth 0, ordered as it ran (TRN-30–34; DM-46):
 - one `CallRow` per owned llm_call whose parent is this turn. It carries its own think, say and answer steps (`steps`) for the row name and the "final" tag (TRN-31);
@@ -866,7 +866,7 @@ TST-6 — Frontend tests:
 | Over time: bins, state lane, turn ticks, skill pins, folds (SES-29) | `Histogram` (session) | API-31 |
 | Turn row: kind and origin, number, label, flags, Cost, Wall, Waiting, Tokens (SES-34; SES-21 span, D37) | `TurnRow` | API-21 |
 | Harness folds with cost (SES-35) | `kind = 'harness'`, `cost_usd` | API-21 |
-| Gap rows and their labels and reasons; usage limit (SES-17, SES-18, SES-36) | `GapRow.label`, `next_turn` (origin and label; D37) | API-21 |
+| Gap rows and their labels and reasons; usage limit (SES-17, SES-18, SES-36) | `GapRow.state`, `GapRow.substate`, `next_turn` (origin and label; D37; D54) | API-21 |
 | Waterfall agent tails (SES-42; D37) | `TurnRow.agent_runs` | API-21 |
 | Search: matching rows per turn (SES-32, SES-34 item 4) | `find?kind=search` → `hits`, `per_turn` | API-25 |
 | Finder pools `b w e s a` (SES-51–56) | `find?kind=…` | API-25 |
