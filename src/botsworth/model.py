@@ -14,6 +14,8 @@ GUARANTEES:
   (tool_call only), `Op.title_source`/`entrypoint`/`originator` (session only, in
   `SESSION_ONLY_FIELDS`), `SourceFile.ts_list` (sorted epoch ms, stream only, DM-13). `TurnKind` and
   `AdapterTitleSource` name the closed values; `PREVIEW_MAX` is the stored-preview cap (DM-9).
+- D55 fields (tool_call only): `Op.bg_end_ms` (DM-41), `Op.command_class` (DM-28, enum `CommandClass`),
+  `Op.tests_passed`/`tests_failed` (DM-29, counts only). `EventKind.NOTICE` is the DM-41 task notice.
 - `Bundle` is one session's records in file order plus reader counters.
 EXPECTS: callers construct records with keyword arguments.
 FAILURE BEHAVIOR: none here; validation lives in `botsworth.stream`.
@@ -138,6 +140,13 @@ class UserWait(StrEnum):
     PERMISSION = "permission"
 
 
+class CommandClass(StrEnum):
+    """DM-28 [D55]: what a shell command is, when it is one of these."""
+
+    TEST = "test"
+    WAIT = "wait"
+
+
 class TurnKind(StrEnum):
     """DM-20: what a main turn is. `turn_origin` carries the open-ended detail."""
 
@@ -163,6 +172,7 @@ class EventKind(StrEnum):
     MODEL_CHANGE = "model_change"
     RESUME = "resume"
     ROLLBACK = "rollback"
+    NOTICE = "notice"  # DM-41 [D55]: a task notification queued to a thread
 
 
 class EventBasis(StrEnum):
@@ -261,6 +271,10 @@ class Op:
     command: str | None = None
     command_norm: str | None = None  # D17 full normalized command
     command_key: str | None = None  # D17 coarse grouping key
+    command_class: str | None = None  # DM-28 [D55] tool_call only: CommandClass
+    bg_end_ms: int | None = None  # DM-41 [D55] tool_call only: queue time of a background command's notice
+    tests_passed: int | None = None  # DM-29 [D55] tool_call only, command_class "test"
+    tests_failed: int | None = None  # DM-29 [D55] tool_call only: failed + errors
     file_path: str | None = None
     exit_code: int | None = None
     exit_code_prov: str | None = None

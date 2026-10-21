@@ -53,7 +53,8 @@ GUARANTEES:
   inserted: scope `session` on the session op (DM-51), scope `window` on each main turn that holds a window
   and scope `span` on each main turn with both bounds (DM-53), one row per (state, substate) above 0 ms;
   `ops.span_wall_ms` on those turns; `stretches` of the root (DM-52, with `state` and `substate`). The
-  inputs come from `timesplit.collect` over the folded rows, the function the query layer calls on the
+  inputs come from `timesplit.collect` over the folded rows and the root's stored `notice` events
+  (`store.notices`, D55; events are written before the time split), the function the query layer calls on the
   stored rows. A turn with a start but no label (human) or no `display_ix` (non-harness) raises
   AssertionError. `ops.max_silence_ms` (DM-40) is written at load only, for derived-duration
   tool_calls, from the sorted union of the bundle's `source_files.ts_list` (the ops' start and end times
@@ -97,7 +98,7 @@ from dataclasses import dataclass, fields
 
 from botsworth import pointer, stream
 from botsworth.model import TOKEN_FIELDS, Bundle, Event, Op, SourceFile, Step
-from botsworth.store import derive, intervals, ownership, refs, schema, timesplit
+from botsworth.store import derive, intervals, notices, ownership, refs, schema, timesplit
 
 log = logging.getLogger(__name__)
 MAX_DEPTH = 32  # D18
@@ -641,9 +642,11 @@ def _write_session(conn: sqlite3.Connection, row: tuple) -> None:
 def _write_time(conn: sqlite3.Connection, root: dict, order: list[dict]) -> None:
     """Write the DM-51 session and window rows, the DM-53 span rows and `span_wall_ms` on main turns, and the
     DM-52 stretches of one root, replacing the previous values (load and refold, DM-43)."""
-    inp = timesplit.collect(order)
-    sp = timesplit.split(inp.wall, inp.main_llm, inp.main_tool, inp.agent_leaf, inp.waits, inp.turns)
     rowid = root["rowid"]
+    inp = timesplit.collect(order, notices.stored(conn, rowid))  # the events of the root are already written
+    sp = timesplit.split(
+        inp.wall, inp.main_llm, inp.main_tool, inp.agent_leaf, inp.waits, inp.turns, inp.main_bg, inp.stalls
+    )
     conn.execute("UPDATE ops SET span_wall_ms=NULL WHERE root_rowid=? AND kind='turn'", (rowid,))
     conn.executemany(
         "UPDATE ops SET span_wall_ms=? WHERE rowid=?",
@@ -833,12 +836,12 @@ def load_bundle(conn: sqlite3.Connection, bundle: Bundle) -> LoadResult:
         derived = _session_derived(root, order)
         _write_session(conn, _session_row(root, key, status, bundle.n_malformed, derived))
         conn.executemany(_ROLLUP_INSERT, _rollup_rows(root, order))
-        _write_time(conn, root, order)
+        conn.executemany(_EVENT_INSERT, [_event_row(e, root, dups, cache) for e in bundle.events])
+        _write_time(conn, root, order)  # reads the root's `notice` events (DM-41)
         _write_max_silence(conn, bundle, order)
         conn.executemany(
             _STEP_INSERT, [_step_row(s, root["rowid"], by_id, cache, loads) for s in bundle.steps]
         )
-        conn.executemany(_EVENT_INSERT, [_event_row(e, root, dups, cache) for e in bundle.events])
         conn.executemany(
             "INSERT OR REPLACE INTO source_files(path, provider, bundle_id, size, mtime_ns, sha_first_4k,"
             " ingested_at_ms, status) VALUES (?,?,?,?,?,?,?,?)",

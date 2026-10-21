@@ -1036,6 +1036,21 @@ class UserWaits:
 
 
 @dataclass(frozen=True)
+class TestRuns:
+    """CLI-20 [D55]: owned tool_calls with `command_class = 'test'`. `run_ms` counts a background run to its
+    notice (`bg_end_ms`); `n_no_result` = runs with no test counts (DM-29)."""
+
+    __test__ = False  # not a pytest class
+
+    n: int
+    run_ms: int
+    n_failed: int
+    n_passed: int
+    n_no_result: int
+    n_background: int
+
+
+@dataclass(frozen=True)
 class Wait:
     """CLI-20 [D54]: `Stretch` fields, then `row`: the main-thread tool row that waited on the user, or null
     for a stretch."""
@@ -1077,6 +1092,7 @@ class SlowReport:
     tools: list[ToolGroup]
     slowest_tools: list[SlowestTool]
     user_waits: UserWaits
+    test_runs: TestRuns
     waits: list[SessionWait]
     models: list[ModelLine]
 
@@ -1124,6 +1140,7 @@ class SessionBreakdown:
     tools: list[ToolGroup]
     agents: list[BreakdownAgent]
     waits: list[Wait]
+    test_runs: TestRuns
     models: list[ModelLine]
 
 

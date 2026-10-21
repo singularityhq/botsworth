@@ -5,7 +5,7 @@ GUARANTEES:
   own record: verb via `taxonomy.verb_of("codex", name)` (MCP tools whose name
   contains `fetch` -> `fetch`), target (project-relative path, command head,
   agent type, URL/query, or tool name for `other`), summary <= 120, the raw
-  command, `command_norm` and `command_key` (D17) for every run.
+  command, `command_norm`, `command_key` (D17) and `command_class` (DM-28, D55) for every run.
 - `apply_patch` yields one target per changed path (`patch_paths`), so the
   caller emits one edit step per path.
 - A code-mode `exec` script is ONE run step: `exec_script` lists its inner
@@ -33,6 +33,7 @@ from typing import Any
 
 from botsworth.adapters.common.taxonomy import (
     clip,
+    command_class,
     command_key,
     command_norm,
     rel,
@@ -62,6 +63,7 @@ class ToolView:
     command: str | None = None
     command_norm: str | None = None
     command_key: str | None = None
+    command_class: str | None = None  # DM-28, from the full command
     sub_items: list[SubItem] | None = None
     edit_targets: list[str | None] = field(default_factory=list)
 
@@ -107,6 +109,7 @@ def _run(raw: object, project: str | None) -> ToolView:
         command=clip(text, 2000) if text else None,
         command_norm=norm,
         command_key=command_key(raw),
+        command_class=command_class(raw),
     )
 
 
@@ -132,6 +135,7 @@ def classify(name: str, args: Any, project: str | None) -> ToolView:
             command=clip(raw, 2000),
             command_norm=command_norm(raw, project),
             command_key=command_key(cmds[0]) if cmds else None,
+            command_class=command_class(raw),
             sub_items=subs,
         )
     if name == "apply_patch":

@@ -90,8 +90,8 @@ def test_time_split_and_stretches_reject_states_outside_the_spec(tmp_path):
         with pytest.raises(sqlite3.IntegrityError):
             conn.execute(ok, (scope, state))
     stretch = "INSERT INTO stretches VALUES (1, 1, ?, NULL, 0, 9)"
-    for state in ("agents", "you", "agentmsg", "limit", "none"):
+    for state in ("agents", "tool", "you", "agentmsg", "limit", "none"):  # D55: `tool` is `background` only
         conn.execute(stretch, (state,))
-    for state in ("model", "tool"):  # a main-thread call is never a stretch
+    for state in ("model",):  # a main-thread model call is never a stretch
         with pytest.raises(sqlite3.IntegrityError):
             conn.execute(stretch, (state,))

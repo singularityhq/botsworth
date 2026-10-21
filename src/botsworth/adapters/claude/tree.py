@@ -6,7 +6,7 @@ GUARANTEES:
   (`{agent_id or main}#{ordinal}`). Main transcript boundary = a typed user
   prompt (string/text content without relay envelopes, notification or
   caveat prefixes, compact summaries or tool results; `isMeta` only with a
-  `<command-name>` tag or human origin). Agent transcript boundary = the
+  `<command-name>` tag, human origin, or `peer`/`coordinator` origin, DM-27). Agent transcript boundary = the
   first record or an arrival (`<teammate-message`, `<agent-message`,
   coordinator relay); each agent boundary opens an engagement and its turn.
   The first record of a transcript always opens a turn. Every line maps to
@@ -186,7 +186,12 @@ def is_boundary(rec: dict[str, Any], agent_id: str | None, first: bool) -> bool:
         )
     if "<teammate-message" in text or "<agent-message" in text:
         return False
-    return not rec.get("isMeta") or origin.get("kind") == "human" or "<command-name>" in text
+    return (
+        not rec.get("isMeta")
+        or origin.get("kind") == "human"
+        or origin.get("kind") in _PEER_ORIGINS  # DM-27 [D55]: a message from another session starts a turn
+        or "<command-name>" in text
+    )
 
 
 def expanded_prompt_follows(lines: list[Line], i: int) -> bool:

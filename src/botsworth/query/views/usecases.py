@@ -1,6 +1,6 @@
 """CONTRACT: use-case commands (owner Q3b): slow, breakdown, tasks. CLI only, no HTTP route in v4.
 
-Spec ids: CLI-20, CLI-21, CLI-22, CLI-23 (interfaces.md §5.2); D42 (basis of the token split).
+Spec ids: CLI-20, CLI-21, CLI-22, CLI-23 (interfaces.md §5.2; D55 amends 20 to 22); D42 (token split basis).
 
 GUARANTEES:
 - Facts only: numbers, ids, labels and stored previews. No prose, no cause, no "slow" threshold.
@@ -14,7 +14,9 @@ GUARANTEES:
   A wait (D54) is a stretch of 2 min or more, or a main-thread tool_call with `user_wait` set and
   `dur_ms` of 2 min or more, as `Wait` (`row` = the call, null for a stretch): per session the hit set of
   the `waits` finder (QRY-38). `waits` = the `n` longest across the sessions; `longest_wait` = the
-  session's longest wait of state `you`, `agentmsg`, `limit` or `none`.
+  session's longest wait of state `you`, `agentmsg`, `limit` or `none` (not `agents` or `tool`, D55).
+  `test_runs` (D55) counts the owned tool_calls with `command_class` test: `run_ms` runs to `bg_end_ms` for a
+  background run, else `dur_ms`; `n_failed` / `n_passed` / `n_no_result` by the test counts (DM-29).
 - `session_breakdown(session, n)` (CLI-21) composes: `session` copies `session_detail`; the turn lists
   are `session_turns` rows (harness turns and turns without the figure left out); `rows_by_*` are the
   first `n` hits of `find(.., 'biggest', measure)`; `agents` are the agent rows `find(.., 'agents')`
@@ -24,14 +26,17 @@ GUARANTEES:
   `issuing_call_split`:
   a call's `tok_total` and `cost_usd` are divided evenly among its owned tool_calls (for `verb`, then among
   that tool_call's steps); `by=tool` also lists calls that issued no tool_call as `"no tool"`; for
-  `command_key` and `verb` those calls, and the share of tool_calls without a key, are in `unassigned`.
+  `command_key`, `command_class` and `verb` those calls, and the share of tool_calls without a key or class,
+  are in `unassigned`.
   `turn_split`: the attributed turn's `attr_*` and `span_wall_ms` divided evenly among the distinct skills
   loaded in it (a skill load in an agent counts for the main turn it is attributed to). `nearest_engagement`:
   each owned llm_call goes to its nearest engagement ancestor's `agent_type` (`(none)` for a null type);
   none above it -> `(main)`. `turn_attr`: whole turn figures. `unassigned` = `scope_totals` - Σ all groups.
   `n_unpriced` of a group counts the source units (calls; turns for `skill`/`slash`) whose cost is unknown.
   Groups sort by `measure` descending (nulls last), then key ascending; `count` sorts by `n`.
-EXPECTS: schema v10 filled by B3a/B3b (`user_wait`, `max_silence_ms`, `time_prov`, `command_key`,
+EXPECTS: schema v11 filled by B3a/B3b (`user_wait`, `max_silence_ms`, `time_prov`, `command_key`,
+  `command_class`,
+  `tests_passed`, `tests_failed`, `bg_end_ms`,
   `steps.verb`, `steps.skill_load`, `turn_origin`, `label`, `attr_*`, `span_wall_ms`, `time_split`,
   `stretches`).
 FAILURE BEHAVIOR: `by`, `measure` or `n` outside the lists -> `QueryError`; unknown session -> `NotFound`;
@@ -62,11 +67,12 @@ from botsworth.store import timesplit
 MAX_SLOW_N = 100
 MAX_TASKS_N = 500
 WAIT_FLOOR_MS = 120_000  # SES-27, CLI-20 `longest_wait` and `waits`
-BY = ("command_key", "tool", "verb", "skill", "agent_type", "slash")
+BY = ("command_key", "command_class", "tool", "verb", "skill", "agent_type", "slash")
 MEASURES = ("tokens", "cost", "time", "count")
 BASIS = {
     "tool": "issuing_call_split",
     "command_key": "issuing_call_split",
+    "command_class": "issuing_call_split",
     "verb": "issuing_call_split",
     "skill": "turn_split",
     "agent_type": "nearest_engagement",
@@ -278,6 +284,24 @@ def _user_waits(conn: sqlite3.Connection, roots: Sequence[int]) -> wire.UserWait
     return wire.UserWaits(ask=got.get("ask", none), permission=got.get("permission", none))
 
 
+def _test_runs(conn: sqlite3.Connection, roots: Sequence[int]) -> wire.TestRuns:
+    """CLI-20 `test_runs` (D55): owned tool_calls with `command_class = 'test'` of `roots`."""
+    r = conn.execute(
+        "SELECT COUNT(*) AS n,"
+        " COALESCE(SUM(CASE WHEN bg_end_ms IS NOT NULL THEN bg_end_ms - start_ms ELSE dur_ms END), 0)"
+        " AS run_ms,"
+        " COALESCE(SUM(tests_failed > 0), 0) AS n_failed, COALESCE(SUM(tests_failed = 0), 0) AS n_passed,"
+        " COALESCE(SUM(tests_passed IS NULL AND tests_failed IS NULL), 0) AS n_no_result,"
+        " COALESCE(SUM(bg_end_ms IS NOT NULL), 0) AS n_background"
+        f" FROM ops WHERE kind = 'tool_call' AND duplicate_of IS NULL AND command_class = 'test'"
+        f" AND root_rowid IN {_IDS}",
+        {"ids": _json_ids(roots)},
+    ).fetchone()
+    return wire.TestRuns(
+        r["n"], r["run_ms"], r["n_failed"], r["n_passed"], r["n_no_result"], r["n_background"]
+    )
+
+
 def _display_ids(conn: sqlite3.Connection, turn_ids: Sequence[str]) -> dict[str, str | None]:
     rows = conn.execute(
         "SELECT op_id, display_ix FROM ops WHERE op_id IN (SELECT value FROM json_each(?))",
@@ -287,8 +311,8 @@ def _display_ids(conn: sqlite3.Connection, turn_ids: Sequence[str]) -> dict[str,
 
 
 def _longest_wait(waits: Sequence[wire.Wait]) -> wire.Wait | None:
-    """CLI-20: the first wait not of state `agents` (`waits` is longest first)."""
-    return next((w for w in waits if w.state != "agents"), None)
+    """CLI-20: the first wait not of state `agents` or `tool` (running time, D55; longest first)."""
+    return next((w for w in waits if w.state not in ("agents", "tool")), None)
 
 
 def _previous_scope(scope: Scope) -> Scope:
@@ -357,6 +381,7 @@ def project_slow(scope: Scope, compare: bool = True, n: int = 10, db: Db = None)
             tools=tool_groups(conn, roots, n),
             slowest_tools=_slowest_tools(conn, roots, n),
             user_waits=_user_waits(conn, roots),
+            test_runs=_test_runs(conn, roots),
             waits=waits,
             models=_models(conn, roots),
         )
@@ -457,6 +482,7 @@ def session_breakdown(session: str, n: int = 10, db: Db = None) -> wire.SessionB
             tools=tool_groups(conn, [root], n),
             agents=agents[:n],
             waits=long,
+            test_runs=_test_runs(conn, [root]),
             models=info.models,
         )
 
@@ -468,7 +494,8 @@ def session_breakdown(session: str, n: int = 10, db: Db = None) -> wire.SessionB
 _TC = f"""
 tc AS (
   SELECT t.rowid AS trow, t.op_id AS op_id, t.root_rowid AS root, t.tool_name AS tool_name,
-         t.command_key AS command_key, t.dur_ms AS dur, t.parent_rowid AS parent,
+         t.command_key AS command_key, t.command_class AS command_class, t.dur_ms AS dur,
+         t.parent_rowid AS parent,
          COUNT(*) OVER (PARTITION BY t.parent_rowid) AS k
   FROM ops t
   WHERE t.kind = 'tool_call' AND t.duplicate_of IS NULL AND t.root_rowid IN {_IDS}
@@ -559,6 +586,10 @@ def _items_sql(by: str) -> tuple[str, str]:
         return _TC + ",\n", _TOOL_ITEMS.format(key=key, where="") + "UNION ALL" + _NO_TOOL_ITEMS
     if by == "command_key":
         return _TC + ",\n", _TOOL_ITEMS.format(key="tc.command_key", where="WHERE tc.command_key IS NOT NULL")
+    if by == "command_class":
+        return _TC + ",\n", _TOOL_ITEMS.format(
+            key="tc.command_class", where="WHERE tc.command_class IS NOT NULL"
+        )
     if by == "verb":
         return _TC + ",\n" + _VERB_CTE + ",\n", _VERB_ITEMS
     if by == "skill":

@@ -20,7 +20,7 @@ GUARANTEES:
 - `wire_split(acc)` builds a `wire.TimeSplit` from `{(state, substate): ms}`: the parts above 0 ms in
   SES-15 order (`timesplit.ordered`). `stored_split(conn, root_rowid, scope)` reads the root's `time_split`
   rows of one scope (DM-51, DM-53) as `{op_rowid: {(state, substate): ms}}`; an op with no row is absent.
-EXPECTS: a connection from `botsworth.query._conn` (schema v10) with `row_factory = sqlite3.Row`.
+EXPECTS: a connection from `botsworth.query._conn` (schema v11) with `row_factory = sqlite3.Row`.
 FAILURE BEHAVIOR: as above. A session with no `projects` row, or a null `project_name`, is an ingest
   bug (DM-60 names every project): `session_name` and `project_ref` assert.
 DOES NOT: build wire views, paginate, or filter by scope.

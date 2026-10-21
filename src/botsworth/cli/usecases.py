@@ -8,7 +8,8 @@ GUARANTEES:
   `cli.timefmt` (`--json` changes nothing);
   `--table` prints the table of `cli.render`.
 - `--help` of each command ends with an epilog (at most 25 lines) that defines the fields of its JSON output
-  from interfaces.md §5.2, DM-40, DM-51 and DM-52; it names every top-level field of the output (D49)
+  from interfaces.md §5.2, DM-40, DM-41, DM-51 and DM-52 (D55); it names every top-level field of the
+  output (D49)
   and, in one line, the time siblings (D50).
 - `--by` and `--measure` take a fixed list; a value outside it is an argparse error (exit 2, CLI-4). `-n`
   outside the range of the view is a `QueryError` (exit 1).
@@ -28,26 +29,26 @@ from botsworth.cli.scope import cli_zone, resolve_projects, scope_args, to_scope
 from botsworth.query.views.usecases import BY, MEASURES
 
 _TIME_FIELDS = """\
-time_split: where the session wall went, as parts {state, substate, ms}. Each
-  instant is in exactly one part, by the first rule that matches: model (a
-  main-thread model call runs), tool (a main-thread tool call runs), agents
-  (an agent's call or tool runs), you/ask or you/permission (a call waits for
-  your answer or your approval; main-thread calls first), else nothing runs
-  and the next turn decides: you/reply (it is your message), limit (inferred
-  usage limit), agentmsg (an agent's message), none/before_first (before the
-  first numbered turn) or none/none. Parts sum to wall_ms (DM-50, DM-51).
-time_prov: how a tool duration was measured. derived = result time minus call
-  time. It can include a permission or usage-limit wait, or a sleeping machine
-  (DM-40). n_no_records counts calls with 5 min or more without any record.
-user_waits: calls that waited on you: ask = tools that ask the user
-  (AskUserQuestion, request_user_input, ask); permission = Claude calls you
-  approved or rejected (approvals before Claude Code 2.1.293, and all Codex and
-  omp approvals, leave no record; a permission wait includes the run after the
-  approval). Each is {n, dur_ms}. They are left out of tools and slowest_tools.
-waits: waits of 2 min or more, longest first, the same set as the waits finder:
-  stretches when no main-thread call ran (row null), and main-thread calls that
-  waited on you (row = the call, state you, substate ask or permission).
-  longest_wait is a session's longest wait that is not agents (D54)."""
+time_split: parts {state, substate, ms} of the session wall. Each instant is in
+  one part, by the first rule that matches: model (a main-thread model call),
+  tool (a main-thread tool call), agents (an agent's call, tool or background
+  command), tool/background (only a main-thread background command), you/ask or
+  you/permission (a call waits for your answer or approval), else nothing runs:
+  none/stalled (a finished task's notice waits for an agent that is not
+  running), else the next turn decides: you/reply (your message), limit (usage
+  limit, inferred), agentmsg (an agent's or another session's message),
+  none/before_first (before the first numbered turn), else none/none. The parts
+  sum to wall_ms (DM-50, DM-51); substate is null for the other parts.
+time_prov: derived = result time minus call time; it can include a permission
+  or limit wait or a sleeping machine (DM-40). n_no_records: 5 min, no records.
+user_waits: calls that waited on you, {n, dur_ms} for ask (AskUserQuestion,
+  request_user_input, ask) and permission (Claude calls you approved or rejected;
+  older Claude, Codex and omp leave no record). They are not in tools.
+test_runs: {n, run_ms, n_failed, n_passed, n_no_result, n_background} of calls
+  with command_class test; a background run lasts until its notice (DM-41).
+waits: waits of 2 min or more, longest first (the waits finder): stretches (row
+  null) and main-thread calls that waited on you. longest_wait: a session's
+  longest wait that is not agents or tool/background (D54, D55)."""
 _TIME_FORMAT = """\
 time: tz is the zone used (--tz). Each <x>_ms timestamp has an ISO sibling <x>; each duration has <x>_ms_h
   (45s, 12m 05s, 2h 15m, 3d 4h)."""
@@ -56,7 +57,7 @@ SLOW_EPILOG = (
     """\
 output fields:
   freshness, current, previous (same block for the prior period, or null),
-  sessions, tools, slowest_tools, user_waits, waits, models
+  sessions, tools, slowest_tools, user_waits, test_runs, waits, models
 """
     + _TIME_FIELDS
     + _TIME_FORMAT
@@ -66,7 +67,7 @@ BREAKDOWN_EPILOG = (
     """\
 output fields:
   freshness, session, turns_by_time, turns_by_tokens, rows_by_time,
-  rows_by_cost, rows_by_tokens, tools, agents, waits, models
+  rows_by_cost, rows_by_tokens, tools, agents, waits, test_runs, models
 """
     + _TIME_FIELDS
     + _TIME_FORMAT
@@ -77,8 +78,8 @@ TASKS_EPILOG = (
 output fields: freshness, by, measure, basis, scope_totals, unassigned,
   total_groups (all groups), groups (the first n)
 basis: how tokens and cost reach a group (D42).
-  issuing_call_split  by tool, command_key, verb: the tokens of the call that
-                      issued the tool calls, divided evenly among them
+  issuing_call_split  by tool, command_key, command_class, verb: the tokens of
+                      the call that issued the tool calls, divided evenly
   turn_split          by skill: the turn's tokens, divided among its skills
   nearest_engagement  by agent_type: calls under the nearest agent run;
                       "(main)" is calls under no agent, "(none)" has no type
@@ -87,9 +88,10 @@ unassigned: part of scope_totals that is in no group. It is 0 for
   issuing_call_split, where a call that issued no tool is the group "no tool".
 Token figures are fractional because a call's tokens are divided evenly.
 share: the group's measure divided by scope_totals, or null.
---by: command_key = tool calls that have a command_key; tool = tool calls by
-  tool name; verb = steps of tool calls, by steps.verb; skill = skill loads;
-  agent_type = agent runs (engagements); slash = slash-command and builtin turns.
+--by: command_key = tool calls that have a command_key; command_class = test
+  or wait shell calls; tool = tool calls by tool name; verb = steps of tool
+  calls, by steps.verb; skill = skill loads; agent_type = agent runs
+  (engagements); slash = slash-command and builtin turns.
 """
     + _TIME_FORMAT
 )

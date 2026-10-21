@@ -361,4 +361,4 @@ def test_errors(qstore):
     with pytest.raises(NotFound):
         find("claude_code/nosuch/session/-", "biggest", db=qstore)
     got = find(STOOLS.split("/")[1], "biggest", db=qstore)  # a bare session id works (QRY-6)
-    assert got.freshness.schema_version == 10
+    assert got.freshness.schema_version == 11

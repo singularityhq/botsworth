@@ -413,6 +413,7 @@ NESTED_KEYS: dict[str, list[str]] = {
     ],
     "UserWaitCount": ["n", "dur_ms"],
     "UserWaits": ["ask", "permission"],
+    "TestRuns": ["n", "run_ms", "n_failed", "n_passed", "n_no_result", "n_background"],
     "Wait": ["start_ms", "end_ms", "dur_ms", "state", "substate", "turn", "next_turn", "running", "row"],
     "SessionWait": [
         "start_ms",
@@ -435,6 +436,7 @@ NESTED_KEYS: dict[str, list[str]] = {
         "tools",
         "slowest_tools",
         "user_waits",
+        "test_runs",
         "waits",
         "models",
     ],
@@ -476,6 +478,7 @@ NESTED_KEYS: dict[str, list[str]] = {
         "tools",
         "agents",
         "waits",
+        "test_runs",
         "models",
     ],
     "TaskExample": ["row", "session"],

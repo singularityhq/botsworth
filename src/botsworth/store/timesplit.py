@@ -1,16 +1,20 @@
-"""CONTRACT: pure time-split math for sessions and main turns (DM-40, DM-50..DM-53; D54).
+"""CONTRACT: pure time-split math for sessions and main turns (DM-40, DM-41, DM-50..DM-53; D54, D55).
 
 Intervals are `(start_ms, end_ms)` with `end_ms >= start_ms`. A `TurnFact` is one main turn as the rules
 need it. `waits` maps `(thread, substate)` to the intervals of tool_calls with that `user_wait`: `thread` is
 `main` or `agent`, `substate` is `ask` or `permission`. `main_tool` and `agent_leaf` hold only calls with
-`user_wait` NULL.
+`user_wait` NULL; `agent_leaf` also holds the background runs `[start_ms, bg_end_ms]` of agent calls (DM-41).
+`main_bg` holds the background runs of main-transcript calls. `stalls` holds the intervals
+`[queued, picked)` of the task notices (DM-41) that were picked up.
 
 GUARANTEES:
 - DM-50: `runs()` gives each instant inside the wall (the union of `wall_segments`) one
   `(state, substate)`, by the first rule that matches: `model` (a main llm_call) > `tool` (a main
-  tool_call) > `agents` (an agent leaf) > `you`/`ask` (main call) > `you`/`permission` (main call) >
+  tool_call) > `agents` (an agent leaf or agent background run) > `tool`/`background` (a main background
+  run, D55) > `you`/`ask` (main call) > `you`/`permission` (main call) >
   `you`/`ask` (agent call) > `you`/`permission` (agent call). An instant no rule covers belongs to
-  an idle run, cut at every main-turn start and labelled by the turn that starts where the run ends
+  an idle run, cut at every main-turn start. The part of the run inside a stall is `none`/`stalled` (D55);
+  the rest is labelled by the turn that starts where the run ends
   (lowest `seq` at a shared start): no numbered turn starts at or before the run's start ->
   `none`/`before_first`; `human` turn with a SES-17 label -> `limit`; other `human` turn ->
   `you`/`reply`; `message` turn with origin `peer`, `coordinator`, `teammate` or `agent` ->
@@ -25,10 +29,14 @@ GUARANTEES:
   span outside the wall (a resume gap, D48) as `none`/`none`; the parts sum to `end_ms - start_ms`.
   `clip()` gives the same figures for any range, so a range equal to the span gives the stored span.
 - DM-52: `Split.stretches` holds every run of at least `MIN_STRETCH_MS` that no main-transcript call covers,
-  cut at main-turn starts (each part kept when long enough); runs of `model`, `tool` and of a user-wait main
-  call give none. `turn_rowid` = the turn whose window holds the part start (None before the first turn).
+  cut at main-turn starts (each part kept when long enough); runs of `model`, `tool` (not `tool`/`background`)
+  and of a user-wait main call give none. `turn_rowid` = the turn whose window holds the part start (None
+  before the first turn).
 - DM-40: `max_silence` = longest sub-interval of `[start, end]` with no timestamp from `ts_sorted`; the
   call's own start and end count as timestamps.
+- `collect(rows, notices)`: a tool_call with `bg_end_ms` at or after its start adds `[start_ms, bg_end_ms]` to
+  `main_bg` (main transcript) or `agent_leaf` (agent); `notices` are `(ts_ms, picked_ms)` pairs and every pair
+  with `picked_ms` after `ts_ms` adds a stall.
 EXPECTS: no inverted interval or turn; every `human` turn has a label; `turns` have distinct rowids;
   `ts_sorted` ascending.
 FAILURE BEHAVIOR: a violated EXPECTS raises AssertionError.
@@ -51,12 +59,14 @@ MIN_STRETCH_MS = 60_000
 PARTS: tuple[tuple[str, str | None], ...] = (
     ("model", None),
     ("tool", None),
+    ("tool", "background"),
     ("agents", None),
     ("you", "ask"),
     ("you", "permission"),
     ("you", "reply"),
     ("agentmsg", None),
     ("limit", None),
+    ("none", "stalled"),
     ("none", "before_first"),
     ("none", "none"),
 )
@@ -119,13 +129,15 @@ class Inputs(NamedTuple):
     agent_leaf: list[Interval]
     waits: dict[tuple[str, str], list[Interval]]
     turns: list[TurnFact]
+    main_bg: list[Interval]
+    stalls: list[Interval]
 
 
-def collect(rows: Iterable[Mapping[str, Any]]) -> Inputs:
+def collect(rows: Iterable[Mapping[str, Any]], notices: Iterable[tuple[int, int | None]] = ()) -> Inputs:
     """The inputs of the split from the ops of one session. Load (folded rows) and the query layer (stored
     rows) both call this, so they feed `runs()` and `split()` the same facts. A row has `kind`, `start_ms`,
     `end_ms`, `agent_id`, `duplicate_of`, `n_inverted`, `segments` (a list, or its JSON text), `user_wait`,
-    and for a turn `rowid`, `seq`, `pre`, `turn_kind`, `turn_origin`, `label`, `display_ix`.
+    `bg_end_ms`, and for a turn `rowid`, `seq`, `pre`, `turn_kind`, `turn_origin`, `label`, `display_ix`.
 
     The wall is the union of the containers' segments (a container without segments counts as its own
     `[start_ms, end_ms]`) and the intervals of the non-duplicate (owned, DM-45), non-inverted leaves.
@@ -134,6 +146,7 @@ def collect(rows: Iterable[Mapping[str, Any]]) -> Inputs:
     llm: list[Interval] = []
     tool: list[Interval] = []
     agents: list[Interval] = []
+    main_bg: list[Interval] = []
     waits: dict[tuple[str, str], list[Interval]] = defaultdict(list)
     turns: list[TurnFact] = []
     for r in rows:
@@ -168,11 +181,16 @@ def collect(rows: Iterable[Mapping[str, Any]]) -> Inputs:
                     )
                 )
             continue
-        if r["duplicate_of"] is not None or r["n_inverted"] or start is None or end is None:
+        if r["duplicate_of"] is not None or r["n_inverted"] or start is None:
+            continue
+        main = r["agent_id"] is None
+        bg_end = r["bg_end_ms"]
+        if bg_end is not None and bg_end >= start:  # DM-41: the run lasts until the notice was queued
+            (main_bg if main else agents).append((start, bg_end))  # also for a call with no end of its own
+        if end is None:
             continue
         iv = (start, end)
         wall.append(iv)
-        main = r["agent_id"] is None
         if r["user_wait"] is not None:
             assert r["user_wait"] in ("ask", "permission"), f"unknown user_wait {r['user_wait']!r}"
             waits["main" if main else "agent", r["user_wait"]].append(iv)
@@ -183,7 +201,10 @@ def collect(rows: Iterable[Mapping[str, Any]]) -> Inputs:
         else:
             tool.append(iv)
     turns.sort(key=lambda t: (t.start_ms, t.seq))
-    return Inputs(merge(wall), merge(llm), merge(tool), merge(agents), dict(waits), turns)
+    stalls = [(queued, picked) for queued, picked in notices if picked is not None and picked > queued]
+    return Inputs(
+        merge(wall), merge(llm), merge(tool), merge(agents), dict(waits), turns, merge(main_bg), merge(stalls)
+    )
 
 
 def is_limit_text(label: str) -> bool:
@@ -223,6 +244,8 @@ def _segments(
     agent_leaf: Iterable[Interval],
     waits: Waits,
     turns: Sequence[TurnFact],
+    main_bg: Iterable[Interval] = (),
+    stalls: Iterable[Interval] = (),
 ) -> list[tuple[int, int, str, str | None, bool]]:
     """Labelled runs `(start, end, state, substate, main_call)`; `main_call` is True for a user-wait
     covered by a main-transcript call. Adjacent runs are joined only when all four labels are equal."""
@@ -231,6 +254,7 @@ def _segments(
         (main_llm, "model", None, False),
         (main_tool, "tool", None, False),
         (agent_leaf, "agents", None, False),
+        (main_bg, "tool", "background", False),  # DM-50 rule 3a [D55]
         # FALLBACK-OK: DM-50 (a wait category with no call covers nothing)
         *((waits.get(key, ()), "you", key[1], key[0] == "main") for key in _WAIT_ORDER),
     ]
@@ -238,6 +262,8 @@ def _segments(
         m = merge(ivs)
         sets.append((m, [a for a, _ in m], state, sub, main))
     wall_starts = [a for a, _ in wall]
+    stall = merge(stalls)
+    stall_starts = [a for a, _ in stall]
     turn_at: dict[int, TurnFact] = {}
     for t in turns:
         cur = turn_at.get(t.start_ms)
@@ -254,7 +280,19 @@ def _segments(
         if idle is None:
             return
         state, sub = _idle_label(first_numbered, idle[0], turn_at.get(idle[1]))
-        _append(out, (idle[0], idle[1], state, sub, False))
+        at = idle[0]
+        for x, y in stall[max(bisect_right(stall_starts, idle[0]) - 1, 0) :]:  # DM-50 rule 5 [D55]
+            if x >= idle[1]:
+                break
+            x, y = max(x, idle[0]), min(y, idle[1])
+            if y <= x:
+                continue
+            if x > at:
+                _append(out, (at, x, state, sub, False))
+            _append(out, (x, y, "none", "stalled", False))
+            at = y
+        if at < idle[1]:
+            _append(out, (at, idle[1], state, sub, False))
         idle = None
 
     for a, b in zip(bounds, bounds[1:], strict=False):
@@ -289,9 +327,13 @@ def runs(
     agent_leaf: Iterable[Interval],
     waits: Waits,
     turns: Sequence[TurnFact],
+    main_bg: Iterable[Interval] = (),
+    stalls: Iterable[Interval] = (),
 ) -> list[Run]:
     """DM-50: the (state, substate) runs inside the wall, adjacent equal runs joined."""
-    return _join(_segments(merge(wall_segments), main_llm, main_tool, agent_leaf, waits, turns))
+    return _join(
+        _segments(merge(wall_segments), main_llm, main_tool, agent_leaf, waits, turns, main_bg, stalls)
+    )
 
 
 def _join(segs: Iterable[tuple[int, int, str, str | None, bool]]) -> list[Run]:
@@ -336,12 +378,14 @@ def split(
     agent_leaf: Iterable[Interval],
     waits: Waits,
     turns: Sequence[TurnFact],
+    main_bg: Iterable[Interval] = (),
+    stalls: Iterable[Interval] = (),
 ) -> Split:
     wall = merge(wall_segments)
     for t in turns:
         assert t.end_ms is None or t.end_ms >= t.start_ms, f"inverted turn {t.rowid}"
     assert len({t.rowid for t in turns}) == len(turns), "duplicate turn rowid"
-    segs = _segments(wall, main_llm, main_tool, agent_leaf, waits, turns)
+    segs = _segments(wall, main_llm, main_tool, agent_leaf, waits, turns, main_bg, stalls)
     joined = _join(segs)
 
     holders: dict[int, TurnFact] = {}  # DM-51: the lowest seq at a shared start holds the window
@@ -372,7 +416,9 @@ def split(
 
     stretches: list[Stretch] = []
     for a, b, state, sub, main in segs:  # joined on all four labels, so a main call's wait stays apart
-        if state in ("model", "tool") or main:
+        if (
+            state == "model" or (state, sub) == ("tool", None) or main
+        ):  # D55: `tool`/`background` is a stretch
             continue
         for x, y, i in cut(a, b):
             if y - x >= MIN_STRETCH_MS:

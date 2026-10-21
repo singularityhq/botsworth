@@ -18,7 +18,7 @@ GUARANTEES:
   because a main-thread wait makes no stretch): up to 8 engagements (any depth) whose run overlaps the
   stretch, in start order, each with its whole cost `incl_cost_usd` (QRY-34); `[]` for other stretches.
 - Nothing is stored or cached here.
-EXPECTS: schema v10 with B3a's `turn_kind`, `turn_origin`, `display_ix` and B3b's `stretches` rows.
+EXPECTS: schema v11 with B3a's `turn_kind`, `turn_origin`, `display_ix` and B3b's `stretches` rows.
 FAILURE BEHAVIOR: a numbered main turn without `display_ix` raises AssertionError (DM-24).
 DOES NOT: decide which stretches are gap rows (session.py), label a stretch, write, or read
   `stretches.turn_rowid`.

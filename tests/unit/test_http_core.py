@@ -282,7 +282,7 @@ def test_store_states(served, tmp_path, store, monkeypatch):
         [],
         None,
     )
-    assert r.body["freshness"]["last_ingest_ms"] is None and r.body["freshness"]["schema_version"] == 10
+    assert r.body["freshness"]["last_ingest_ms"] is None and r.body["freshness"]["schema_version"] == 11
     assert "tz" not in request(missing, "/api/ingest/status").body["freshness"]  # API-30, D50
     old = tmp_path / "old.sqlite"
     build_store(old)
@@ -291,7 +291,7 @@ def test_store_states(served, tmp_path, store, monkeypatch):
     base = served(old)
     r = request(base, "/api/projects")
     assert (r.status, r.body["code"]) == (503, "schema_mismatch")
-    assert "store schema 6, botsworth needs 10" in r.body["error"]
+    assert "store schema 6, botsworth needs 11" in r.body["error"]
     r = request(base, "/api/ingest/status")
     assert (r.status, r.body["store_state"], r.body["store_exists"]) == (200, "schema_mismatch", True)
     assert r.body["sources"] == [] and r.body["freshness"]["last_ingest_ms"] is None
@@ -310,11 +310,11 @@ def test_etag_304(served, store):
     base = served(store)
     first = request(base, "/api/sessions")
     fresh = first.body["freshness"]
-    want = f'W/"1.10.{fresh["last_ingest_ms"]}.{fresh["price_fingerprint"]}"'
+    want = f'W/"1.11.{fresh["last_ingest_ms"]}.{fresh["price_fingerprint"]}"'
     assert (first.status, first.headers["ETag"], first.headers["Cache-Control"]) == (200, want, "no-cache")
     again = request(base, "/api/sessions", headers={"If-None-Match": want})
     assert (again.status, again.raw, again.headers["ETag"]) == (304, b"", want)
-    stale = request(base, "/api/sessions", headers={"If-None-Match": 'W/"1.10.0.x"'})
+    stale = request(base, "/api/sessions", headers={"If-None-Match": 'W/"1.11.0.x"'})
     assert stale.status == 200
     ingest.ingest(db=store, parser_version="q0-1")  # a new ingest moves last_ingest_ms
     moved = request(base, "/api/sessions", headers={"If-None-Match": want})
@@ -374,7 +374,7 @@ def test_freshness_on_every_200(served, store):
             "api_version",
         ]
         assert (fresh["schema_version"], fresh["api_version"], fresh["parser_version"]) == (
-            10,
+            11,
             1,
             "q0-1",
         )

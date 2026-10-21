@@ -27,7 +27,7 @@ GUARANTEES:
 - `model_lines(conn, where_sql, args)` (QRY-33): `where_sql` is a condition over `ops` (alias `o`) with `?`
   placeholders in `args`; it is combined with owned llm_calls (`kind = 'llm_call'`, `duplicate_of IS NULL`).
   One line per model, most costly first, then by model.
-EXPECTS: schema v10 filled by B3a (`turn_kind`, `turn_origin`, `display_ix`, `attr_*`, `skill_load`) and B3b
+EXPECTS: schema v11 filled by B3a (`turn_kind`, `turn_origin`, `display_ix`, `attr_*`, `skill_load`) and B3b
   (`span_wall_ms`, `time_split`, `stretches`).
 FAILURE BEHAVIOR: unknown session -> NotFound; ambiguous or short session key -> QueryError (QRY-6);
   `min_gap_ms` under 60000 -> QueryError; an id that names no row, or a row that belongs to no turn
@@ -265,10 +265,10 @@ def turn_row(conn: sqlite3.Connection, turn: sqlite3.Row) -> wire.TurnRow:
 
 
 def _is_gap_row(s: wire.Stretch, min_gap_ms: int) -> bool:
-    """SES-36: a stretch of a state other than `agents` that ends where a main turn starts, or lies before
-    the first numbered turn (`before_first`)."""
+    """SES-36: a stretch of a state other than `agents` and `tool` (running time, D55) that ends where a main
+    turn starts, or lies before the first numbered turn (`before_first`)."""
     return (
-        s.state != "agents"
+        s.state not in ("agents", "tool")
         and s.dur_ms >= min_gap_ms
         and (s.next_turn is not None or s.substate == "before_first")
     )

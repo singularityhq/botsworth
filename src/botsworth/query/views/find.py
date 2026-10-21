@@ -27,7 +27,7 @@ GUARANTEES:
   else `Tool request: <tool names>`, else `Thinking only`; a tool's skill name, step summary or tool name; an
   agent's names joined by `, `; a gap's label (its state, or `before_first`, `ask`, `permission` for those
   substates); a slash turn's label.
-EXPECTS: schema v10 filled by B3a/B3b; a connection with `row_factory = sqlite3.Row`.
+EXPECTS: schema v11 filled by B3a/B3b; a connection with `row_factory = sqlite3.Row`.
 FAILURE BEHAVIOR: unknown session -> NotFound; ambiguous or short session key -> QueryError (QRY-6); a `kind`
   or `measure` outside the lists, `limit` outside 1-10000, or `search` with no term -> QueryError.
 DOES NOT: read source files, write, or build SQL in `http/` or `cli/`.

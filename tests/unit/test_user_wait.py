@@ -160,7 +160,16 @@ def test_windows_plus_before_first_equal_the_session_parts(qstore, db):
     with _conn(qstore) as conn:
         for s in conn.execute("SELECT rowid, op_rowid, bundle FROM sessions").fetchall():
             inp = split_inputs(conn, s["rowid"])
-            sp = timesplit.split(inp.wall, inp.main_llm, inp.main_tool, inp.agent_leaf, inp.waits, inp.turns)
+            sp = timesplit.split(
+                inp.wall,
+                inp.main_llm,
+                inp.main_tool,
+                inp.agent_leaf,
+                inp.waits,
+                inp.turns,
+                inp.main_bg,
+                inp.stalls,
+            )
             stored_windows = windows[s["rowid"]]
             # the stored rows are the function's rows
             assert stored_windows == {k: v for k, v in sp.windows.items() if v}, s["bundle"]

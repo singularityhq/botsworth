@@ -1,5 +1,5 @@
 # ruff: noqa: E501  (SQL and report prose)
-"""CONTRACT: API-50 / CLI-24 latency check on the real store (schema 10) (TST-5, Q4).
+"""CONTRACT: API-50 / CLI-24 latency check on the real store (schema 11) (TST-5, Q4).
 
 GUARANTEES:
 - Opens the store only through `sqlite3.connect("file:...?mode=ro", uri=True)`, directly or through the
@@ -18,7 +18,7 @@ GUARANTEES:
   50 % (TST-5). Exit 0 with a message when the store is missing or its schema is not 10.
 - `--self-test --db STORE [--roots DIR]` runs every case once against a fixture store, no targets, no
   report file; `DIR` holds one subdirectory per provider (the `qroots` layout).
-EXPECTS: a schema 10 store with `ANALYZE` run (DM-5).
+EXPECTS: a schema 11 store with `ANALYZE` run (DM-5).
 FAILURE BEHAVIOR: a non-200 answer or a case whose arguments cannot be chosen is a failed case (exit 1).
 DOES NOT: tune anything; measure `POST /api/query` (no v4 target); drop the OS cache.
 
@@ -497,7 +497,7 @@ def schema_ok(db: Path) -> tuple[bool, str]:
     except sqlite3.DatabaseError:
         version = None
     conn.close()
-    return version == "10", f"store {db} has schema {version}, bench-api needs 10"
+    return version == "11", f"store {db} has schema {version}, bench-api needs 11"
 
 
 def index_report(db: Path) -> dict[str, bool]:
@@ -520,9 +520,9 @@ def fmt_bytes(n: int | None) -> str:
 
 
 def render(a: Args, results: list[Result], idx: dict[str, bool], runs: int, db: Path) -> str:
-    lines = ["# Q4 latency: API-50 and CLI-24 on the real store (schema 10)", ""]
+    lines = ["# Q4 latency: API-50 and CLI-24 on the real store (schema 11)", ""]
     lines += [
-        f"Store `{db}`: {fmt_bytes(a.store_bytes)}, schema 10 ({a.store_bytes:,} bytes). Warm: {WARMUP} discarded runs, then {runs} timed runs.",
+        f"Store `{db}`: {fmt_bytes(a.store_bytes)}, schema 11 ({a.store_bytes:,} bytes). Warm: {WARMUP} discarded runs, then {runs} timed runs.",
         "HTTP cases are timed from request to last byte (`Accept-Encoding: gzip`, body not decoded inside the span).",
         "CLI cases call the view function with `db=<path>` (connection open included).",
         "A case passes when p95 <= target; `over` is up to 50 % above target; `FAIL` is more than 50 % above (TST-5).",

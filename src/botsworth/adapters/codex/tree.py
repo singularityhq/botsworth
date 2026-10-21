@@ -44,6 +44,8 @@ GUARANTEES:
 - Tool_call `src` spans the call line to its result line with the json path of
   the call block (`payload.arguments|input|action`) and a hash over the range
   (DM-7). `user_wait` = `ask` on `request_user_input` (DM-40, D54; Codex records no approvals).
+  Shell calls carry `command_class` (DM-28, D55); a `test` call also carries `tests_passed`/`tests_failed`
+  (DM-29) from its output text, except an `exec` script (its output is JSON text, so no counts).
   `SourceFile.ts_list` = sorted timestamps of the file's records.
 - `occ_key` (provider-scoped): tool_call = `codex:call:<call_id>`; natural llm_call =
   `codex:response:<response_id>`; derived
@@ -77,6 +79,7 @@ from botsworth import pointer
 from botsworth.adapters import BundleRejected
 from botsworth.adapters.codex import events as ev
 from botsworth.adapters.codex import records, steps
+from botsworth.adapters.common.commands import count_tests
 from botsworth.adapters.common.taxonomy import clip, rel, summary
 from botsworth.model import (
     LABEL_MAX,
@@ -486,6 +489,7 @@ class _Parser:
             command=view.command,
             command_norm=view.command_norm,
             command_key=view.command_key,
+            command_class=view.command_class,
             id_prov=IdProv.NATURAL if cid else IdProv.DERIVED,
         )
         n.occ = f"codex:call:{cid}" if cid else f"codex:line:{self.meta_thread}:L{line}"
@@ -533,6 +537,11 @@ class _Parser:
         if steps.base_name(n.attrs.get("tool_name")) in steps.SPAWN_TOOLS:
             self.spawn_output(n.key, out)
         n.attrs["result_bytes"] = len(out.encode())
+        if n.attrs.get("command_class") == "test" and steps.base_name(n.attrs.get("tool_name")) != "exec":
+            # DM-29: the counts of a plain shell call's output; an `exec` script's output is JSON text
+            counts = count_tests(out)
+            if counts:
+                n.attrs.update(tests_passed=counts[0], tests_failed=counts[1])
         code = steps.exit_from_output(out)
         for s in made:
             if s.step.sub_items is not None:  # exec script: per-inner-call exit codes in order
@@ -601,6 +610,7 @@ class _Parser:
                     command=clip(text, 2000) if text else None,
                     command_norm=steps.command_norm(cmd, project),
                     command_key=steps.command_key(cmd),
+                    command_class=steps.command_class(cmd),
                 )
             for c in pc:
                 path = str(c.get("path") or "")

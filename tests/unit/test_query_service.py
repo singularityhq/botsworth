@@ -365,7 +365,7 @@ def test_freshness_on_every_response(db, roots):
         "last_ingest_ms": D0 + 30 * DAY,
         "parser_version": "fixture-1",
         "price_fingerprint": "fp-1",
-        "schema_version": 10,
+        "schema_version": 11,
         "api_version": 1,
     }
     assert Q(db, scope={"all": True}, select="sessions")["freshness"] == fresh

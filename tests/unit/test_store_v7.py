@@ -37,8 +37,8 @@ def columns(conn, table):
 def test_ensure_creates_v10_tables_and_indexes(tmp_path):
     conn = sqlite3.connect(tmp_path / "s.db")
     schema.ensure(conn)
-    assert schema.SCHEMA_VERSION == 10
-    assert conn.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0] == "10"
+    assert schema.SCHEMA_VERSION == 11
+    assert conn.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0] == "11"
     for table in schema.TABLES:
         n = conn.execute(f"SELECT count(*) FROM {table}").fetchone()[0]
         assert n == (1 if table == "meta" else 0), table  # only meta.schema_version
@@ -83,7 +83,7 @@ def test_ensure_upgrades_a_v6_store_in_place(tmp_path):
     conn.commit()
     schema.ensure(conn)
     assert not {"op_closure", "stream_files"} & names(conn, "table")
-    assert conn.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0] == "10"
+    assert conn.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0] == "11"
 
 
 def full_bundle():

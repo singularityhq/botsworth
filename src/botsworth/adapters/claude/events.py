@@ -22,6 +22,10 @@ GUARANTEES:
   `args_head`, `via`, `skill_md_src`, `step_id` (the skill step
   `turn_id#ordinal`; for a slash command the first step of the turn it opens,
   else None, DM-30).
+- `notice` (DM-41, D55): one per (transcript, task id) from `notices.scan`; `ts_ms` = the queue time; fields
+  `agent_id` (None for the main transcript), `task_id`, `tool_use_id`, `status`, `picked_ms` = the start
+  of the thread's first llm_call that starts at or after `ts_ms`, else None; basis present; `op_id` = the
+  turn of the notice line; `event_id` ends in `<owner>:<task_id>`.
 - `op_id` = the enclosing llm_call when the line belongs to one, else the
   turn; for skill tool events the tool_call. `event_id` =
   `claude_code/<sid>/event/<kind>/<agent or main>:<line>[.<block>]` — stable
@@ -35,6 +39,7 @@ DOES NOT: estimate limit windows (D16); attribute cost to skills (D15).
 from __future__ import annotations
 
 import re
+from bisect import bisect_left
 from datetime import datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -246,4 +251,36 @@ def build(ctx: Ctx, tree: Tree, leaves: Leaves, steps: list[Step]) -> list[Event
                             step_id=_step_id(first_step.get(tree.turn_of[(ti, line.n)])),
                         )
                     )
+    out += notice_events(ctx, tree, leaves)
+    return out
+
+
+def notice_events(ctx: Ctx, tree: Tree, leaves: Leaves) -> list[Event]:
+    """DM-41: the `notice` events of every transcript (`leaves.notices[ti]` = `notices.scan` of it)."""
+    starts: dict[int, list[int]] = {}
+    for call in leaves.calls:
+        if call.op.start_ms is not None:
+            starts.setdefault(call.ti, []).append(call.op.start_ms)
+    out: list[Event] = []
+    for ti, found in enumerate(leaves.notices):
+        t = ctx.transcripts[ti]
+        calls = sorted(starts.get(ti, ()))
+        for n in found.values():
+            at = bisect_left(calls, n.ts_ms)
+            out.append(
+                _event(
+                    ctx,
+                    EventKind.NOTICE,
+                    f"{t.owner}:{n.task_id}",
+                    n.ts_ms,
+                    tree.turn_of[(ti, n.line.n)],
+                    ctx.src(ti, n.line),
+                    EventBasis.PRESENT,
+                    agent_id=t.agent_id,
+                    task_id=n.task_id,
+                    tool_use_id=n.tool_use_id,
+                    status=n.status,
+                    picked_ms=calls[at] if at < len(calls) else None,
+                )
+            )
     return out

@@ -12,7 +12,8 @@ GUARANTEES:
   `command_norm`/`command_key` on every Bash call; `occ_key`, `spawn_depth`,
   `is_fork` on every leaf; containers carry per-file `segments` (D19) and no
   metrics; engagements parented per §4.5 incl. the cycle rule, with
-  `caused_by_basis`; events per §4.11 with nested `fields`.
+  `caused_by_basis`; events per §4.11 with nested `fields`; D55: Bash calls carry `command_class`, test
+  counts and `bg_end_ms`, and a `notice` event per queued task notification (calls.py, notices.py, events.py).
 - `source_files` lists every transcript and meta file with `size`,
   `mtime_ns` and `sha_first_4k`, taken before the file is read, and `ts_list`
   (DM-40): the sorted epoch ms of every timestamped record the transcript

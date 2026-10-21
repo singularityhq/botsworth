@@ -1,7 +1,7 @@
 """CONTRACT: the SQLite schema of the store (design §4.2 store tables, §4.7, §4.11; data-model.md §2.2, §2.3).
 
 GUARANTEES:
-- `DDL` creates every store table, index and view (schema v10): ops, steps, events, sessions,
+- `DDL` creates every store table, index and view (schema v11): ops, steps, events, sessions,
   source_files, src_files, names, accounts, price_table, model_aliases, rollup_time,
   stretches, time_split, projects, meta; views `ops_v`, `steps_v`, `events_v`. Column names equal the
   canonical record field names (`botsworth.model`) except where DM-8/DM-14 compact them: a content
@@ -17,6 +17,9 @@ GUARANTEES:
   `src`; `events_v`: `bundle`, `src`) next to the table's own columns, so a reader that has not moved
   to the v7 columns keeps working. `ops_v` has no `occ_key` and no `args_json` (neither is stored).
 - Op tree: `pre`/`post` nested intervals (DM-15) replace `op_closure`.
+- v11 (D55): `ops.bg_end_ms`, `command_class`, `tests_passed`, `tests_failed` (tool_call only; DM-41,
+  DM-28, DM-29); `stretches.state` also allows `tool` (`background` only, DM-52); `notice` events
+  (DM-41) are ordinary `events` rows.
 - `ensure(conn)` creates the schema on an empty database and, when `meta.schema_version` differs from
   `SCHEMA_VERSION`, drops every table and view (also the v6 `op_closure`) and recreates them (the store
   is a disposable cache over the provider logs, D52). It sets WAL mode. The swap
@@ -42,7 +45,7 @@ import sqlite3
 
 from botsworth.store import refs
 
-SCHEMA_VERSION = 10
+SCHEMA_VERSION = 11
 
 # design §4.2 op record (canonical names), then store-only and derived columns (data-model.md §2.2).
 # Dropped from v6 (DM-8, DM-13, DM-14): parent, caused_by, session_id, bundle, project, cwd, account,
@@ -83,7 +86,8 @@ _OP_COLUMNS = """
   turn_kind TEXT, turn_origin TEXT, display_ix INTEGER,
   attr_turn_rowid INTEGER, attr_cost_usd REAL, attr_tok_total INTEGER, attr_n_llm_calls INTEGER,
   attr_cost_lower_bound INTEGER,
-  span_wall_ms INTEGER, max_silence_ms INTEGER, user_wait TEXT
+  span_wall_ms INTEGER, max_silence_ms INTEGER, user_wait TEXT,
+  bg_end_ms INTEGER, command_class TEXT, tests_passed INTEGER, tests_failed INTEGER
 """
 
 _STEP_COLUMNS = """
@@ -254,7 +258,7 @@ CREATE INDEX rollup_root ON rollup_time(root_rowid);
 
 CREATE TABLE stretches(
   root_rowid INTEGER NOT NULL, turn_rowid INTEGER,
-  state TEXT NOT NULL CHECK (state IN ('agents', 'you', 'agentmsg', 'limit', 'none')),
+  state TEXT NOT NULL CHECK (state IN ('agents', 'tool', 'you', 'agentmsg', 'limit', 'none')),
   substate TEXT,
   start_ms INTEGER NOT NULL, end_ms INTEGER NOT NULL);
 CREATE INDEX stretches_root ON stretches(root_rowid, start_ms);

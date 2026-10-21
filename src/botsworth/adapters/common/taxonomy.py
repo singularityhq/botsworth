@@ -5,7 +5,7 @@ GUARANTEES:
   provider tool name; `verb_of(provider, tool_name)` returns that verb, or
   `other` for a tool the table does not name (the raw name is kept by the
   caller, nothing is dropped).
-- `unwrap`, `command_norm`, `command_key` are re-exported from
+- `unwrap`, `command_norm`, `command_key`, `command_class` (D55) are re-exported from
   `botsworth.adapters.common.commands` (D17); this module never copies them.
 - `clip(text, n)` collapses whitespace and cuts to at most n chars; empty -> None.
   `rel(path, project)` makes a path under `project` project-relative, else
@@ -18,10 +18,20 @@ DOES NOT: parse provider records; decide outcomes; read files.
 
 from __future__ import annotations
 
-from botsworth.adapters.common.commands import command_key, command_norm, unwrap
+from botsworth.adapters.common.commands import command_class, command_key, command_norm, unwrap
 from botsworth.model import SUMMARY_MAX, Verb
 
-__all__ = ["VERBS", "clip", "command_key", "command_norm", "rel", "summary", "unwrap", "verb_of"]
+__all__ = [
+    "VERBS",
+    "clip",
+    "command_class",
+    "command_key",
+    "command_norm",
+    "rel",
+    "summary",
+    "unwrap",
+    "verb_of",
+]
 
 VERBS: dict[str, dict[str, Verb]] = {
     "claude_code": {

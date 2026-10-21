@@ -22,7 +22,7 @@ Data flows one way: provider files -> `adapters` -> bundles in memory -> `store`
 |---|---|
 | `src/botsworth/adapters/{claude,codex,omp,common}` | provider files -> `Bundle` (`op`, `step`, `event`, `source_file` records) |
 | `src/botsworth/pipeline.py`, `stream.py` | ingest entry point (`botsworth ingest`); `stream.py` = bundle checks, plus stream files for tests and the adapter dev command |
-| `src/botsworth/store/` | SQLite schema (version 10), ingest/load, derive, rollups, ownership, `location.py` (data folder) |
+| `src/botsworth/store/` | SQLite schema (version 11), ingest/load, derive, rollups, ownership, `location.py` (data folder) |
 | `src/botsworth/query/` | the only layer that reads the store: `views/`, `wire.py` types, `zone.py` |
 | `src/botsworth/pricing/` | bundled models.dev snapshot + alias table; `snapshot.fetch` is the one network call, by hand only |
 | `src/botsworth/http/`, `cli/` | stdlib server and argparse CLI; both call `query` only |

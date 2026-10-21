@@ -26,6 +26,13 @@ GUARANTEES:
   (`derived`).
 - Every leaf carries `agent_id`, `agent_type`, `spawn_depth`, `is_fork`,
   `occ_key`, `src` (lines first..last; `h` on single-line pointers).
+- D55 on Bash calls: `command_class` (DM-28) from the full command; for `test`, `tests_passed` and
+  `tests_failed` (DM-29) from `toolUseResult.stdout` and `stderr`, else the tool_result text, never stored;
+  An llm_call whose nearest earlier non-assistant line is a task-notification attachment starts at the
+  group's first line (the attachment's timestamp is the queue time, not the time the thread reached it).
+  `bg_end_ms` (DM-41) when the result has a `backgroundTaskId`: the earliest queue time of a notice of
+  the same transcript for this call (`notices.py`), else None; also None when that time is before the
+  call's start.
 - `user_wait` (DM-40, D54): `ask` on `AskUserQuestion` calls; else `permission` when the result record's
   `permissionDecision.source` starts with `user`, or the result text starts with "The user doesn't want to
   proceed"; else None (a `config` source, or an unseen source value, leaves it None). Only the category is
@@ -47,10 +54,10 @@ from collections import Counter
 from dataclasses import dataclass, field
 from typing import Any
 
-from botsworth.adapters.claude import records
+from botsworth.adapters.claude import notices, records
 from botsworth.adapters.claude.records import Line, message, ts_ms
 from botsworth.adapters.claude.tree import ACCOUNT, PROVIDER, Ctx, Send, Tree
-from botsworth.adapters.common.commands import command_key, command_norm
+from botsworth.adapters.common.commands import command_class, command_key, command_norm, count_tests
 from botsworth.adapters.common.links import body_hash
 from botsworth.adapters.common.turns import envelope_body
 from botsworth.model import ARGS_JSON_MAX, CostBasis, IdProv, Kind, Op, Prov, Role
@@ -92,6 +99,7 @@ class Leaves:
     sends: list[Send] = field(default_factory=list)
     llm_of: dict[tuple[int, str], Op] = field(default_factory=dict)
     stats: Counter = field(default_factory=Counter)
+    notices: list[dict[str, notices.Notice]] = field(default_factory=list)  # per transcript index (DM-41)
 
 
 def _blocks(rec: dict[str, Any]) -> list[tuple[int, dict[str, Any]]]:
@@ -229,6 +237,10 @@ def _llm_call(
         ),
         None,
     )
+    if prior is not None and notices.is_notification_attachment(prior.rec):
+        # D55: such an attachment is stamped with the queue time but written when the thread next runs, so
+        # it says nothing about when this call started; the group's first line is the best record there is
+        prior = None
     start = ts_ms((prior or first).rec.get("timestamp"))
     end = ts_ms(final.get("timestamp"))
     dur = end - start if start is not None and end is not None else None
@@ -271,8 +283,23 @@ def _llm_call(
     return Call(op, ti, rid, [line for _, line in group], duplicate)
 
 
+def _output_text(rline: Line | None, rblock: dict[str, Any] | None) -> str:
+    """DM-29: the text to count tests in: `toolUseResult` stdout and stderr, else the result text."""
+    tur = rline.rec.get("toolUseResult") if rline else None
+    parts = [tur[k] for k in ("stdout", "stderr") if isinstance(tur, dict) and isinstance(tur.get(k), str)]
+    if any(parts):  # both empty (a shell that wrote nothing to them): the result text
+        return "\n".join(parts)
+    return _result_text(rblock) if rblock is not None else ""  # FALLBACK-OK: DM-29 (no output: no counts)
+
+
 def _tool_call(
-    ctx: Ctx, ti: int, call: Op, use: tuple[Line, int, dict[str, Any]], result, owner: int
+    ctx: Ctx,
+    ti: int,
+    call: Op,
+    use: tuple[Line, int, dict[str, Any]],
+    result,
+    owner: int,
+    found: dict[str, notices.Notice],
 ) -> ToolUse:
     t = ctx.transcripts[ti]
     line, bi, block = use
@@ -298,6 +325,15 @@ def _tool_call(
     outcome, exit_code, exit_prov = result_outcome(result)
     command = inp.get("command") if isinstance(inp.get("command"), str) else None
     bash = name == "Bash"
+    klass = command_class(command) if bash else None
+    counts = count_tests(_output_text(rline, rblock)) if klass == "test" else None
+    bg_end = (
+        notices.bg_end(found, tuid)
+        if bash and isinstance(tur, dict) and isinstance(tur.get("backgroundTaskId"), str)
+        else None
+    )
+    if bg_end is not None and start is not None and bg_end < start:
+        bg_end = None  # FALLBACK-OK: DM-41 (a notice queued before its launch is no end of this run)
     path = next((inp[k] for k in ("file_path", "path", "notebook_path") if isinstance(inp.get(k), str)), None)
     op = _leaf(
         ctx,
@@ -320,6 +356,10 @@ def _tool_call(
         command=command[:ARGS_JSON_MAX] if command else None,
         command_norm=command_norm(command, ctx.project) if bash else None,
         command_key=command_key(command) if bash else None,
+        command_class=klass,
+        bg_end_ms=bg_end,
+        tests_passed=counts[0] if counts else None,
+        tests_failed=counts[1] if counts else None,
         file_path=path,
         exit_code=exit_code,
         exit_code_prov=exit_prov,
@@ -334,6 +374,7 @@ def _tool_call(
 def build(ctx: Ctx, tree: Tree, pricer: Pricer) -> Leaves:
     out = Leaves()
     rid_owner, tool_owner = _owners(ctx)
+    out.notices = [notices.scan(t) for t in ctx.transcripts]
     for ti, t in enumerate(ctx.transcripts):
         groups: dict[str, list[tuple[int, Line]]] = {}
         uses: dict[str, tuple[Line, int, dict[str, Any], str | None]] = {}
@@ -365,7 +406,9 @@ def build(ctx: Ctx, tree: Tree, pricer: Pricer) -> Leaves:
             if call_op is None:
                 out.stats["tool_without_llm"] += 1
                 continue
-            use = _tool_call(ctx, ti, call_op, (line, bi, block), results.get(tuid), tool_owner[tuid])
+            use = _tool_call(
+                ctx, ti, call_op, (line, bi, block), results.get(tuid), tool_owner[tuid], out.notices[ti]
+            )
             out.tools.append(use)
             out.ops.append(use.op)
             if use.name in SEND_TOOLS:

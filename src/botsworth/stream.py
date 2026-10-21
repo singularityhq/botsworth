@@ -32,7 +32,10 @@ GUARANTEES:
   (label/summary > 120, snippet > 160, target > 200), `bad_enum` (a closed
   value outside its enumeration, including `turn_kind`, `user_wait`, `title_source` and a
   `source_file.ts_list` that is not a sorted int list), `kind_field`
-  (`turn_kind`/`turn_origin` off a turn op, `user_wait` off a tool_call).
+  (`turn_kind`/`turn_origin` off a turn op, `user_wait` off a tool_call; D55: `command_class`,
+  `bg_end_ms`, `tests_passed`, `tests_failed` off a tool_call, test counts on a call whose
+  `command_class` is not `test`, or only one of the two counts set); `command_class` is an enum
+  (`test`, `wait`), `notice` is an event kind.
   `title_source`, `entrypoint` and `originator` are session-only fields.
 - `write_bundle(bundle, out_dir)` writes `<bundle_id>.jsonl` via temp file +
   rename, records ordered source_file, op, step, event, None fields omitted.
@@ -73,6 +76,7 @@ from botsworth.model import (
     TARGET_MAX,
     AdapterTitleSource,
     Bundle,
+    CommandClass,
     CostBasis,
     Event,
     EventBasis,
@@ -350,6 +354,20 @@ def defects(bundle: Bundle) -> list[Defect]:
         _enum(out, o.op_id, "user_wait", o.user_wait, UserWait.__members__.values())
         if o.user_wait is not None and o.kind != Kind.TOOL_CALL:
             out.append(Defect("kind_field", o.op_id, f"user_wait set on {o.kind}"))
+        _enum(out, o.op_id, "command_class", o.command_class, CommandClass.__members__.values())
+        for name in ("command_class", "bg_end_ms", "tests_passed", "tests_failed"):  # D55: tool_call only
+            if getattr(o, name) is not None and o.kind != Kind.TOOL_CALL:
+                out.append(Defect("kind_field", o.op_id, f"{name} set on {o.kind}"))
+        if (
+            o.tests_passed is not None or o.tests_failed is not None
+        ) and o.command_class != CommandClass.TEST:
+            out.append(
+                Defect("kind_field", o.op_id, "tests_passed/tests_failed need command_class test (DM-29)")
+            )
+        if (o.tests_passed is None) != (o.tests_failed is None):
+            out.append(
+                Defect("kind_field", o.op_id, "tests_passed and tests_failed are set together (DM-29)")
+            )
         if o.caused_by_basis is not None and not is_link_basis(o.caused_by_basis):
             out.append(Defect("bad_enum", o.op_id, f"caused_by_basis={o.caused_by_basis!r}"))
         _long(out, o.op_id, "label", o.label, LABEL_MAX)
