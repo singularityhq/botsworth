@@ -1,14 +1,15 @@
 import { describe, expect, it } from 'vitest'
 import { fixtures } from '../../api/__fixtures__'
-import type { Cause, Finding, ReviewReport, TimeSplit } from '../../api/types'
+import type { Cause, Finding, ReviewReport } from '../../api/types'
 import { CAUSE_KEYS, CAUSES, causeFill } from '../shared/causes'
-import { bars, CHANGE, claim, evidenceText, facts, footnote, heading, legend, largestCause, threadsText, youFacts } from './review.logic'
+import { bars, CHANGE, claim, evidenceText, facts, footnote, heading, legend, largestCause, sharedNames, startText, threadsText, youFacts } from './review.logic'
+import { fmt } from '../../lib/format'
 
 const R = fixtures.sessionReview as ReviewReport
 const finding = (cause: Finding['cause']) => R.findings.find((f) => f.cause === cause)!
-const withCauses = (over: Partial<Record<Cause, number>>, lost = 0): Pick<ReviewReport, 'wall_ms' | 'lost_ms' | 'causes'> => {
+const withCauses = (over: Partial<Record<Cause, number>>, lost = 0): Pick<ReviewReport, 'wall_ms' | 'lost_ms' | 'causes' | 'n_sessions' | 'n_unmeasured'> => {
   const causes = CAUSE_KEYS.map((cause) => ({ cause, ms: over[cause] ?? 0 }))
-  return { wall_ms: causes.reduce((a, c) => a + c.ms, 0), lost_ms: lost, causes }
+  return { wall_ms: causes.reduce((a, c) => a + c.ms, 0), lost_ms: lost, causes, n_sessions: 1, n_unmeasured: 0 }
 }
 
 describe('REV-1 cause table', () => {
@@ -64,6 +65,22 @@ describe('REV-4 claim', () => {
   })
 })
 
+describe('REV-4 and REV-22 claim where stalls are not measured', () => {
+  it('says stalls are not measured for this session when the session is unmeasured (a Codex or omp session)', () => {
+    expect(claim({ ...R, n_unmeasured: 1, lost_ms: 0 })[0]).toBe('3h37m wall. Stalls are not measured for this session.')
+    expect(claim({ ...R, n_unmeasured: 1 })[0]).toBe('3h37m wall. Stalls are not measured for this session.')
+  })
+
+  it('says stalls are not measured for these sessions when every session in a scope is unmeasured', () => {
+    expect(claim({ ...R, n_sessions: 4, n_unmeasured: 4 }, true)[0]).toBe('3h37m of session time in 4 sessions. Stalls are not measured for these sessions.')
+  })
+
+  it('ends the stall clause with the count when only some sessions are unmeasured', () => {
+    expect(claim({ ...R, n_sessions: 4, n_unmeasured: 1 }, true)[0]).toBe('3h37m of session time in 4 sessions. 1h35m was lost to stalls (1 not measured).')
+    expect(claim({ ...R, n_sessions: 4, n_unmeasured: 2, lost_ms: 0 }, true)[0]).toBe('3h37m of session time in 4 sessions. Nothing was lost to a stall (2 not measured).')
+  })
+})
+
 describe('REV-5 bars', () => {
   it('draws the second bar shorter by exactly lost_ms, and both sum to their totals', () => {
     const [ran, without] = bars(R)
@@ -96,15 +113,6 @@ describe('REV-5 bars', () => {
 })
 
 describe('REV-6 card text', () => {
-  const split: TimeSplit = {
-    parts: [
-      { state: 'you', substate: 'reply', ms: 3_960_000 },
-      { state: 'you', substate: 'ask', ms: 720_000 },
-      { state: 'you', substate: 'permission', ms: 0 },
-      { state: 'model', substate: null, ms: 5000 },
-    ],
-  }
-
   it('words each heading as a claim', () => {
     expect(heading(finding('stalled'))).toBe('Stalled 1h35m: finished tasks waited for main, reviewer, builder +1 while nothing ran')
     expect(heading(finding('tests'))).toBe('Tests held the session for 20m')
@@ -120,23 +128,25 @@ describe('REV-6 card text', () => {
   })
 
   it('states the facts of each cause', () => {
-    expect(facts(finding('stalled'), R, split)).toBe('2 stalls of 2 min or more.')
-    expect(facts(finding('tests'), R, split)).toBe('9 test runs: 3 with failures, 5 passed, 1 with no result. 2 ran in the background.')
-    expect(facts(finding('polling'), R, split)).toBe('4 sleep or polling commands.')
-    expect(facts({ ...finding('you'), cause: 'message', n: 1 }, R, split)).toBe(
+    expect(facts(finding('stalled'), R)).toBe('2 stalls of 2 min or more.')
+    expect(facts(finding('tests'), R)).toBe('9 test runs: 3 with failures, 5 passed, 1 with no result. 2 ran in the background.')
+    expect(facts(finding('polling'), R)).toBe('4 sleep or polling commands.')
+    expect(facts({ ...finding('you'), cause: 'message', n: 1 }, R)).toBe(
       '1 wait of 2 min or more. Botsworth does not store message text, so it cannot say why.',
     )
   })
 
   it('omits the zero clauses of the tests facts', () => {
     const r = { test_runs: { n: 4, run_ms: 1, n_failed: 0, n_passed: 4, n_no_result: 0, n_background: 0 } }
-    expect(facts(finding('tests'), r, split)).toBe('4 test runs: 4 passed.')
-    expect(facts(finding('tests'), { test_runs: { ...r.test_runs, n: 1, n_passed: 0, n_no_result: 0 } }, split)).toBe('1 test run.')
+    expect(facts(finding('tests'), { ...R, ...r })).toBe('4 test runs: 4 passed.')
+    expect(facts(finding('tests'), { ...R, test_runs: { ...r.test_runs, n: 1, n_passed: 0, n_no_result: 0 } })).toBe('1 test run.')
   })
 
   it('splits the you card by substate in SES-15 order and leaves out substates with no time', () => {
-    expect(youFacts(split)).toBe('Asked you a question 12m · the next turn is your message 1h06m')
-    expect(facts(finding('you'), R, split)).toBe('Asked you a question 12m · the next turn is your message 1h06m')
+    expect(youFacts(R.you_parts)).toBe('Asked you a question 10m · waited for your approval 2m · the next turn is your message 3m')
+    expect(facts(finding('you'), R)).toBe('Asked you a question 10m · waited for your approval 2m · the next turn is your message 3m')
+    expect(youFacts({ ask: 0, permission: 0, reply: 3_960_000 })).toBe('The next turn is your message 1h06m')
+    expect(youFacts({ ask: 0, permission: 0, reply: 0 })).toBe('')
   })
 
   it('shows the evidence line as range, duration and turn, without the turn when it is null', () => {
@@ -159,5 +169,57 @@ describe('REV-7 footnote', () => {
   it('adds the unmeasured line only when sessions are unmeasured', () => {
     expect(footnote({ n_unmeasured: 0 })).toHaveLength(1)
     expect(footnote({ n_unmeasured: 1 })[1]).toBe('Stalls are not measured for Codex and omp sessions: their logs do not record when a background task finishes.')
+  })
+})
+
+describe('REV-22 scope variants', () => {
+  const S = fixtures.scopeReview as ReviewReport
+
+  it('words the claim as session time in n sessions, with and without lost time', () => {
+    expect(claim(S, true)).toEqual(['27h47m of session time in 35 sessions. 2h00m was lost to stalls (3 not measured).', 'The largest cause was tests (8h20m).'])
+    expect(claim({ ...S, n_unmeasured: 0, lost_ms: 30_000, n_sessions: 1 }, true)[0]).toBe('27h47m of session time in 1 session. Nothing was lost to a stall.')
+  })
+
+  it('names the session and the day in the evidence line, with no turn', () => {
+    expect(evidenceText(S.findings[0], 'UTC', true)).toBe('Longest: master-control-acme, Mon Oct 12 06:28–07:30, 1h02m')
+    expect(evidenceText(S.findings[1], 'UTC', true)).toBeNull()
+  })
+
+  it('adds the whole-sessions sentence and the Codex or omp line with the unmeasured count, singular for one', () => {
+    expect(footnote({ n_unmeasured: 3 }, true)).toEqual([
+      expect.stringMatching(/^Measured from the log\./),
+      'Sessions count whole (a session active in the period counts in full), so a longest example can lie before the period.',
+      '3 sessions are Codex or omp: stalls are not measured for them, because their logs do not record when a background task finishes.',
+    ])
+    expect(footnote({ n_unmeasured: 1 }, true)[2]).toMatch(/^1 session is Codex or omp: /)
+    expect(footnote({ n_unmeasured: 0 }, true)).toHaveLength(2)
+    expect(footnote({ n_unmeasured: 1234 }, true)[2]).toMatch(/^1,234 sessions are /)
+  })
+
+  it('says "these sessions" in the tests and polling headings of a scope, and keeps the session wording otherwise', () => {
+    const tests = { ...S.findings[0], cause: 'tests' as const, ms: 30_000_000 }
+    expect(heading(tests, true)).toBe('Tests held these sessions for 8h20m')
+    expect(heading({ ...tests, cause: 'polling' }, true)).toBe('Polling loops held these sessions for 8h20m')
+    expect(heading(tests)).toBe('Tests held the session for 8h20m')
+    expect(heading({ ...S.findings[0], threads: [] }, true)).toBe('Stalled 2h00m: finished tasks waited for an agent while nothing ran')
+  })
+
+  it('tells two same-named links apart by their start, as "Ddd HH:MM"', () => {
+    const names = S.findings[0].sessions.map((x) => ({ name: x.name }))
+    expect(sharedNames(names).size).toBe(0)
+    expect(sharedNames([{ name: 'a' }, { name: 'b' }, { name: 'a' }])).toEqual(new Set(['a']))
+    expect(startText(1791786480000, 'UTC')).toBe('Mon 06:28')
+  })
+
+  it('uses thousands separators for counts over 999', () => {
+    expect(fmt.count(999)).toBe('999')
+    expect(fmt.count(1244)).toBe('1,244')
+    expect(facts({ ...S.findings[0], n: 1244 }, S)).toBe('1,244 stalls of 2 min or more.')
+    expect(facts(S.findings[1], { ...S, test_runs: { ...S.test_runs, n: 2500, n_passed: 1800 } })).toMatch(/^2,500 test runs: 30 with failures, 1,800 passed/)
+    expect(claim({ ...S, n_sessions: 1234, n_unmeasured: 0 }, true)[0]).toMatch(/in 1,234 sessions\./)
+  })
+
+  it('reads the you facts from the scope review\'s you_parts', () => {
+    expect(facts(S.findings[2], S)).toBe('Asked you a question 17m · waited for your approval 8m · the next turn is your message 25m')
   })
 })

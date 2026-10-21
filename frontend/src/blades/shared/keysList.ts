@@ -14,7 +14,7 @@ export const KEYS: readonly { keys: readonly string[]; effect: string }[] = [
   { keys: ['a'], effect: 'next agent' },
   { keys: ['1', '2', '3'], effect: 'measure: cost / time / tokens' },
   { keys: ['v'], effect: 'ledger / waterfall of the focused blade' },
-  { keys: ['r'], effect: 'open / close Review (where the session lost time)' },
+  { keys: ['r'], effect: 'open / close Review (where the session lost time); in the explorer, where the scope lost time' },
   { keys: ['0'], effect: 'reset the turn zoom and the session range' },
   { keys: ['/'], effect: 'find a step' },
   { keys: ['?'], effect: 'this list' },

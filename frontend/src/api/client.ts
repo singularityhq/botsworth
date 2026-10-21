@@ -118,6 +118,7 @@ export const urls = {
     setIf(p, 'min_gap_ms', minGapMs, 120000)
     return build(`/api/sessions/${enc(session)}/turns`, p)
   },
+  scopeReview: (scope: Scope): string => build('/api/explorer/review', scopeParams(scope)),
   sessionReview: (session: string): string => `/api/sessions/${enc(session)}/review`,
   sessionFind: (session: string, o: FindOpts): string => {
     const p = new URLSearchParams({ kind: o.kind })
@@ -246,6 +247,7 @@ export const client = {
   sessionDetail: (session: string, signal?: AbortSignal) => getJson<SessionDetail>(urls.sessionDetail(session), signal),
   sessionTurns: (session: string, minGapMs: number | undefined, signal?: AbortSignal) =>
     getJson<TurnList>(urls.sessionTurns(session, minGapMs), signal),
+  scopeReview: (scope: Scope, signal?: AbortSignal) => getJson<ReviewReport>(urls.scopeReview(scope), signal),
   sessionReview: (session: string, signal?: AbortSignal) => getJson<ReviewReport>(urls.sessionReview(session), signal),
   sessionFind: (session: string, o: FindOpts, signal?: AbortSignal) =>
     getJson<FindResult>(urls.sessionFind(session, o), signal),

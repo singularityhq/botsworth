@@ -539,6 +539,8 @@ export interface CausePart {
 export interface Evidence {
   session: string
   session_id: string
+  /** The session's display name (QRY-42; as `sessions[].name`). */
+  name: string
   row: RowRef | null
   turn: string | null
   display_id: string | null
@@ -554,7 +556,7 @@ export interface Finding {
   n: number
   longest: Evidence | null
   threads: string[]
-  sessions: { session: string; session_id: string; name: string; ms: number }[]
+  sessions: { session: string; session_id: string; name: string; start_ms: number; ms: number }[]
 }
 
 /** QRY-42 `Review` over API-33 (`GET /api/sessions/{session}/review`), with the freshness. */
@@ -563,6 +565,8 @@ export interface ReviewReport {
   wall_ms: number
   lost_ms: number
   n_sessions: number
+  /** The `you` cause by substate (ms), summed like `causes`. */
+  you_parts: { ask: number; permission: number; reply: number }
   n_unmeasured: number
   causes: CausePart[]
   findings: Finding[]

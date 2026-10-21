@@ -35,6 +35,8 @@ export interface UrlState {
   sort: SortKey
   dir: SortDir
   group: GroupKey | null
+  // scope review blade (REV-21): blade 1 in place of a session; never set together with `s`
+  review: boolean
   // session blade (SES-8)
   s: string | null
   bars: Bars
@@ -69,6 +71,7 @@ export const DEFAULT_URL_STATE: UrlState = {
   sort: 'start',
   dir: 'desc',
   group: null,
+  review: false,
   s: null,
   bars: 'cost',
   find: '',
@@ -88,11 +91,13 @@ export const DEFAULT_URL_STATE: UrlState = {
   detail: false,
 }
 
-export type BladeLevel = 'explorer' | 'session' | 'turn' | 'detail'
+export type BladeLevel = 'explorer' | 'session' | 'review' | 'turn' | 'detail'
 
 /** Parameters each blade owns; closing or reopening a blade resets them. `bars` outlives its blades. */
 export const LEVEL_PARAMS: Record<Exclude<BladeLevel, 'explorer'>, readonly (keyof UrlState)[]> = {
-  session: ['s', 'find', 'range', 'over', 'sview', 'sreal', 'info'],
+  // `review` is a blade-1 parameter: opening a session returns it to its default, and `s` and `review` are never both set (REV-21).
+  session: ['s', 'find', 'range', 'over', 'sview', 'sreal', 'info', 'review'],
+  review: [],
   turn: ['t', 'step', 'view', 'order', 'real', 'zoom', 'thist', 'tinfo'],
   detail: ['detail'],
 }
@@ -129,10 +134,10 @@ function parsePeriod(p: URLSearchParams): Period {
  * so every blade parameter returns to its default.
  */
 export function normalizeUrlState(state: UrlState): UrlState {
-  if (state.s !== null) return state
+  if (state.s !== null) return state.review ? { ...state, review: false } : state // REV-21: `s` and `review` are never both set; the session wins
   const next = { ...state }
   for (const level of ['session', 'turn', 'detail'] as const) {
-    for (const key of LEVEL_PARAMS[level]) (next as Record<string, unknown>)[key] = DEFAULT_URL_STATE[key]
+    for (const key of LEVEL_PARAMS[level]) if (key !== 'review') (next as Record<string, unknown>)[key] = DEFAULT_URL_STATE[key]
   }
   return next
 }
@@ -156,6 +161,7 @@ export function parseUrl(search: string): UrlState {
     sort: oneOf(p.get('sort'), SORTS) ?? 'start',
     dir: oneOf(p.get('dir'), ['asc', 'desc'] as const) ?? 'desc',
     group: oneOf(p.get('group'), ['project', 'day'] as const),
+    review: p.get('review') === '1',
     s: p.get('s') || null,
     bars: oneOf(p.get('bars'), ['cost', 'time', 'tokens'] as const) ?? 'cost',
     find: p.get('find') ?? '',
@@ -197,6 +203,7 @@ export function serializeUrl(input: UrlState): string {
   if (u.sort !== 'start') p.set('sort', u.sort)
   if (u.dir !== 'desc') p.set('dir', u.dir)
   if (u.group !== null) p.set('group', u.group)
+  if (u.review) p.set('review', '1')
   if (u.s !== null) p.set('s', u.s)
   if (u.bars !== 'cost') p.set('bars', u.bars)
   if (u.find !== '') p.set('find', u.find)
@@ -221,6 +228,7 @@ export function serializeUrl(input: UrlState): string {
 export function openBlades(u: UrlState): BladeLevel[] {
   const out: BladeLevel[] = ['explorer']
   if (u.s !== null) out.push('session')
+  else if (u.review) out.push('review')
   if (u.s !== null && u.t !== null) out.push('turn')
   if (u.s !== null && u.detail) out.push('detail')
   return out

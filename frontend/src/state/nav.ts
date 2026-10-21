@@ -15,6 +15,8 @@ const TAB = Math.random().toString(36).slice(2)
 interface OpenedTag {
   opened: BladeLevel
   tab: string
+  /** A session opened from the scope review: closing to the explorer closes every blade instead of going back to the review (EXP-9, REV-21). */
+  fromReview?: boolean
 }
 function isOpenedTag(v: unknown): v is OpenedTag {
   return typeof v === 'object' && v !== null && (v as OpenedTag).tab === TAB && typeof (v as OpenedTag).opened === 'string'
@@ -59,18 +61,25 @@ export function createNav(env: UrlEnv): Nav {
   return {
     replace: (patch) => write({ ...current(), ...patch }, 'replace'),
     push: (patch) => write({ ...current(), ...patch }, 'push'),
+    // The scope review (REV-21) takes blade 1: every session-level blade closes and `review` is set.
     openBlade: (level, patch) =>
-      write({ ...reset(current(), ORDER.slice(ORDER.indexOf(level))), ...patch }, 'push', { opened: level, tab: TAB }),
+      write(
+        level === 'review'
+          ? { ...reset(current(), ORDER), ...patch, review: true }
+          : { ...reset(current(), ORDER.slice(ORDER.indexOf(level))), ...patch },
+        'push',
+        { opened: level, tab: TAB, fromReview: level !== 'review' && current().review },
+      ),
     closeTo: (level) => {
       const cur = current()
       const open = openBlades(cur)
       const top = open[open.length - 1]
       const tag = env.getState()
-      if (top !== 'explorer' && open.indexOf(top) - open.indexOf(level) === 1 && isOpenedTag(tag) && tag.opened === top) {
+      if (top !== 'explorer' && open.indexOf(top) - open.indexOf(level) === 1 && isOpenedTag(tag) && tag.opened === top && !(tag.fromReview && level === 'explorer')) {
         env.back()
         return
       }
-      write(reset(cur, level === 'explorer' ? ORDER : ORDER.slice(ORDER.indexOf(level) + 1)), 'replace')
+      write(reset(cur, level === 'explorer' ? ORDER : level === 'review' ? ORDER.slice(1) : ORDER.slice(ORDER.indexOf(level) + 1)), 'replace')
     },
   }
 }

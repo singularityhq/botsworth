@@ -9,16 +9,45 @@
   "wall_ms": 13000000,
   "lost_ms": 5700000,
   "n_sessions": 1,
+  "you_parts": {
+    "ask": 600000,
+    "permission": 100000,
+    "reply": 200000
+  },
   "n_unmeasured": 0,
   "causes": [
-    { "cause": "stalled", "ms": 5700000 },
-    { "cause": "tests", "ms": 1200000 },
-    { "cause": "polling", "ms": 300000 },
-    { "cause": "you", "ms": 900000 },
-    { "cause": "message", "ms": 60000 },
-    { "cause": "limit", "ms": 0 },
-    { "cause": "working", "ms": 4500000 },
-    { "cause": "idle", "ms": 340000 }
+    {
+      "cause": "stalled",
+      "ms": 5700000
+    },
+    {
+      "cause": "tests",
+      "ms": 1200000
+    },
+    {
+      "cause": "polling",
+      "ms": 300000
+    },
+    {
+      "cause": "you",
+      "ms": 900000
+    },
+    {
+      "cause": "message",
+      "ms": 60000
+    },
+    {
+      "cause": "limit",
+      "ms": 0
+    },
+    {
+      "cause": "working",
+      "ms": 4500000
+    },
+    {
+      "cause": "idle",
+      "ms": 340000
+    }
   ],
   "findings": [
     {
@@ -29,14 +58,23 @@
       "longest": {
         "session": "claude_code/a11ce5e5-1111-4222-8333-944455556666/session/-",
         "session_id": "a11ce5e5-1111-4222-8333-944455556666",
-        "row": { "type": "gap", "id": "gap-1791786480000" },
+        "name": "Fix the importer",
+        "row": {
+          "type": "gap",
+          "id": "gap-1791786480000"
+        },
         "turn": "claude_code/a11ce5e5-1111-4222-8333-944455556666/turn/2",
         "display_id": "T2",
         "start_ms": 1791786480000,
         "end_ms": 1791790200000,
         "dur_ms": 3720000
       },
-      "threads": ["main", "reviewer", "builder", "scout"],
+      "threads": [
+        "main",
+        "reviewer",
+        "builder",
+        "scout"
+      ],
       "sessions": []
     },
     {
@@ -47,7 +85,11 @@
       "longest": {
         "session": "claude_code/a11ce5e5-1111-4222-8333-944455556666/session/-",
         "session_id": "a11ce5e5-1111-4222-8333-944455556666",
-        "row": { "type": "tool", "id": "claude_code/a11ce5e5-1111-4222-8333-944455556666/turn/2#3" },
+        "name": "Fix the importer",
+        "row": {
+          "type": "tool",
+          "id": "claude_code/a11ce5e5-1111-4222-8333-944455556666/turn/2#3"
+        },
         "turn": "claude_code/a11ce5e5-1111-4222-8333-944455556666/turn/2",
         "display_id": "T2",
         "start_ms": 1791790260000,
@@ -76,5 +118,12 @@
       "sessions": []
     }
   ],
-  "test_runs": { "n": 9, "run_ms": 1500000, "n_failed": 3, "n_passed": 5, "n_no_result": 1, "n_background": 2 }
+  "test_runs": {
+    "n": 9,
+    "run_ms": 1500000,
+    "n_failed": 3,
+    "n_passed": 5,
+    "n_no_result": 1,
+    "n_background": 2
+  }
 }

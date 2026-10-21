@@ -1,4 +1,4 @@
-import type { Evidence, Finding, ReviewReport, TimeSplit } from '../../api/types'
+import type { Evidence, Finding, ReviewReport } from '../../api/types'
 import { fmt } from '../../lib/format'
 import { Duration } from '../../ui/figures'
 import { Icon } from '../../ui/Icon'
@@ -8,7 +8,7 @@ import { ErrorCard } from '../../ui/ErrorCard'
 import { segmentWidths } from '../shared/answers.logic'
 import { CAUSES, causeFill } from '../shared/causes'
 import { useElementWidth } from '../shared/useElementWidth'
-import { bars, CHANGE, claim, evidenceText, facts, footnote, heading, legend, type Bar } from './review.logic'
+import { bars, CHANGE, claim, evidenceText, facts, footnote, heading, legend, sharedNames, startText, type Bar } from './review.logic'
 
 /** REV-4 to REV-8: the Review view of a session. */
 
@@ -75,16 +75,18 @@ function Legend({ causes }: { causes: ReviewReport['causes'] }) {
 interface CardProps {
   finding: Finding
   review: ReviewReport
-  split: TimeSplit
+  scope: boolean
   tz: string
+  onOpenSession: ((session: string) => void) | undefined
   onOpenEvidence: ((e: Evidence) => void) | undefined
 }
 
 /** REV-6: one finding. */
-function Card({ finding: f, review, split, tz, onOpenEvidence }: CardProps) {
-  const evidence = evidenceText(f, tz)
+function Card({ finding: f, review, scope, tz, onOpenSession, onOpenEvidence }: CardProps) {
+  const evidence = evidenceText(f, tz, scope)
   const change = CHANGE[f.cause]
-  const factsText = facts(f, review, split)
+  const factsText = facts(f, review)
+  const shared = sharedNames(f.sessions)
   return (
     <article data-finding={f.cause} className={`grid gap-x-4 gap-y-1 rounded-card bg-l2 p-4 grid-cols-[120px_minmax(0,1fr)]`}>
       <div>
@@ -92,7 +94,7 @@ function Card({ finding: f, review, split, tz, onOpenEvidence }: CardProps) {
         {f.lost ? <div className="text-label text-error">lost</div> : null}
       </div>
       <div className="flex min-w-0 flex-col gap-1">
-        <h3 className="text-body font-semibold text-ink1">{heading(f)}</h3>
+        <h3 className="text-body font-semibold text-ink1">{heading(f, scope)}</h3>
         {factsText !== '' ? <p className="text-body text-ink2">{factsText}</p> : null}
         {evidence !== null ? (
           <button
@@ -103,6 +105,26 @@ function Card({ finding: f, review, split, tz, onOpenEvidence }: CardProps) {
           >
             {evidence}
           </button>
+        ) : null}
+        {scope && f.sessions.length > 0 ? (
+          <p className="text-body text-ink3">
+            Most in:{' '}
+            {f.sessions.map((x, i) => (
+              <span key={x.session}>
+                {i > 0 ? ' · ' : ''}
+                <button type="button" data-session-link={x.session} onClick={() => onOpenSession?.(x.session)} className="text-body text-struct hover:underline">
+                  {x.name}
+                  {shared.has(x.name) ? (
+                    <>
+                      {' '}
+                      <span className="text-ink3">{startText(x.start_ms, tz)}</span>
+                    </>
+                  ) : null}
+                </button>{' '}
+                <Duration ms={x.ms} ink="ink2" />
+              </span>
+            ))}
+          </p>
         ) : null}
         {change !== null ? (
           <div className="mt-1 flex gap-2 border-l-2 border-struct-soft pl-2">
@@ -132,8 +154,10 @@ function ReviewSkeleton() {
 
 interface ViewProps {
   review: ReviewReport | undefined
-  /** The session's time split (REV-6 `you` card). */
-  split: TimeSplit | undefined
+  /** REV-20: the scope variant: its claim, evidence line, "Most in:" links and footnote. */
+  scope?: boolean
+  /** REV-22: a "Most in:" link opens that session in Review. */
+  onOpenSession?: (session: string) => void
   error: { message: string } | null
   onRetry: () => void
   tz: string
@@ -141,15 +165,17 @@ interface ViewProps {
   onOpenEvidence: ((e: Evidence) => void) | undefined
 }
 
-export function ReviewView({ review, split, error, onRetry, tz, onOpenEvidence }: ViewProps) {
+export function ReviewView({ review, scope = false, error, onRetry, tz, onOpenSession, onOpenEvidence }: ViewProps) {
   const [fullRef, fullPx] = useElementWidth<HTMLDivElement>()
   let body: React.ReactNode
   if (error) {
     body = <ErrorCard noun="the review" message={error.message} onRetry={onRetry} />
-  } else if (!review || !split) {
+  } else if (!review) {
     body = <ReviewSkeleton />
+  } else if (scope && review.n_sessions === 0) {
+    body = <p className="text-body text-ink2">No sessions in this scope.</p> // REV-23
   } else {
-    const sentences = claim(review)
+    const sentences = claim(review, scope)
     body = (
       <>
         <h2 className="text-lead font-semibold text-ink1">{sentences.join(' ')}</h2>
@@ -167,12 +193,12 @@ export function ReviewView({ review, split, error, onRetry, tz, onOpenEvidence }
         ) : (
           <div className="flex flex-col gap-3">
             {review.findings.map((f) => (
-              <Card key={f.cause} finding={f} review={review} split={split} tz={tz} onOpenEvidence={onOpenEvidence} />
+              <Card key={f.cause} finding={f} review={review} scope={scope} tz={tz} onOpenSession={onOpenSession} onOpenEvidence={onOpenEvidence} />
             ))}
           </div>
         )}
         <div className="text-label text-ink3">
-          {footnote(review).map((p) => (
+          {footnote(review, scope).map((p) => (
             <p key={p}>{p}</p>
           ))}
         </div>

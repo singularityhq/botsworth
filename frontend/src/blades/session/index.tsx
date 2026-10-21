@@ -437,7 +437,6 @@ export function SessionBlade({ width, compact }: { width: number; compact: boole
       {url.sview === 'review' ? (
         <ReviewView
           review={review.data}
-          split={s?.time_split}
           error={review.error ?? detail.error}
           onRetry={() => {
             review.retry()

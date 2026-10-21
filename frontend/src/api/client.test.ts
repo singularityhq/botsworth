@@ -57,7 +57,7 @@ describe('urls', () => {
   it('sends the browser zone as tz on every Scope route and on the session route (QRY-3, API-3, FE-9 [D50])', () => {
     const all = [
       urls.explorerSummary(SCOPE), urls.explorerDays(SCOPE, { from: '2026-09-22', to: '2026-10-12' }), urls.explorerSessions(SCOPE),
-      urls.explorerFacets(SCOPE), urls.palette('x', SCOPE), urls.sessionDetail('s'),
+      urls.explorerFacets(SCOPE), urls.palette('x', SCOPE), urls.scopeReview(SCOPE), urls.sessionDetail('s'),
     ]
     for (const u of all) expect(new URL(u, 'http://x').searchParams.get('tz'), u).toBe('Asia/Kolkata')
   })
@@ -169,7 +169,7 @@ describe('client requests', () => {
   it('has a method for every endpoint the UI uses', () => {
     expect(Object.keys(client).sort()).toEqual([
       'agentRows', 'explorerDays', 'explorerFacets', 'explorerSessions', 'explorerSummary', 'ingestStatus', 'opDetail',
-      'palette', 'sessionDetail', 'sessionFind', 'sessionHistogram', 'sessionResolve', 'sessionReview', 'sessionTurns', 'source',
+      'palette', 'scopeReview', 'sessionDetail', 'sessionFind', 'sessionHistogram', 'sessionResolve', 'sessionReview', 'sessionTurns', 'source',
       'turnHistogram', 'turnRows',
     ])
   })

@@ -194,3 +194,27 @@ describe('toScope', () => {
     expect(toScope(parseUrl('period=all'), '2026-10-12')).toMatchObject({ from_day: null, to_day: null, show_automated: false })
   })
 })
+
+describe('scope review blade (REV-21, EXP-74)', () => {
+  it('reads review=1 and writes it back; it is omitted when closed', () => {
+    expect(parseUrl('review=1').review).toBe(true)
+    expect(canon('review=1&period=today')).toBe('period=today&review=1')
+    expect(canon('review=0')).toBe('')
+    expect(canon('')).toBe('')
+  })
+
+  it('opens the review as blade 1 and puts no session blade beside it', () => {
+    expect(openBlades(parseUrl('review=1'))).toEqual(['explorer', 'review'])
+  })
+
+  it('never has review and s together: the session wins, and review is dropped from the URL', () => {
+    const u = parseUrl('review=1&s=a')
+    expect(u.review).toBe(false)
+    expect(openBlades(u)).toEqual(['explorer', 'session'])
+    expect(canon('review=1&s=a')).toBe('s=a')
+  })
+
+  it('drops turn blade parameters under a review, since there is no session', () => {
+    expect(canon('review=1&t=3&detail=1&find=x')).toBe('review=1')
+  })
+})

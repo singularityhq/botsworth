@@ -158,4 +158,10 @@ function pct(share: number | null | undefined): string {
   return n < 1 ? '<1%' : `${n}%`
 }
 
-export const fmt = { money, moneyParts, tokens, dur, clock, range, date, dateRange, pct }
+/** SYS number format for counts: en-US thousands separators (1,244). */
+function count(n: number): string {
+  assertFinite(n, 'count')
+  return n.toLocaleString('en-US')
+}
+
+export const fmt = { count, money, moneyParts, tokens, dur, clock, range, date, dateRange, pct }

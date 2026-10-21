@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fixtures } from '../../api/__fixtures__'
 import { clearEtags } from '../../api/client'
 import { responseCache } from '../../api/useApi'
+import { useGlobalKeys } from '../../shell/keys'
 import { ExplorerBlade } from '.'
 
 // The list and rail belong to F2b; the page test only needs to see that they mount with the scope.
@@ -20,6 +21,7 @@ function serve(overrides: Record<string, Handler> = {}) {
     '/api/explorer/summary': () => json(fixtures.explorerSummary),
     '/api/explorer/days': () => json(fixtures.explorerDays),
     '/api/explorer/facets': () => json(fixtures.explorerFacets),
+    '/api/explorer/review': () => json(fixtures.scopeReview),
     ...overrides,
   }
   vi.stubGlobal('fetch', vi.fn(async (input: string) => {
@@ -246,5 +248,69 @@ describe('explorer page', () => {
     expect(await screen.findByTestId('rail')).toBeTruthy()
     expect(screen.queryByRole('group', { name: 'Days' })).toBeNull()
     expect(calls.filter((c) => c.startsWith('/api/explorer/days'))).toEqual([])
+  })
+})
+
+describe('scope review entry (REV-21)', () => {
+  const params = () => new URLSearchParams(window.location.search)
+
+  it('ends the totals line with "<lost> lost" in error ink when the scope lost 60 s or more, and opens the review', async () => {
+    serve()
+    render(<ExplorerBlade width={1416} compact={false} />)
+    const btn = await screen.findByRole('button', { name: '2h00m lost' })
+    expect(btn.querySelector('b')!.className).toContain('text-error')
+    expect(btn.closest('p')!.lastElementChild!.contains(btn)).toBe(false) // the "Whole sessions" note is the last child; the item comes before it
+    fireEvent.click(btn)
+    expect(params().get('review')).toBe('1')
+    expect(params().get('s')).toBeNull()
+  })
+
+  it('reads "Review" when less than 60 s was lost', async () => {
+    serve({ '/api/explorer/review': () => json({ ...fixtures.scopeReview, lost_ms: 59_000 }) })
+    render(<ExplorerBlade width={1416} compact={false} />)
+    expect(await screen.findByRole('button', { name: 'Review' })).toBeTruthy()
+    expect(screen.queryByText('lost')).toBeNull()
+  })
+
+  it('shows no item while the review is loading or after it failed', async () => {
+    serve({ '/api/explorer/review': () => new Promise<Response>(() => {}) })
+    const loading = render(<ExplorerBlade width={1416} compact={false} />)
+    await screen.findByText('Whole sessions active in this period')
+    expect(screen.queryByRole('button', { name: /lost|^Review$/ })).toBeNull()
+    loading.unmount()
+    responseCache.clear()
+    serve({ '/api/explorer/review': () => json({ error: 'boom', code: 'internal' }, 500) })
+    render(<ExplorerBlade width={1416} compact={false} />)
+    await screen.findByText('Whole sessions active in this period')
+    await waitFor(() => expect(calls.filter((c) => c.startsWith('/api/explorer/review')).length).toBeGreaterThan(0))
+    expect(screen.queryByRole('button', { name: /lost|^Review$/ })).toBeNull()
+  })
+
+  function Keys({ compact }: { compact: boolean }) {
+    useGlobalKeys({ bladeKeys: ['explorer'], focusKey: 'explorer', setFocusIndex: () => {}, closeRightmost: () => {}, togglePalette: () => {} })
+    return <ExplorerBlade width={compact ? 400 : 1416} compact={compact} />
+  }
+
+  it('opens it with r when the explorer list has focus and no blade is open', async () => {
+    serve()
+    render(<Keys compact={false} />)
+    await screen.findByRole('button', { name: '2h00m lost' })
+    fireEvent.keyDown(document.body, { key: 'r' })
+    expect(params().get('review')).toBe('1')
+  })
+
+  it('does not open it with r from the rail (a blade is open) or while a text field has focus', async () => {
+    serve()
+    const rail = render(<Keys compact />)
+    await screen.findByTestId('rail')
+    fireEvent.keyDown(document.body, { key: 'r' })
+    expect(params().get('review')).toBeNull()
+    rail.unmount()
+    serve()
+    render(<Keys compact={false} />)
+    const field = await screen.findByRole('textbox')
+    field.focus()
+    fireEvent.keyDown(field, { key: 'r' })
+    expect(params().get('review')).toBeNull()
   })
 })

@@ -1,21 +1,36 @@
-import type { Cause, CausePart, Finding, ReviewReport, TimeSplit } from '../../api/types'
+import type { Cause, CausePart, Finding, ReviewReport } from '../../api/types'
 import { fmt } from '../../lib/format'
 import { CAUSES, LOST_MIN_MS } from '../shared/causes'
-import { GAP_MIN_MS, SUBSTATE_WORDING, plural } from '../shared/states'
+import { GAP_MIN_MS, SUBSTATE_WORDING } from '../shared/states'
 
 /** Review (REV-2 to REV-7): the text and the numbers. Every figure is a field of the API-33 response or of the session's `time_split` (REV-9). */
 
 /** REV-5: a bar segment of this share of the wall or more carries its label. */
 export const LABEL_SHARE = 0.06
 
+/** "3 stalls", "1 stall": a count in the SYS number format (thousands separators) with its noun. */
+function plural(n: number, word: string): string {
+  return `${fmt.count(n)} ${word}${n === 1 ? '' : 's'}`
+}
+
 export const hasLoss = (r: Pick<ReviewReport, 'lost_ms'>): boolean => r.lost_ms >= LOST_MIN_MS
 
-/** REV-4 item 1: the claim, one or two sentences. */
-export function claim(r: Pick<ReviewReport, 'wall_ms' | 'lost_ms' | 'causes'>): string[] {
+type ClaimInput = Pick<ReviewReport, 'wall_ms' | 'lost_ms' | 'causes' | 'n_sessions' | 'n_unmeasured'>
+
+/** REV-4 item 1: the claim, one or two sentences. A scope's `wall_ms` is a sum over sessions, so REV-22 says "of session time in <n> sessions".
+ *  Where stalls are not measured (Codex and omp), the claim says so instead of "nothing was lost". */
+export function claim(r: ClaimInput, scope = false): string[] {
   const wall = fmt.dur(r.wall_ms)
-  const first = hasLoss(r) ? `${wall} wall. ${fmt.dur(r.lost_ms)} was lost to stalls.` : `${wall} wall. Nothing was lost to a stall.`
+  const lead = scope ? `${wall} of session time in ${plural(r.n_sessions, 'session')}.` : `${wall} wall.`
+  const unmeasured = r.n_sessions > 0 && r.n_unmeasured === r.n_sessions
+  let stalls: string
+  if (unmeasured) stalls = scope ? 'Stalls are not measured for these sessions.' : 'Stalls are not measured for this session.'
+  else {
+    const part = r.n_unmeasured > 0 ? ` (${fmt.count(r.n_unmeasured)} not measured)` : ''
+    stalls = hasLoss(r) ? `${fmt.dur(r.lost_ms)} was lost to stalls${part}.` : `Nothing was lost to a stall${part}.`
+  }
   const largest = largestCause(r.causes)
-  return largest === null ? [first] : [first, `The largest cause was ${CAUSES[largest.cause].label.toLowerCase()} (${fmt.dur(largest.ms)}).`]
+  return largest === null ? [`${lead} ${stalls}`] : [`${lead} ${stalls}`, `The largest cause was ${CAUSES[largest.cause].label.toLowerCase()} (${fmt.dur(largest.ms)}).`]
 }
 
 /** The cause with the most time other than `working`; null when every one of them is under 2 min. The first in DM-56 order wins a tie. */
@@ -80,15 +95,16 @@ export function threadsText(threads: readonly string[]): string {
 }
 
 /** REV-6 heading: a claim. */
-export function heading(f: Finding): string {
+export function heading(f: Finding, scope = false): string {
+  const what = scope ? 'these sessions' : 'the session'
   const ms = fmt.dur(f.ms)
   switch (f.cause) {
     case 'stalled':
       return `Stalled ${ms}: finished tasks waited for ${f.threads.length === 0 ? 'an agent' : threadsText(f.threads)} while nothing ran`
     case 'tests':
-      return `Tests held the session for ${ms}`
+      return `Tests held ${what} for ${ms}`
     case 'polling':
-      return `Polling loops held the session for ${ms}`
+      return `Polling loops held ${what} for ${ms}`
     case 'you':
       return `Waited ${ms} on you`
     case 'message':
@@ -96,35 +112,34 @@ export function heading(f: Finding): string {
   }
 }
 
-/** The `you` substates of the session's time split over 0 s, in SES-15 order and wording, the first letter upper case. */
-export function youFacts(split: TimeSplit): string {
+/** The `you` substates of `Review.you_parts` over 0 s, in SES-15 order and wording, the first letter upper case. */
+export function youFacts(parts: ReviewReport['you_parts']): string {
   return (['ask', 'permission', 'reply'] as const)
-    .map((sub) => ({ sub, ms: split.parts.filter((p) => p.state === 'you' && p.substate === sub).reduce((a, p) => a + p.ms, 0) }))
-    .filter((x) => x.ms > 0)
-    .map((x) => `${SUBSTATE_WORDING[x.sub]} ${fmt.dur(x.ms)}`)
+    .filter((sub) => parts[sub] > 0)
+    .map((sub) => `${SUBSTATE_WORDING[sub]} ${fmt.dur(parts[sub])}`)
     .join(' · ')
     .replace(/^./, (c) => c.toUpperCase())
 }
 
 /** REV-6 facts line. */
-export function facts(f: Finding, r: Pick<ReviewReport, 'test_runs'>, split: TimeSplit): string {
+export function facts(f: Finding, r: Pick<ReviewReport, 'test_runs' | 'you_parts'>): string {
   switch (f.cause) {
     case 'stalled':
       return `${plural(f.n, 'stall')} of 2 min or more.`
     case 'tests': {
       const t = r.test_runs
       const clauses = [
-        t.n_failed > 0 ? `${t.n_failed} with failures` : null,
-        t.n_passed > 0 ? `${t.n_passed} passed` : null,
-        t.n_no_result > 0 ? `${t.n_no_result} with no result` : null,
+        t.n_failed > 0 ? `${fmt.count(t.n_failed)} with failures` : null,
+        t.n_passed > 0 ? `${fmt.count(t.n_passed)} passed` : null,
+        t.n_no_result > 0 ? `${fmt.count(t.n_no_result)} with no result` : null,
       ].filter((c) => c !== null)
       const head = `${plural(t.n, 'test run')}${clauses.length > 0 ? `: ${clauses.join(', ')}` : ''}.`
-      return t.n_background > 0 ? `${head} ${t.n_background} ran in the background.` : head
+      return t.n_background > 0 ? `${head} ${fmt.count(t.n_background)} ran in the background.` : head
     }
     case 'polling':
       return `${plural(f.n, 'sleep or polling command')}.`
     case 'you':
-      return youFacts(split)
+      return youFacts(r.you_parts)
     case 'message':
       return `${plural(f.n, 'wait')} of 2 min or more. Botsworth does not store message text, so it cannot say why.`
   }
@@ -140,21 +155,45 @@ export const CHANGE: Record<Finding['cause'], string | null> = {
 }
 
 /** The turn number K of a display id "T<K>" (REV-6, as in SES-51 toasts). */
-function turnNumber(displayId: string): string {
+export function turnNumber(displayId: string): string {
   const m = /^T(\d+)$/.exec(displayId)
   if (m === null) throw new Error(`a turn display id is T<number> (QRY-42), got ${displayId}`)
   return m[1]
 }
 
-/** REV-6 evidence line text, without the link wrapper; null when there is no longest. */
-export function evidenceText(f: Finding, tz: string): string | null {
+/** REV-6 evidence line text, without the link wrapper; null when there is no longest. REV-22: a scope's line names the session and the day, and has no turn. */
+export function evidenceText(f: Finding, tz: string, scope = false): string | null {
   const e = f.longest
   if (e === null) return null
-  return `Longest: ${fmt.range(e.start_ms, e.end_ms, tz)}, ${fmt.dur(e.dur_ms)}${e.display_id === null ? '' : ` · turn ${turnNumber(e.display_id)}`}`
+  const when = `${fmt.range(e.start_ms, e.end_ms, tz)}, ${fmt.dur(e.dur_ms)}`
+  if (scope) return `Longest: ${e.name}, ${fmt.date(e.start_ms, tz)} ${when}`
+  return `Longest: ${when}${e.display_id === null ? '' : ` · turn ${turnNumber(e.display_id)}`}`
 }
 
-/** REV-4 footnote with the REV-7 addition for sessions whose logs record no task notices. */
-export function footnote(r: Pick<ReviewReport, 'n_unmeasured'>): string[] {
+/** REV-4 footnote with the REV-7 addition for sessions whose logs record no task notices; REV-22 words the additions for a scope. */
+export function footnote(r: Pick<ReviewReport, 'n_unmeasured'>, scope = false): string[] {
   const base = 'Measured from the log. Only stalls count as lost: a finished task waited for an agent that was not running. Tests and polling count only while nothing else on that thread ran.'
-  return r.n_unmeasured > 0 ? [base, 'Stalls are not measured for Codex and omp sessions: their logs do not record when a background task finishes.'] : [base]
+  const out = [base]
+  if (scope) out.push('Sessions count whole (a session active in the period counts in full), so a longest example can lie before the period.')
+  if (r.n_unmeasured > 0) {
+    out.push(
+      scope
+        ? `${fmt.count(r.n_unmeasured)} ${r.n_unmeasured === 1 ? 'session is' : 'sessions are'} Codex or omp: stalls are not measured for them, because their logs do not record when a background task finishes.`
+        : 'Stalls are not measured for Codex and omp sessions: their logs do not record when a background task finishes.',
+    )
+  }
+  return out
+}
+
+/** REV-22: "Ddd HH:MM", the start that tells two same-named session links apart. */
+export function startText(ms: number, tz: string): string {
+  return `${fmt.date(ms, tz).split(' ')[0]} ${fmt.clock(ms, tz)}`
+}
+
+/** REV-22: the links of a card that share their name with another link of the same card. */
+export function sharedNames(sessions: readonly { name: string }[]): Set<string> {
+  const seen = new Set<string>()
+  const dup = new Set<string>()
+  for (const x of sessions) (seen.has(x.name) ? dup : seen).add(x.name)
+  return dup
 }

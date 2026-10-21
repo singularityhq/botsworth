@@ -1,6 +1,8 @@
 import { useCallback, useMemo, useRef, useState } from 'react'
 import type { ApiError, NetError } from '../../api/errors'
-import type { Day, SessionRow } from '../../api/types'
+import { client, urls } from '../../api/client'
+import type { Day, ReviewReport, SessionRow } from '../../api/types'
+import { useApi } from '../../api/useApi'
 import { useNav } from '../../state/nav'
 import type { Period } from '../../state/period'
 import type { Measure } from '../../state/url'
@@ -42,6 +44,7 @@ export function ExplorerBlade({ width, compact }: { width: number; compact: bool
       if (e.key === 'p') setPop('period')
       else if (e.key === 'f') setPop('filter')
       else if (e.key === '/') searchRef.current?.focus()
+      else if (e.key === 'r') nav.openBlade('review', {}) // REV-21: the explorer list has focus and no blade is open
       else return false
       return true
     },
@@ -80,6 +83,8 @@ function ExplorerPage({
   const nav = useNav()
   const { url, status, today, range, scope } = s
   const data = useExplorerData(s)
+  // REV-21: the totals line's review entry; while the request is out or failed the item is not shown.
+  const scopeReview = useApi<ReviewReport>(s.ready ? urls.scopeReview(scope) : null, (signal) => client.scopeReview(scope, signal))
   const tz = useBrowserZone()
   const [draft, setDraft] = useState<{ from: Day; to: Day } | null>(null)
   const [hoverSlot, setHoverSlot] = useState<number | undefined>(undefined)
@@ -152,7 +157,7 @@ function ExplorerPage({
     if (err) return <RegionError error={err} noun="totals" onRetry={retryAll} />
     if (noStore) return <TotalsNoStore />
     if (!summary) return <TotalsSkeleton />
-    return <TotalsLine view={totalsView(summary, url)} />
+    return <TotalsLine view={totalsView(summary, url)} review={scopeReview.data ? { lostMs: scopeReview.data.lost_ms, onOpen: () => nav.openBlade('review', {}) } : undefined} />
   })()
 
   const listBody = (() => {

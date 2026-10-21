@@ -1,0 +1,135 @@
+{
+  "freshness": {
+    "last_ingest_ms": 1791790200000,
+    "parser_version": "7.0.0",
+    "price_fingerprint": "p-2026-10-12",
+    "schema_version": 7,
+    "api_version": 1
+  },
+  "wall_ms": 100000000,
+  "lost_ms": 7200000,
+  "n_sessions": 35,
+  "you_parts": {
+    "ask": 1000000,
+    "permission": 500000,
+    "reply": 1500000
+  },
+  "n_unmeasured": 3,
+  "causes": [
+    {
+      "cause": "stalled",
+      "ms": 7200000
+    },
+    {
+      "cause": "tests",
+      "ms": 30000000
+    },
+    {
+      "cause": "polling",
+      "ms": 2000000
+    },
+    {
+      "cause": "you",
+      "ms": 3000000
+    },
+    {
+      "cause": "message",
+      "ms": 15000000
+    },
+    {
+      "cause": "limit",
+      "ms": 0
+    },
+    {
+      "cause": "working",
+      "ms": 42000000
+    },
+    {
+      "cause": "idle",
+      "ms": 800000
+    }
+  ],
+  "findings": [
+    {
+      "cause": "stalled",
+      "ms": 7200000,
+      "lost": true,
+      "n": 5,
+      "longest": {
+        "session": "claude_code/a11ce5e5-1111-4222-8333-944455556666/session/-",
+        "session_id": "a11ce5e5-1111-4222-8333-944455556666",
+        "name": "master-control-acme",
+        "row": {
+          "type": "gap",
+          "id": "gap-1791786480000"
+        },
+        "turn": "claude_code/a11ce5e5-1111-4222-8333-944455556666/turn/2",
+        "display_id": "T2",
+        "start_ms": 1791786480000,
+        "end_ms": 1791790200000,
+        "dur_ms": 3720000
+      },
+      "threads": [
+        "main",
+        "reviewer"
+      ],
+      "sessions": [
+        {
+          "session": "claude_code/a11ce5e5-1111-4222-8333-944455556666/session/-",
+          "session_id": "a11ce5e5-1111-4222-8333-944455556666",
+          "name": "master-control-acme",
+          "ms": 5700000,
+          "start_ms": 1791786480000
+        },
+        {
+          "session": "claude_code/b22ce5e5-1111-4222-8333-944455556666/session/-",
+          "session_id": "b22ce5e5-1111-4222-8333-944455556666",
+          "name": "acme-wf-tui-graph",
+          "ms": 900000,
+          "start_ms": 1791700000000
+        },
+        {
+          "session": "claude_code/c33ce5e5-1111-4222-8333-944455556666/session/-",
+          "session_id": "c33ce5e5-1111-4222-8333-944455556666",
+          "name": "acme-session-analysis",
+          "ms": 600000,
+          "start_ms": 1791600000000
+        }
+      ]
+    },
+    {
+      "cause": "tests",
+      "ms": 30000000,
+      "lost": false,
+      "n": 120,
+      "longest": null,
+      "threads": [],
+      "sessions": [
+        {
+          "session": "claude_code/b22ce5e5-1111-4222-8333-944455556666/session/-",
+          "session_id": "b22ce5e5-1111-4222-8333-944455556666",
+          "name": "acme-wf-tui-graph",
+          "ms": 9000000,
+          "start_ms": 1791786480000
+        }
+      ]
+    },
+    {
+      "cause": "you",
+      "ms": 3000000,
+      "lost": false,
+      "n": 0,
+      "longest": null,
+      "threads": [],
+      "sessions": []
+    }
+  ],
+  "test_runs": {
+    "n": 120,
+    "run_ms": 31000000,
+    "n_failed": 30,
+    "n_passed": 80,
+    "n_no_result": 10,
+    "n_background": 12
+  }
+}

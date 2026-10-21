@@ -27,6 +27,7 @@ import sessionDetail from './session-detail.json' with { type: 'json' }
 import sessionFind from './session-find.json' with { type: 'json' }
 import sessionHistogram from './session-histogram.json' with { type: 'json' }
 import sessionResolve from './session-resolve.json' with { type: 'json' }
+import scopeReview from './scope-review.json' with { type: 'json' }
 import sessionReview from './session-review.json' with { type: 'json' }
 import sessionTurns from './session-turns.json' with { type: 'json' }
 import source from './source.json' with { type: 'json' }
@@ -55,6 +56,7 @@ export const fixtures = {
   sessionTurns: sessionTurns satisfies Widen<TurnList>,
   sessionFind: sessionFind satisfies Widen<FindResult>,
   sessionHistogram: sessionHistogram satisfies Widen<Histogram>,
+  scopeReview: scopeReview satisfies Widen<ReviewReport>,
   sessionReview: sessionReview satisfies Widen<ReviewReport>,
   sessionResolve: sessionResolve satisfies Widen<Resolved>,
   turnHistogram: turnHistogram satisfies Widen<Histogram>,

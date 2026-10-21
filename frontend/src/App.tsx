@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { PaletteHost } from './blades/explorer/palette'
 import { DetailBlade } from './blades/detail'
 import { ExplorerBlade } from './blades/explorer'
+import { ScopeReviewBlade } from './blades/review'
 import { SessionBlade } from './blades/session'
 import { TurnBlade } from './blades/turn'
 import { useNav } from './state/nav'
@@ -20,6 +21,7 @@ import { lazy, Suspense } from 'react'
 const BLADES: Record<BladeKey, { label: string; Cmp: (p: { width: number; compact: boolean }) => React.ReactNode }> = {
   explorer: { label: 'Sessions', Cmp: ExplorerBlade },
   session: { label: 'Session', Cmp: SessionBlade },
+  review: { label: 'Review', Cmp: ScopeReviewBlade },
   turn: { label: 'Turn', Cmp: TurnBlade },
   detail: { label: 'Detail', Cmp: DetailBlade },
 }

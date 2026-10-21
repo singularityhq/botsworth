@@ -194,3 +194,60 @@ describe('createNav', () => {
     expect(env.log).toEqual([])
   })
 })
+
+describe('scope review blade (REV-21)', () => {
+  it('opens blade 1 with review=1 and a history entry, keeping the scope', () => {
+    const env = fakeEnv('period=today&q=rbac')
+    createNav(env).openBlade('review', {})
+    expect(env.log).toEqual([{ how: 'push', query: 'period=today&q=rbac&review=1' }])
+  })
+
+  it('replaces an open session blade and closes the blades to its right', () => {
+    const env = fakeEnv('s=a&t=3&detail=1&sview=waterfall')
+    createNav(env).openBlade('review', {})
+    expect(env.query()).toBe('review=1')
+  })
+
+  it('opening a session from the review drops review=1, and Back returns to the review', () => {
+    const env = fakeEnv('')
+    const nav = createNav(env)
+    nav.openBlade('review', {})
+    nav.openBlade('session', { s: 'a', sview: 'review' })
+    expect(env.query()).toBe('s=a&sview=review')
+    env.back() // browser Back
+    expect(env.query()).toBe('review=1')
+  })
+
+  it('closes every blade when the explorer is the target after a session was opened from the review (the "Sessions" crumb, Esc)', () => {
+    const env = fakeEnv('')
+    const nav = createNav(env)
+    nav.openBlade('review', {})
+    nav.openBlade('session', { s: 'a', sview: 'review' })
+    nav.closeTo('explorer')
+    expect(env.query()).toBe('')
+    expect(env.log.at(-1)).toEqual({ how: 'replace', query: '' })
+  })
+
+  it('still goes back one step when a session opened from the explorer closes', () => {
+    const env = fakeEnv('')
+    const nav = createNav(env)
+    nav.openBlade('session', { s: 'a' })
+    nav.closeTo('explorer')
+    expect(env.log.at(-1)!.how).toBe('back')
+  })
+
+  it('closes the review by going back when this tab opened it', () => {
+    const env = fakeEnv('')
+    const nav = createNav(env)
+    nav.openBlade('review', {})
+    nav.closeTo('explorer')
+    expect(env.log.map((e) => e.how)).toEqual(['push', 'back'])
+    expect(env.query()).toBe('')
+  })
+
+  it('closes a review from a deep link by rewriting the entry', () => {
+    const env = fakeEnv('review=1')
+    createNav(env).closeTo('explorer')
+    expect(env.query()).toBe('')
+  })
+})

@@ -205,6 +205,7 @@ describe('REV-6 cards and the evidence link', () => {
     await screen.findByText('Without the stalls')
     const card = review().querySelector('[data-finding="you"]') as HTMLElement
     expect(within(card).getByText(/Waited 15m on you/)).toBeTruthy()
+    expect(within(card).getByText('Asked you a question 10m · waited for your approval 2m · the next turn is your message 3m')).toBeTruthy() // Review.you_parts (REV-6)
     expect(card.textContent).not.toContain('Longest')
     expect(card.textContent).not.toContain('Change')
   })
@@ -245,6 +246,15 @@ describe('REV-6 cards and the evidence link', () => {
   })
 })
 
+describe('REV-4 unmeasured session', () => {
+  it('says stalls are not measured for this session for a Codex or omp session, and shows no lost time in the header', async () => {
+    serve(() => reply(200, { ...R, n_unmeasured: 1, lost_ms: 0 }))
+    mount('&sview=review')
+    expect((await screen.findByRole('heading', { level: 2 })).textContent).toContain('3h37m wall. Stalls are not measured for this session.')
+    expect(screen.queryByRole('button', { name: /lost$/ })).toBeNull()
+  })
+})
+
 describe('REV-7 states', () => {
   it('shows skeletons while loading, then the claim', async () => {
     let release: (r: Response) => void = () => {}
@@ -280,7 +290,7 @@ describe('REV-7 states', () => {
     expect(review().querySelector('[data-finding]')).toBeNull()
     expect(screen.getByText(/Stalls are not measured for Codex and omp sessions/)).toBeTruthy()
     expect(screen.queryByText('Without the stalls')).toBeNull()
-    expect(screen.getByText(/Nothing was lost to a stall\./)).toBeTruthy()
+    expect(screen.getByText(/Stalls are not measured for this session\./)).toBeTruthy()
   })
 
   it('draws no stalled card when the review has none, even with lost time elsewhere', async () => {
