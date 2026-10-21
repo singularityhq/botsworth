@@ -15,7 +15,8 @@ GUARANTEES:
   precedes the turn that starts at its `end_ms`. Gap rows are stretches of state `you`, `agentmsg`, `limit`
   or `none` of at least `min_gap_ms` that end where a main turn starts or have substate `before_first`.
   Turn figures: `wall_ms` = `span_wall_ms`, `time_split` = the turn's `time_split` rows of scope `span`,
-  `waiting_ms` = `wall_ms` - span `model` - span `tool` (D54), `cost_usd` = `attr_cost_usd`; all null for a
+  `waiting_ms` = `wall_ms` - span `model` - span `tool` with substates NULL, `test` and `wait` (D54,
+  DM-53 [D56]), `cost_usd` = `attr_cost_usd`; all null for a
   turn with a null start.
   `n_agents` counts causing tool_calls (agent rows) of engagements whose cause is attributed to the turn;
   `agent_runs` lists those engagements. `n_failed` counts failed tool_calls attributed to the turn, any depth.
@@ -27,7 +28,7 @@ GUARANTEES:
 - `model_lines(conn, where_sql, args)` (QRY-33): `where_sql` is a condition over `ops` (alias `o`) with `?`
   placeholders in `args`; it is combined with owned llm_calls (`kind = 'llm_call'`, `duplicate_of IS NULL`).
   One line per model, most costly first, then by model.
-EXPECTS: schema v11 filled by B3a (`turn_kind`, `turn_origin`, `display_ix`, `attr_*`, `skill_load`) and B3b
+EXPECTS: schema v12 filled by B3a (`turn_kind`, `turn_origin`, `display_ix`, `attr_*`, `skill_load`) and B3b
   (`span_wall_ms`, `time_split`, `stretches`).
 FAILURE BEHAVIOR: unknown session -> NotFound; ambiguous or short session key -> QueryError (QRY-6);
   `min_gap_ms` under 60000 -> QueryError; an id that names no row, or a row that belongs to no turn
@@ -228,9 +229,8 @@ def _turn_row(turn: sqlite3.Row, facts: dict[str, dict]) -> wire.TurnRow:
     spanned = turn["span_wall_ms"] is not None
     # FALLBACK-OK: DM-51 (time_split rows with 0 ms are not stored: an absent part is 0)
     span = facts["spans"].get(tid, {})
-    waiting = (
-        turn["span_wall_ms"] - span.get(("model", None), 0) - span.get(("tool", None), 0) if spanned else None
-    )
+    working = span.get(("model", None), 0) + sum(span.get(("tool", sub), 0) for sub in (None, "test", "wait"))
+    waiting = turn["span_wall_ms"] - working if spanned else None  # DM-53 [D56]: `tool`/`background` waits
     return wire.TurnRow(
         cost.cost_usd,
         cost.cost_lower_bound,

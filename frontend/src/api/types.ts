@@ -28,7 +28,7 @@ export interface Money {
 
 /** DM-50 [D54]: the seven wall states and the substates of `you` and `none`. */
 export type WallState = 'model' | 'tool' | 'agents' | 'you' | 'agentmsg' | 'limit' | 'none'
-export type Substate = 'ask' | 'permission' | 'reply' | 'background' | 'stalled' | 'before_first' | 'none' | null
+export type Substate = 'ask' | 'permission' | 'reply' | 'test' | 'wait' | 'background' | 'stalled' | 'before_first' | 'none' | null
 
 /** DM-51, DM-53: time per (state, substate), in SES-15 order. */
 export interface TimeSplit {

@@ -1,6 +1,7 @@
 """CONTRACT: use-case commands (owner Q3b): slow, breakdown, tasks. CLI only, no HTTP route in v4.
 
-Spec ids: CLI-20, CLI-21, CLI-22, CLI-23 (interfaces.md §5.2; D55 amends 20 to 22); D42 (token split basis).
+Spec ids: CLI-20, CLI-21, CLI-22, CLI-23 (interfaces.md §5.2; D55 amends 20 to 22,
+D56 adds `review`); D42 (token split basis).
 
 GUARANTEES:
 - Facts only: numbers, ids, labels and stored previews. No prose, no cause, no "slow" threshold.
@@ -16,7 +17,9 @@ GUARANTEES:
   the `waits` finder (QRY-38). `waits` = the `n` longest across the sessions; `longest_wait` = the
   session's longest wait of state `you`, `agentmsg`, `limit` or `none` (not `agents` or `tool`, D55).
   `test_runs` (D55) counts the owned tool_calls with `command_class` test: `run_ms` runs to `bg_end_ms` for a
-  background run, else `dur_ms`; `n_failed` / `n_passed` / `n_no_result` by the test counts (DM-29).
+  background run, else `dur_ms`; `n_failed` / `n_passed` / `n_no_result` by the test counts (DM-29)
+  (`common.test_runs`). `review` (D56) is `review.build` over the same sessions (`session_breakdown`: this
+  session only, no `sessions` lists), so its `test_runs` equals the block above.
 - `session_breakdown(session, n)` (CLI-21) composes: `session` copies `session_detail`; the turn lists
   are `session_turns` rows (harness turns and turns without the figure left out); `rows_by_*` are the
   first `n` hits of `find(.., 'biggest', measure)`; `agents` are the agent rows `find(.., 'agents')`
@@ -34,7 +37,7 @@ GUARANTEES:
   none above it -> `(main)`. `turn_attr`: whole turn figures. `unassigned` = `scope_totals` - Σ all groups.
   `n_unpriced` of a group counts the source units (calls; turns for `skill`/`slash`) whose cost is unknown.
   Groups sort by `measure` descending (nulls last), then key ascending; `count` sorts by `n`.
-EXPECTS: schema v11 filled by B3a/B3b (`user_wait`, `max_silence_ms`, `time_prov`, `command_key`,
+EXPECTS: schema v12 filled by B3a/B3b (`user_wait`, `max_silence_ms`, `time_prov`, `command_key`,
   `command_class`,
   `tests_passed`, `tests_failed`, `bg_end_ms`,
   `steps.verb`, `steps.skill_load`, `turn_origin`, `label`, `attr_*`, `span_wall_ms`, `time_split`,
@@ -56,7 +59,7 @@ from typing import Any
 
 from botsworth.query import Db, QueryError, _conn, shapes, wire
 from botsworth.query.scope import Scope
-from botsworth.query.views import common
+from botsworth.query.views import common, review
 from botsworth.query.views import rows as R
 from botsworth.query.views.explorer import _figures, in_scope_roots
 from botsworth.query.views.find import find
@@ -147,19 +150,7 @@ def _waits(conn: sqlite3.Connection, roots: Sequence[int]) -> dict[int, list[wir
     return out
 
 
-Parts = dict[int, dict[timesplit.Part, int]]
-
-
-def _session_parts(conn: sqlite3.Connection, roots: Sequence[int]) -> Parts:
-    """The stored `time_split` rows of scope `session`, by session op rowid (DM-51)."""
-    out: Parts = defaultdict(dict)
-    for r in conn.execute(
-        "SELECT op_rowid, state, substate, ms FROM time_split WHERE scope = 'session' "
-        f"AND root_rowid IN {_IDS}",
-        {"ids": _json_ids(roots)},
-    ):
-        out[r["op_rowid"]][r["state"], r["substate"]] = r["ms"]
-    return out
+Parts = common.Parts
 
 
 def _split_row(row: sqlite3.Row, parts: Parts) -> wire.TimeSplit:
@@ -284,24 +275,6 @@ def _user_waits(conn: sqlite3.Connection, roots: Sequence[int]) -> wire.UserWait
     return wire.UserWaits(ask=got.get("ask", none), permission=got.get("permission", none))
 
 
-def _test_runs(conn: sqlite3.Connection, roots: Sequence[int]) -> wire.TestRuns:
-    """CLI-20 `test_runs` (D55): owned tool_calls with `command_class = 'test'` of `roots`."""
-    r = conn.execute(
-        "SELECT COUNT(*) AS n,"
-        " COALESCE(SUM(CASE WHEN bg_end_ms IS NOT NULL THEN bg_end_ms - start_ms ELSE dur_ms END), 0)"
-        " AS run_ms,"
-        " COALESCE(SUM(tests_failed > 0), 0) AS n_failed, COALESCE(SUM(tests_failed = 0), 0) AS n_passed,"
-        " COALESCE(SUM(tests_passed IS NULL AND tests_failed IS NULL), 0) AS n_no_result,"
-        " COALESCE(SUM(bg_end_ms IS NOT NULL), 0) AS n_background"
-        f" FROM ops WHERE kind = 'tool_call' AND duplicate_of IS NULL AND command_class = 'test'"
-        f" AND root_rowid IN {_IDS}",
-        {"ids": _json_ids(roots)},
-    ).fetchone()
-    return wire.TestRuns(
-        r["n"], r["run_ms"], r["n_failed"], r["n_passed"], r["n_no_result"], r["n_background"]
-    )
-
-
 def _display_ids(conn: sqlite3.Connection, turn_ids: Sequence[str]) -> dict[str, str | None]:
     rows = conn.execute(
         "SELECT op_id, display_ix FROM ops WHERE op_id IN (SELECT value FROM json_each(?))",
@@ -332,13 +305,13 @@ def project_slow(scope: Scope, compare: bool = True, n: int = 10, db: Db = None)
         roots = in_scope_roots(conn, scope)
         rows = conn.execute(_SESSION_ROWS, {"ids": _json_ids(roots)}).fetchall()
         waits_by_root = _waits(conn, roots)
-        parts = _session_parts(conn, roots)
+        parts = common.session_parts(conn, roots)
         current = _block(rows, parts)
         previous = None
         if compare and scope.from_day is not None:
             prev_roots = in_scope_roots(conn, _previous_scope(scope))
             prev_rows = conn.execute(_SESSION_ROWS, {"ids": _json_ids(prev_roots)}).fetchall()
-            previous = _block(prev_rows, _session_parts(conn, prev_roots))
+            previous = _block(prev_rows, common.session_parts(conn, prev_roots))
         biggest = sorted(rows, key=lambda r: (-r["wall_ms"], r["op_id"]))[:n]
         sessions = []
         for r in biggest:
@@ -381,9 +354,10 @@ def project_slow(scope: Scope, compare: bool = True, n: int = 10, db: Db = None)
             tools=tool_groups(conn, roots, n),
             slowest_tools=_slowest_tools(conn, roots, n),
             user_waits=_user_waits(conn, roots),
-            test_runs=_test_runs(conn, roots),
+            test_runs=common.test_runs(conn, roots),
             waits=waits,
             models=_models(conn, roots),
+            review=review.build(conn, roots, with_sessions=True),
         )
 
 
@@ -482,8 +456,9 @@ def session_breakdown(session: str, n: int = 10, db: Db = None) -> wire.SessionB
             tools=tool_groups(conn, [root], n),
             agents=agents[:n],
             waits=long,
-            test_runs=_test_runs(conn, [root]),
+            test_runs=common.test_runs(conn, [root]),
             models=info.models,
+            review=review.build(conn, [root], with_sessions=False),
         )
 
 

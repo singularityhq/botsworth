@@ -645,7 +645,15 @@ def _write_time(conn: sqlite3.Connection, root: dict, order: list[dict]) -> None
     rowid = root["rowid"]
     inp = timesplit.collect(order, notices.stored(conn, rowid))  # the events of the root are already written
     sp = timesplit.split(
-        inp.wall, inp.main_llm, inp.main_tool, inp.agent_leaf, inp.waits, inp.turns, inp.main_bg, inp.stalls
+        inp.wall,
+        inp.main_llm,
+        inp.main_tool,
+        inp.agent_leaf,
+        inp.waits,
+        inp.turns,
+        inp.main_bg,
+        inp.stalls,
+        inp.classes,
     )
     conn.execute("UPDATE ops SET span_wall_ms=NULL WHERE root_rowid=? AND kind='turn'", (rowid,))
     conn.executemany(

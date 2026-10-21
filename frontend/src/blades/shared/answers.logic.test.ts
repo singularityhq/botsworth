@@ -37,6 +37,15 @@ describe('stateTotals (SES-15, SES-16)', () => {
     expect(substateBreakdown(split, 'model')).toEqual([])
   })
 
+  it('lists test and wait under tool and agents for the legend tooltip (SES-15, D56)', () => {
+    const split: TimeSplit = { parts: [
+      { state: 'tool', substate: 'test', ms: 30 }, { state: 'tool', substate: 'wait', ms: 5 },
+      { state: 'agents', substate: 'test', ms: 20 }, { state: 'agents', substate: null, ms: 9 },
+    ] }
+    expect(substateBreakdown(split, 'tool')).toEqual([{ substate: 'test', ms: 30 }, { substate: 'wait', ms: 5 }])
+    expect(substateBreakdown(split, 'agents')).toEqual([{ substate: 'test', ms: 20 }])
+  })
+
   it('counts background as running time and stalled as nothing running; the seven totals still sum to the wall (SES-19a, SES-26)', () => {
     const split: TimeSplit = { parts: [
       { state: 'model', substate: null, ms: 100 }, { state: 'tool', substate: null, ms: 10 }, { state: 'tool', substate: 'background', ms: 40 },

@@ -24,7 +24,7 @@ GUARANTEES:
   row before a call before a tool or agent row at the same start, then tree order); with `depth` > 0 an agent
   row is followed by its own rows, to that nesting depth. Row `depth` is the nesting level, capped at 3.
 - `src` and `command_src` are content references built with `refs.uri` (DM-8, D42).
-EXPECTS: schema v11 filled by B3a/B3b (`attr_turn_rowid`, `pre`/`post`, `skill_load`, `stretches`); a
+EXPECTS: schema v12 filled by B3a/B3b (`attr_turn_rowid`, `pre`/`post`, `skill_load`, `stretches`); a
   connection with `row_factory = sqlite3.Row`.
 FAILURE BEHAVIOR: an owned llm_call or tool_call without `start_ms`, or a `caused_by` cycle in the engagement
   walk (more than 32 hops, D18), raises AssertionError.

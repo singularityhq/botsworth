@@ -1084,6 +1084,77 @@ class SessionWait:
 
 
 @dataclass(frozen=True)
+class CausePart:
+    """QRY-42 [D56]: `cause` is one of the DM-56 causes; all eight are listed, in DM-56 order."""
+
+    cause: str
+    ms: int
+
+
+@dataclass(frozen=True)
+class Evidence:
+    """QRY-42 [D56]: the longest stretch (`row` a `gap` RowRef) or tool_call (`row` a `tool` RowRef) of a
+    finding, with the session it is in."""
+
+    session: str
+    session_id: str
+    row: RowRef | None
+    turn: str | None
+    display_id: str | None
+    start_ms: int
+    end_ms: int
+    dur_ms: int
+
+
+@dataclass(frozen=True)
+class FindingSession:
+    """QRY-42 [D56]: one of the sessions with the most time of a finding's cause."""
+
+    session: str
+    session_id: str
+    name: str
+    ms: int
+
+
+@dataclass(frozen=True)
+class Finding:
+    cause: str
+    ms: int
+    lost: bool
+    n: int
+    longest: Evidence | None
+    threads: list[str]
+    sessions: list[FindingSession]
+
+
+@dataclass(frozen=True)
+class Review:
+    """QRY-42 [D56]: the DM-56 causes of a span of wall time and the findings built on them."""
+
+    wall_ms: int
+    lost_ms: int
+    n_sessions: int
+    n_unmeasured: int
+    causes: list[CausePart]
+    findings: list[Finding]
+    test_runs: TestRuns
+
+
+@dataclass(frozen=True)
+class ReviewReport:
+    """API-33 [D56]: `freshness`, then the `Review` fields."""
+
+    freshness: Freshness
+    wall_ms: int
+    lost_ms: int
+    n_sessions: int
+    n_unmeasured: int
+    causes: list[CausePart]
+    findings: list[Finding]
+    test_runs: TestRuns
+
+
+@dataclass(frozen=True)
 class SlowReport:
     freshness: Freshness
     current: SlowBlock
@@ -1095,6 +1166,7 @@ class SlowReport:
     test_runs: TestRuns
     waits: list[SessionWait]
     models: list[ModelLine]
+    review: Review
 
 
 @dataclass(frozen=True)
@@ -1142,6 +1214,7 @@ class SessionBreakdown:
     waits: list[Wait]
     test_runs: TestRuns
     models: list[ModelLine]
+    review: Review
 
 
 @dataclass(frozen=True)

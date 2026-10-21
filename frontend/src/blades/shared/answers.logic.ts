@@ -14,9 +14,9 @@ export function stateTotals(split: TimeSplit): StateTotals {
   return t
 }
 
-/** The time per substate of `you`, `tool` or `none`, for the legend tooltip (SES-15). Substates with no time are left out. */
+/** The time per substate of `you`, `tool`, `agents` or `none`, for the legend tooltip (SES-15). Substates with no time are left out. */
 export function substateBreakdown(split: TimeSplit, state: StateKey): { substate: WordedSubstate; ms: number }[] {
-  return (LEGEND_SUBSTATES[state] ?? []).map((substate) => ({ // FALLBACK-OK: SES-15 (only you, tool and none list substates)
+  return (LEGEND_SUBSTATES[state] ?? []).map((substate) => ({ // FALLBACK-OK: SES-15 (only you, tool, agents and none list substates)
     substate,
     ms: split.parts.filter((p) => p.state === state && p.substate === substate).reduce((a, p) => a + p.ms, 0),
   })).filter((r) => r.ms > 0)

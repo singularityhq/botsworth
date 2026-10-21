@@ -112,12 +112,16 @@ def test_stalled_pieces_keep_window_sums_equal_to_the_session_figures():
     assert sum(s.session.values()) == 90 * M
 
 
-def test_parts_order_has_the_two_new_parts_where_the_spec_puts_them():
+def test_parts_order_has_the_new_parts_where_the_spec_puts_them():
     assert ts.PARTS == (
         ("model", None),
         ("tool", None),
+        ("tool", "test"),
+        ("tool", "wait"),
         ("tool", "background"),
         ("agents", None),
+        ("agents", "test"),
+        ("agents", "wait"),
         ("you", "ask"),
         ("you", "permission"),
         ("you", "reply"),
@@ -150,7 +154,7 @@ def _row(kind, **kw):
     base = dict(
         rowid=1, kind=kind, start_ms=0, end_ms=M, agent_id=None, segments=None, n_inverted=0,
         duplicate_of=None, user_wait=None, seq=0, pre=0, turn_kind=None, turn_origin=None,
-        display_ix=None, label=None, bg_end_ms=None,
+        display_ix=None, label=None, bg_end_ms=None, command_class=None,
     )  # fmt: skip
     return base | kw
 

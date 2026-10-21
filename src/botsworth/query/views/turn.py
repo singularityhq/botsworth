@@ -33,7 +33,7 @@ GUARANTEES:
   `range.time_split` comes from the same function and also counts the range outside the wall as
   `none`/`none` (D48), so a range equal to the turn's span gives the stored span split. `stretches` are
   the session's stretches of 60 s or more that overlap the range.
-EXPECTS: schema v11 filled by B3a/B3b. A turn id is an op_id or a display id (QRY-2); a session key
+EXPECTS: schema v12 filled by B3a/B3b. A turn id is an op_id or a display id (QRY-2); a session key
   is any key QRY-6 accepts.
 FAILURE BEHAVIOR: unknown id -> NotFound; a turn id that is not a main turn, `from_ms` without
   `to_ms`, `to_ms` before `from_ms`, `bins` outside 1-1000, `limit` outside 1-2000 or a negative
@@ -98,7 +98,7 @@ def split_inputs(conn: sqlite3.Connection, root_rowid: int) -> timesplit.Inputs:
     rows = conn.execute(
         """
         SELECT rowid, kind, start_ms, end_ms, agent_id, segments, n_inverted, duplicate_of, user_wait,
-               seq, pre, turn_kind, turn_origin, display_ix, bg_end_ms,
+               seq, pre, turn_kind, turn_origin, display_ix, bg_end_ms, command_class,
                CASE WHEN kind = 'turn' THEN label END AS label
         FROM ops WHERE root_rowid = ?
         """,
@@ -114,7 +114,15 @@ def state_runs(conn: sqlite3.Connection, root_rowid: int) -> list[timesplit.Run]
     uses, so the sums over the whole session equal the stored `time_split` rows."""
     inp = split_inputs(conn, root_rowid)
     return timesplit.runs(
-        inp.wall, inp.main_llm, inp.main_tool, inp.agent_leaf, inp.waits, inp.turns, inp.main_bg, inp.stalls
+        inp.wall,
+        inp.main_llm,
+        inp.main_tool,
+        inp.agent_leaf,
+        inp.waits,
+        inp.turns,
+        inp.main_bg,
+        inp.stalls,
+        inp.classes,
     )
 
 

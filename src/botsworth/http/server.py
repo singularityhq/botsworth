@@ -186,6 +186,7 @@ ROUTES: list[Route] = [
     _get("/api/explorer/summary", "period_summary", lambda ids, q: {"scope": P.scope_from_query(q)}),
     _get("/api/explorer/days", "day_series", _days),
     _get("/api/explorer/sessions", "list_sessions", _sessions),
+    _get("/api/explorer/review", "scope_review", lambda ids, q: {"scope": P.scope_from_query(q)}),
     _get("/api/explorer/facets", "facets", lambda ids, q: {"scope": P.scope_from_query(q)}),
     _get(
         "/api/palette",
@@ -199,6 +200,7 @@ ROUTES: list[Route] = [
         _with("session", lambda q: {"min_gap_ms": P.int_in(q, "min_gap_ms", 60000, None, 120000)}),
     ),
     _get("/api/sessions/{session}/find", "find", _find),
+    _get("/api/sessions/{session}/review", "session_review", _id("session")),
     _get("/api/turns/{turn}/rows", "turn_rows", _with("turn", _range_pair)),
     _get("/api/turns/{turn}/histogram", "histogram", _histogram),
     _get("/api/sessions/{session}/histogram", "histogram", _histogram),

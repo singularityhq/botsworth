@@ -7,7 +7,7 @@ GUARANTEES:
   `NotImplementedError`. The owning task replaces the body and removes the marker.
 - `STUBS` names the views that are still stubs; the HTTP layer answers 501 for them.
 - Owners: explorer.py (Q1); session.py, stretches.py (Q2a); rows.py, turn.py (Q2b); detail.py, find.py,
-  text.py (Q2c); usecases.py (Q3b). ingest.py and common.py are Q0's and hold real code.
+  text.py (Q2c); usecases.py (Q3b); review.py (D56). ingest.py and common.py are Q0's and hold real code.
 EXPECTS: nothing.
 FAILURE BEHAVIOR: see each view's docstring; store state errors are raised by `botsworth.query._conn`.
 DOES NOT: hold SQL outside the owning module.
@@ -35,6 +35,7 @@ from botsworth.query.views.detail import detail  # noqa: E402
 from botsworth.query.views.explorer import day_series, facets, list_sessions, palette, period_summary  # noqa: E402
 from botsworth.query.views.find import find  # noqa: E402
 from botsworth.query.views.ingest import ingest_state  # noqa: E402
+from botsworth.query.views.review import scope_review, session_review  # noqa: E402
 from botsworth.query.views.session import resolve, session_detail, session_turns  # noqa: E402
 from botsworth.query.views.turn import agent_rows, histogram, turn_rows  # noqa: E402
 from botsworth.query.views.usecases import project_slow, session_breakdown, top_tasks  # noqa: E402
@@ -56,6 +57,8 @@ VIEWS: tuple[Callable[..., Any], ...] = (
     ingest_state,
     project_slow,
     session_breakdown,
+    session_review,
+    scope_review,
     top_tasks,
 )
 STUBS: frozenset[str] = frozenset(fn.__name__ for fn in VIEWS if getattr(fn, "__stub__", False))

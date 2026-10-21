@@ -47,7 +47,7 @@ export function stateFill(k: StateKey): CSSProperties {
 
 // ---- gaps -----------------------------------------------------------------
 
-/** What a gap shows as: its state, except that the `none`/`before_first`, `none`/`stalled` and `tool`/`background` stretches are their own kinds (SES-18, SES-19a). */
+/** What a gap shows as: its state, except that the `none`/`before_first`, `none`/`stalled` and `tool`/`background` or `tool`/`test` stretches are their own kinds (SES-18, SES-19a, D56). */
 export type GapKind = 'you' | 'agentmsg' | 'limit' | 'before_first' | 'stalled' | 'background' | 'none' | 'agents'
 
 type GapLike = Pick<Stretch, 'state' | 'substate'>
@@ -56,13 +56,13 @@ export function gapKind(g: GapLike): GapKind {
   if (g.state === 'none' && g.substate === 'before_first') return 'before_first'
   if (g.state === 'none' && g.substate === 'stalled') return 'stalled'
   if (g.state === 'tool') {
-    if (g.substate !== 'background') throw new Error(`a tool stretch has substate background (DM-52), got ${String(g.substate)}`)
+    if (g.substate !== 'background' && g.substate !== 'test') throw new Error(`a tool stretch has substate background or test (DM-52), got ${String(g.substate)}`)
     return 'background'
   }
   return g.state
 }
 
-/** The state a gap counts under. `before_first` and `stalled` count under `none`, `background` under `tool` (SES-18, SES-19a, D41 M11). */
+/** The state a gap counts under. `before_first` and `stalled` count under `none`, `background` (also `tool`/`test`) under `tool` (SES-18, SES-19a, D41 M11). */
 export function gapState(g: GapLike): StateKey {
   return g.state
 }
@@ -96,6 +96,8 @@ export const SUBSTATE_WORDING = {
   permission: 'waited for your approval',
   reply: 'the next turn is your message',
   background: 'a background command ran',
+  test: 'a test run ran',
+  wait: 'a sleep or polling command ran',
   stalled: 'a finished task waited for an agent that was not running',
 } as const
 export type WordedSubstate = keyof typeof SUBSTATE_WORDING
@@ -103,7 +105,8 @@ export type WordedSubstate = keyof typeof SUBSTATE_WORDING
 /** The substates with wording per state, in SES-15 order. The legend tooltip of `you`, `tool` and `none` lists them (SES-15). */
 export const LEGEND_SUBSTATES: Partial<Record<StateKey, readonly WordedSubstate[]>> = {
   you: ['ask', 'permission', 'reply'],
-  tool: ['background'],
+  tool: ['background', 'test', 'wait'],
+  agents: ['test', 'wait'],
   none: ['stalled'],
 }
 
@@ -140,7 +143,7 @@ export function gapReason(g: GapLike, ctx: GapContext): string {
     case 'stalled':
       return 'a finished task waited for an agent that was not running'
     case 'background':
-      return 'a background command ran; nothing else did'
+      return g.substate === 'test' ? 'a test run ran; nothing else did' : 'a background command ran; nothing else did'
     case 'none':
       return 'no model call, tool or agent was running'
     case 'agents': {

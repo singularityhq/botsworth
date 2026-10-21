@@ -100,7 +100,7 @@ def parts(db, op_rowid: int, scope: str) -> dict[str, int]:
 
 def test_schema_v10_and_no_store_zone(db):
     meta = dict(db.execute("SELECT key, value FROM meta").fetchall())
-    assert meta["schema_version"] == "11"
+    assert meta["schema_version"] == "12"
     assert "tz" not in meta  # D50: the zone is a request parameter, not a stored value
     assert sorted(r["bundle"] for r in db.execute("SELECT bundle FROM sessions")) == sorted(q.SESSIONS)
 

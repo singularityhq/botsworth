@@ -36,7 +36,8 @@ GUARANTEES:
   call's own start and end count as timestamps.
 - `collect(rows, notices)`: a tool_call with `bg_end_ms` at or after its start adds `[start_ms, bg_end_ms]` to
   `main_bg` (main transcript) or `agent_leaf` (agent); `notices` are `(ts_ms, picked_ms)` pairs and every pair
-  with `picked_ms` after `ts_ms` adds a stall.
+  with `picked_ms` after `ts_ms` adds a stall (the caller leaves out `killed` and `stopped` notices,
+  `store.notices`).
 EXPECTS: no inverted interval or turn; every `human` turn has a label; `turns` have distinct rowids;
   `ts_sorted` ascending.
 FAILURE BEHAVIOR: a violated EXPECTS raises AssertionError.
@@ -59,8 +60,12 @@ MIN_STRETCH_MS = 60_000
 PARTS: tuple[tuple[str, str | None], ...] = (
     ("model", None),
     ("tool", None),
+    ("tool", "test"),
+    ("tool", "wait"),
     ("tool", "background"),
     ("agents", None),
+    ("agents", "test"),
+    ("agents", "wait"),
     ("you", "ask"),
     ("you", "permission"),
     ("you", "reply"),
@@ -120,6 +125,24 @@ class Split(NamedTuple):
     stretches: list[Stretch]
 
 
+class Classes(NamedTuple):
+    """The class-tagged subsets of the intervals (DM-50 [D56], from `command_class`, DM-28). `main_test`,
+    `main_wait`: main tool_calls of that class (subsets of `main_tool`); `bg_test`: main background runs of
+    class `test` (subset of `main_bg`); `agent_test`, `agent_wait`: agent tool_calls and background runs of
+    that class; `agent_plain`: every other agent interval (llm_calls, calls of another class). The three
+    agent lists together are `agent_leaf`."""
+
+    main_test: Sequence[Interval] = ()
+    main_wait: Sequence[Interval] = ()
+    bg_test: Sequence[Interval] = ()
+    agent_plain: Sequence[Interval] = ()
+    agent_test: Sequence[Interval] = ()
+    agent_wait: Sequence[Interval] = ()
+
+
+NO_CLASSES = Classes()
+
+
 class Inputs(NamedTuple):
     """The arguments of `runs()` and `split()` after the wall."""
 
@@ -131,13 +154,15 @@ class Inputs(NamedTuple):
     turns: list[TurnFact]
     main_bg: list[Interval]
     stalls: list[Interval]
+    classes: Classes = NO_CLASSES
 
 
 def collect(rows: Iterable[Mapping[str, Any]], notices: Iterable[tuple[int, int | None]] = ()) -> Inputs:
     """The inputs of the split from the ops of one session. Load (folded rows) and the query layer (stored
     rows) both call this, so they feed `runs()` and `split()` the same facts. A row has `kind`, `start_ms`,
     `end_ms`, `agent_id`, `duplicate_of`, `n_inverted`, `segments` (a list, or its JSON text), `user_wait`,
-    `bg_end_ms`, and for a turn `rowid`, `seq`, `pre`, `turn_kind`, `turn_origin`, `label`, `display_ix`.
+    `bg_end_ms`, `command_class` (`test`, `wait` or None, DM-28), and for a turn `rowid`, `seq`, `pre`,
+    `turn_kind`, `turn_origin`, `label`, `display_ix`.
 
     The wall is the union of the containers' segments (a container without segments counts as its own
     `[start_ms, end_ms]`) and the intervals of the non-duplicate (owned, DM-45), non-inverted leaves.
@@ -147,6 +172,7 @@ def collect(rows: Iterable[Mapping[str, Any]], notices: Iterable[tuple[int, int 
     tool: list[Interval] = []
     agents: list[Interval] = []
     main_bg: list[Interval] = []
+    cls: dict[str, list[Interval]] = {f: [] for f in Classes._fields}
     waits: dict[tuple[str, str], list[Interval]] = defaultdict(list)
     turns: list[TurnFact] = []
     for r in rows:
@@ -184,9 +210,18 @@ def collect(rows: Iterable[Mapping[str, Any]], notices: Iterable[tuple[int, int 
         if r["duplicate_of"] is not None or r["n_inverted"] or start is None:
             continue
         main = r["agent_id"] is None
+        klass = r["command_class"]
+        assert klass in (None, "test", "wait"), f"unknown command_class {klass!r}"
+        if main:  # the class lists the call's foreground and background intervals go to (DM-50 [D56])
+            fg_lists = [f"main_{klass}"] if klass else []
+            bg_lists = ["bg_test"] if klass == "test" else []
+        else:
+            fg_lists = bg_lists = [f"agent_{klass}" if klass else "agent_plain"]
         bg_end = r["bg_end_ms"]
         if bg_end is not None and bg_end >= start:  # DM-41: the run lasts until the notice was queued
             (main_bg if main else agents).append((start, bg_end))  # also for a call with no end of its own
+            for name in bg_lists:
+                cls[name].append((start, bg_end))
         if end is None:
             continue
         iv = (start, end)
@@ -196,14 +231,26 @@ def collect(rows: Iterable[Mapping[str, Any]], notices: Iterable[tuple[int, int 
             waits["main" if main else "agent", r["user_wait"]].append(iv)
         elif not main:
             agents.append(iv)
+            for name in fg_lists:
+                cls[name].append(iv)
         elif r["kind"] == "llm_call":
             llm.append(iv)
         else:
             tool.append(iv)
+            for name in fg_lists:
+                cls[name].append(iv)
     turns.sort(key=lambda t: (t.start_ms, t.seq))
     stalls = [(queued, picked) for queued, picked in notices if picked is not None and picked > queued]
     return Inputs(
-        merge(wall), merge(llm), merge(tool), merge(agents), dict(waits), turns, merge(main_bg), merge(stalls)
+        merge(wall),
+        merge(llm),
+        merge(tool),
+        merge(agents),
+        dict(waits),
+        turns,
+        merge(main_bg),
+        merge(stalls),
+        Classes(**{f: merge(v) for f, v in cls.items()}),
     )
 
 
@@ -246,15 +293,23 @@ def _segments(
     turns: Sequence[TurnFact],
     main_bg: Iterable[Interval] = (),
     stalls: Iterable[Interval] = (),
+    classes: Classes = NO_CLASSES,
 ) -> list[tuple[int, int, str, str | None, bool]]:
-    """Labelled runs `(start, end, state, substate, main_call)`; `main_call` is True for a user-wait
-    covered by a main-transcript call. Adjacent runs are joined only when all four labels are equal."""
+    """Labelled runs `(start, end, state, substate, main_call)`; `main_call` is True when a foreground
+    main-transcript call covers the run (rules 1, 2 and a user-wait main call; DM-52). Adjacent runs are
+    joined only when all four labels are equal."""
     sets: list[tuple[list[Interval], list[int], str, str | None, bool]] = []
     rules = [
-        (main_llm, "model", None, False),
-        (main_tool, "tool", None, False),
+        (main_llm, "model", None, True),
+        (classes.main_test, "tool", "test", True),  # DM-50 rule 2 [D56]: test, then wait, then plain
+        (classes.main_wait, "tool", "wait", True),
+        (main_tool, "tool", None, True),
+        (classes.agent_plain, "agents", None, False),  # rule 3 [D56]: a plain interval beats test and wait
+        (classes.agent_test, "agents", "test", False),
+        (classes.agent_wait, "agents", "wait", False),
         (agent_leaf, "agents", None, False),
-        (main_bg, "tool", "background", False),  # DM-50 rule 3a [D55]
+        (classes.bg_test, "tool", "test", False),  # rule 3a [D55, D56]
+        (main_bg, "tool", "background", False),
         # FALLBACK-OK: DM-50 (a wait category with no call covers nothing)
         *((waits.get(key, ()), "you", key[1], key[0] == "main") for key in _WAIT_ORDER),
     ]
@@ -329,10 +384,13 @@ def runs(
     turns: Sequence[TurnFact],
     main_bg: Iterable[Interval] = (),
     stalls: Iterable[Interval] = (),
+    classes: Classes = NO_CLASSES,
 ) -> list[Run]:
     """DM-50: the (state, substate) runs inside the wall, adjacent equal runs joined."""
     return _join(
-        _segments(merge(wall_segments), main_llm, main_tool, agent_leaf, waits, turns, main_bg, stalls)
+        _segments(
+            merge(wall_segments), main_llm, main_tool, agent_leaf, waits, turns, main_bg, stalls, classes
+        )
     )
 
 
@@ -380,12 +438,13 @@ def split(
     turns: Sequence[TurnFact],
     main_bg: Iterable[Interval] = (),
     stalls: Iterable[Interval] = (),
+    classes: Classes = NO_CLASSES,
 ) -> Split:
     wall = merge(wall_segments)
     for t in turns:
         assert t.end_ms is None or t.end_ms >= t.start_ms, f"inverted turn {t.rowid}"
     assert len({t.rowid for t in turns}) == len(turns), "duplicate turn rowid"
-    segs = _segments(wall, main_llm, main_tool, agent_leaf, waits, turns, main_bg, stalls)
+    segs = _segments(wall, main_llm, main_tool, agent_leaf, waits, turns, main_bg, stalls, classes)
     joined = _join(segs)
 
     holders: dict[int, TurnFact] = {}  # DM-51: the lowest seq at a shared start holds the window
@@ -416,9 +475,7 @@ def split(
 
     stretches: list[Stretch] = []
     for a, b, state, sub, main in segs:  # joined on all four labels, so a main call's wait stays apart
-        if (
-            state == "model" or (state, sub) == ("tool", None) or main
-        ):  # D55: `tool`/`background` is a stretch
+        if main:  # DM-52: a foreground main call covers its own time (any substate, D56)
             continue
         for x, y, i in cut(a, b):
             if y - x >= MIN_STRETCH_MS:

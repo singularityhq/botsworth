@@ -218,7 +218,7 @@ def test_source_result_has_api_26_fields(qstore, qroots):
     out = read(qstore, step_ref(qstore, TOOL_ERROR), qroots, "output")
     assert list(out) == ["freshness", "text", "total_bytes", "drift", "file", "locator", "block"]
     assert out["text"] == "String to replace not found in file"
-    assert out["freshness"]["schema_version"] == 11
+    assert out["freshness"]["schema_version"] == 12
 
 
 # ── provider gaps (B2c, B2b findings) ────────────────────────────────────────

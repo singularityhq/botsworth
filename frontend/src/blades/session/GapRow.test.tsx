@@ -35,4 +35,12 @@ describe('gap rows of D55 (SES-19a)', () => {
     expect(screen.getByText('Background command')).toBeTruthy()
     expect(screen.getByText('a background command ran; nothing else did')).toBeTruthy()
   })
+
+  it('shows a tool/test stretch (a background test run, D56) as Background command with the test reason, counted under tool', () => {
+    const e = gapEntry({ state: 'tool', substate: 'test' })
+    expect(e.state).toBe('tool')
+    mount(e)
+    expect(screen.getByText('Background command')).toBeTruthy()
+    expect(screen.getByText('a test run ran; nothing else did')).toBeTruthy()
+  })
 })

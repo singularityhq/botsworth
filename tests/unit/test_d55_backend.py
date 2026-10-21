@@ -328,8 +328,9 @@ def test_main_background_time_and_peer_time_through_load(tmp_path):
     split = session_split(conn, "s1")
     assert split == {
         ("model", None): 260 * S,  # r1 0-1 min, r2 8:10-10:00, r3 14:00-14:30, r4 35-36 min
-        ("tool", None): 241 * S,  # bg1's launch 1:00-1:01 and the foreground run 10:00-14:00
-        ("tool", "background"): 419 * S,  # 1:01-8:00: the run lasts until the notice was queued
+        # bg1 and fg1 are pytest runs (D56): bg1's launch 1:00-1:01 and the foreground run 10:00-14:00 are
+        # 241 s, bg1's run 1:01-8:00 is 419 s (it lasts until the notice was queued)
+        ("tool", "test"): 660 * S,
         ("none", "stalled"): 10 * S,  # the notice waited 8:00-8:10 for the main thread
         ("agentmsg", None): 1230 * S,  # 14:30-35:00, the next turn is the peer's message
     }
@@ -343,7 +344,7 @@ def test_stretches_hold_the_background_run_and_the_agentmsg_wait(tmp_path):
         (r["state"], r["substate"], (r["start_ms"] - T0) // S, (r["end_ms"] - T0) // S)
         for r in conn.execute("SELECT * FROM stretches ORDER BY start_ms")
     ]
-    assert got == [("tool", "background", 61, 480), ("agentmsg", None, 870, 2100)]
+    assert got == [("tool", "test", 61, 480), ("agentmsg", None, 870, 2100)]  # D56: the run is a test
 
 
 def test_agent_stall_of_95_min_through_load(tmp_path):
@@ -384,7 +385,7 @@ def test_stretches_view_returns_the_new_states(tmp_path):
     conn = loaded(tmp_path, build(tmp_path, background_session()))
     root = conn.execute("SELECT op_rowid FROM sessions").fetchone()[0]
     got = [(s.state, s.substate, s.dur_ms // S) for s in stretch_view.stretches_for(conn, root)]
-    assert got == [("tool", "background", 419), ("agentmsg", None, 1230)]
+    assert got == [("tool", "test", 419), ("agentmsg", None, 1230)]
 
 
 def test_waits_finder_lists_the_background_stretch_as_a_gap_row(tmp_path):
@@ -566,7 +567,7 @@ def test_slow_session_longest_wait_is_not_the_background_run(conn):
     assert s.longest_wait is not None and s.longest_wait.state == "agentmsg"
     states = {w.state for w in r.waits}
     assert states == {"tool", "agentmsg"}  # the waits list keeps every state; `longest_wait` skips two
-    assert [p for p in s.time_split.parts if p.state == "tool"][-1].substate == "background"
+    assert [p for p in s.time_split.parts if p.state == "tool"][-1].substate == "test"
 
 
 def test_slow_time_split_has_the_new_parts_in_wire_order(conn):
@@ -574,8 +575,7 @@ def test_slow_time_split_has_the_new_parts_in_wire_order(conn):
     got = [(p.state, p.substate) for p in r.current.time_split.parts]
     assert got == [
         ("model", None),
-        ("tool", None),
-        ("tool", "background"),
+        ("tool", "test"),
         ("agentmsg", None),
         ("none", "stalled"),
     ]

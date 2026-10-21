@@ -6,6 +6,8 @@ GUARANTEES:
   `key: value` lines and one line of scalar fields per list item.
 - A v4 table shows the readable sibling (`<x>` of `<x>_ms`, `<x>_ms_h`, `ms_h` of a `time_split` part)
   and leaves out the raw number it belongs to (D50, `cli.timefmt`).
+- `slow` and `breakdown` print `review` first (CLI-20, CLI-21 [D56]): a header (wall, lost
+  time, sessions), then one line per finding (cause, time, n, longest), so the 2 KB budget shows it.
 - A `TimeSplit` (`{parts: [...]}`, D54) prints as `key=[state/substate=duration ...]`; the substate `none` of
   state `none` is left out of the name.
 - Output is for people: its text and layout are not stable (CLI-11).
@@ -116,9 +118,32 @@ def _v4_lines(data: Any) -> list[str]:
     return lines
 
 
+def _shown(d: dict[str, Any], key: str) -> Any:
+    # FALLBACK-OK: CLI-2 — an unrendered dict (no `<key>_h` sibling) shows the raw milliseconds
+    return d.get(f"{key}_h", d[key])
+
+
+def _review_lines(review: dict[str, Any]) -> list[str]:
+    head = f"review: wall {_shown(review, 'wall_ms')}, lost {_shown(review, 'lost_ms')}"
+    head += f", {review['n_sessions']} sessions"
+    if review["n_unmeasured"]:
+        head += f" ({review['n_unmeasured']} without stall data)"
+    lines = [head]
+    for f in review["findings"]:
+        ev = f["longest"]
+        # FALLBACK-OK: CLI-2 — an unrendered dict has no ISO `start` sibling
+        longest = "-" if ev is None else f"{_shown(ev, 'dur_ms')} at {ev.get('start', ev['start_ms'])}"
+        lost = " lost" if f["lost"] else ""
+        lines.append(f"  {f['cause']}{lost} {_shown(f, 'ms')} n={f['n']} longest {longest}"[:_LINE_CHARS])
+    return lines
+
+
 def _lines(cmd: str, data: Any) -> list[str]:
     if cmd in V4_COMMANDS:
-        return _v4_lines(asdict(data) if is_dataclass(data) else data)
+        d = asdict(data) if is_dataclass(data) else data
+        if cmd in ("slow", "breakdown") and "review" in d:
+            return _review_lines(d["review"]) + _v4_lines({k: v for k, v in d.items() if k != "review"})
+        return _v4_lines(d)
     if cmd == "paths":
         return [f"{k}: {v}" for k, v in data.items()]
     if cmd == "outline":

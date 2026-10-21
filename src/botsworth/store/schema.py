@@ -1,7 +1,7 @@
 """CONTRACT: the SQLite schema of the store (design §4.2 store tables, §4.7, §4.11; data-model.md §2.2, §2.3).
 
 GUARANTEES:
-- `DDL` creates every store table, index and view (schema v11): ops, steps, events, sessions,
+- `DDL` creates every store table, index and view (schema v12): ops, steps, events, sessions,
   source_files, src_files, names, accounts, price_table, model_aliases, rollup_time,
   stretches, time_split, projects, meta; views `ops_v`, `steps_v`, `events_v`. Column names equal the
   canonical record field names (`botsworth.model`) except where DM-8/DM-14 compact them: a content
@@ -20,6 +20,8 @@ GUARANTEES:
 - v11 (D55): `ops.bg_end_ms`, `command_class`, `tests_passed`, `tests_failed` (tool_call only; DM-41,
   DM-28, DM-29); `stretches.state` also allows `tool` (`background` only, DM-52); `notice` events
   (DM-41) are ordinary `events` rows.
+- v12 (D56): no column changes. `time_split` and `stretches` rows carry the substates `test` and `wait` under
+  `tool` and `agents` (DM-50, DM-52), so a v11 store is rebuilt.
 - `ensure(conn)` creates the schema on an empty database and, when `meta.schema_version` differs from
   `SCHEMA_VERSION`, drops every table and view (also the v6 `op_closure`) and recreates them (the store
   is a disposable cache over the provider logs, D52). It sets WAL mode. The swap
@@ -45,7 +47,7 @@ import sqlite3
 
 from botsworth.store import refs
 
-SCHEMA_VERSION = 11
+SCHEMA_VERSION = 12
 
 # design §4.2 op record (canonical names), then store-only and derived columns (data-model.md §2.2).
 # Dropped from v6 (DM-8, DM-13, DM-14): parent, caused_by, session_id, bundle, project, cwd, account,

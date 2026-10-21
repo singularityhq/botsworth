@@ -27,7 +27,7 @@ ISO_FIELDS = frozenset(
 )
 DURATION_FIELDS = frozenset(
     (
-        "model_ms", "ms", "wall_ms", "active_ms", "dur_ms", "waiting_ms",
+        "model_ms", "ms", "wall_ms", "lost_ms", "active_ms", "dur_ms", "waiting_ms",
         "run_ms", "ttft_ms", "ttft_ms_mean", "max_silence_ms", "p50_ms", "p90_ms", "max_ms", "bin_ms",
     )
 )  # fmt: skip

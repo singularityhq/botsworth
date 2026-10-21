@@ -29,35 +29,36 @@ from botsworth.cli.scope import cli_zone, resolve_projects, scope_args, to_scope
 from botsworth.query.views.usecases import BY, MEASURES
 
 _TIME_FIELDS = """\
-time_split: parts {state, substate, ms} of the session wall. Each instant is in
-  one part, by the first rule that matches: model (a main-thread model call),
-  tool (a main-thread tool call), agents (an agent's call, tool or background
-  command), tool/background (only a main-thread background command), you/ask or
-  you/permission (a call waits for your answer or approval), else nothing runs:
-  none/stalled (a finished task's notice waits for an agent that is not
-  running), else the next turn decides: you/reply (your message), limit (usage
-  limit, inferred), agentmsg (an agent's or another session's message),
-  none/before_first (before the first numbered turn), else none/none. The parts
-  sum to wall_ms (DM-50, DM-51); substate is null for the other parts.
-time_prov: derived = result time minus call time; it can include a permission
-  or limit wait or a sleeping machine (DM-40). n_no_records: 5 min, no records.
+time_split: parts {state, substate, ms}; an instant of the wall is in the first
+  part that matches: model (main model call), tool (main tool call; tool/test,
+  tool/wait if it runs tests or sleeps), agents (agent call or background
+  command; agents/test, agents/wait), tool/background (main background command),
+  you/ask or you/permission (a call waits for you); else nothing runs:
+  none/stalled (a finished task waits for an agent that is not running), else
+  the next turn decides: you/reply, limit, agentmsg, none/before_first,
+  none/none. Parts sum to wall_ms.
+review: causes {cause, ms} sum to wall_ms: stalled (none/stalled; lost_ms),
+  tests (*/test), polling (*/wait), you, message (agentmsg), limit, working
+  (other model, tool, agents time), idle (none/*). findings: causes of 2 min+;
+  n counts stretches (stalled, you, message) or calls (tests, polling). tests is
+  wall time held by tests; test_runs.run_ms sums runs, which can overlap.
+time_prov: derived = result minus call time, may include a wait (DM-40); n_no_records: 5 min.
 user_waits: calls that waited on you, {n, dur_ms} for ask (AskUserQuestion,
   request_user_input, ask) and permission (Claude calls you approved or rejected;
   older Claude, Codex and omp leave no record). They are not in tools.
 test_runs: {n, run_ms, n_failed, n_passed, n_no_result, n_background} of calls
   with command_class test; a background run lasts until its notice (DM-41).
-waits: waits of 2 min or more, longest first (the waits finder): stretches (row
-  null) and main-thread calls that waited on you. longest_wait: a session's
-  longest wait that is not agents or tool/background (D54, D55)."""
+waits: waits of 2 min+, longest first: stretches (row null) and main calls that
+  waited on you. longest_wait: longest not agents or tool/background (D54, D55).
+"""
 _TIME_FORMAT = """\
 time: tz is the zone used (--tz). Each <x>_ms timestamp has an ISO sibling <x>; each duration has <x>_ms_h
   (45s, 12m 05s, 2h 15m, 3d 4h)."""
 
 SLOW_EPILOG = (
     """\
-output fields:
-  freshness, current, previous (same block for the prior period, or null),
-  sessions, tools, slowest_tools, user_waits, test_runs, waits, models
+output fields: freshness, current, previous (prior period or null), sessions,
+  tools, slowest_tools, user_waits, test_runs, waits, models, review
 """
     + _TIME_FIELDS
     + _TIME_FORMAT
@@ -65,9 +66,8 @@ output fields:
 
 BREAKDOWN_EPILOG = (
     """\
-output fields:
-  freshness, session, turns_by_time, turns_by_tokens, rows_by_time,
-  rows_by_cost, rows_by_tokens, tools, agents, waits, test_runs, models
+output fields: freshness, session, turns_by_time, turns_by_tokens, rows_by_time,
+  rows_by_cost, rows_by_tokens, tools, agents, waits, test_runs, models, review
 """
     + _TIME_FIELDS
     + _TIME_FORMAT

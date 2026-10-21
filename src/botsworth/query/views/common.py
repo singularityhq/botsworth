@@ -20,7 +20,11 @@ GUARANTEES:
 - `wire_split(acc)` builds a `wire.TimeSplit` from `{(state, substate): ms}`: the parts above 0 ms in
   SES-15 order (`timesplit.ordered`). `stored_split(conn, root_rowid, scope)` reads the root's `time_split`
   rows of one scope (DM-51, DM-53) as `{op_rowid: {(state, substate): ms}}`; an op with no row is absent.
-EXPECTS: a connection from `botsworth.query._conn` (schema v11) with `row_factory = sqlite3.Row`.
+  `session_parts(conn, roots)` reads the scope `session` rows of many sessions at once, by session op rowid.
+- `test_runs(conn, roots)` (CLI-20 `test_runs`, D55) counts the owned tool_calls with `command_class` test of
+  `roots`; `run_ms` runs to `bg_end_ms` for a background run, else `dur_ms`. `slow`, `breakdown` and the
+  Review (QRY-42) all use it, so their blocks are equal.
+EXPECTS: a connection from `botsworth.query._conn` (schema v12) with `row_factory = sqlite3.Row`.
 FAILURE BEHAVIOR: as above. A session with no `projects` row, or a null `project_name`, is an ingest
   bug (DM-60 names every project): `session_name` and `project_ref` assert.
 DOES NOT: build wire views, paginate, or filter by scope.
@@ -41,6 +45,9 @@ MIN_PREFIX = 8
 COLOR_SLOTS = 6
 COLOR_WINDOW_DAYS = 30
 _MAX_NAMED = 5
+_IDS = "(SELECT value FROM json_each(:ids))"
+
+Parts = dict[int, dict[timesplit.Part, int]]
 
 _SESSION_SELECT = """
 SELECT s.*, o.op_id AS op_id, p.name AS project_name
@@ -134,3 +141,33 @@ def stored_split(
     ):
         out[r["op_rowid"]][r["state"], r["substate"]] = r["ms"]
     return dict(out)
+
+
+def session_parts(conn: sqlite3.Connection, roots: Sequence[int]) -> Parts:
+    """The stored `time_split` rows of scope `session`, by session op rowid (DM-51)."""
+    out: Parts = defaultdict(dict)
+    for r in conn.execute(
+        "SELECT op_rowid, state, substate, ms FROM time_split WHERE scope = 'session' "
+        f"AND root_rowid IN {_IDS}",
+        {"ids": json.dumps(list(roots))},
+    ):
+        out[r["op_rowid"]][r["state"], r["substate"]] = r["ms"]
+    return out
+
+
+def test_runs(conn: sqlite3.Connection, roots: Sequence[int]) -> wire.TestRuns:
+    """CLI-20 `test_runs` (D55): owned tool_calls with `command_class = 'test'` of `roots`."""
+    r = conn.execute(
+        "SELECT COUNT(*) AS n,"
+        " COALESCE(SUM(CASE WHEN bg_end_ms IS NOT NULL THEN bg_end_ms - start_ms ELSE dur_ms END), 0)"
+        " AS run_ms,"
+        " COALESCE(SUM(tests_failed > 0), 0) AS n_failed, COALESCE(SUM(tests_failed = 0), 0) AS n_passed,"
+        " COALESCE(SUM(tests_passed IS NULL AND tests_failed IS NULL), 0) AS n_no_result,"
+        " COALESCE(SUM(bg_end_ms IS NOT NULL), 0) AS n_background"
+        " FROM ops WHERE kind = 'tool_call' AND duplicate_of IS NULL AND command_class = 'test'"
+        f" AND root_rowid IN {_IDS}",
+        {"ids": json.dumps(list(roots))},
+    ).fetchone()
+    return wire.TestRuns(
+        r["n"], r["run_ms"], r["n_failed"], r["n_passed"], r["n_no_result"], r["n_background"]
+    )

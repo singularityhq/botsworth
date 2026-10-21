@@ -337,7 +337,7 @@ def _row(kind, **kw):
     base = dict(
         rowid=1, kind=kind, start_ms=0, end_ms=M, agent_id=None, segments=None, n_inverted=0,
         duplicate_of=None, user_wait=None, seq=0, pre=0, turn_kind=None, turn_origin=None,
-        display_ix=None, label=None, bg_end_ms=None,
+        display_ix=None, label=None, bg_end_ms=None, command_class=None,
     )  # fmt: skip
     return base | kw
 
