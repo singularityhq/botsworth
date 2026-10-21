@@ -457,9 +457,11 @@ def test_breakdown_table_shows_the_review_first_within_2_kb(tmp_path, capsys):
     out = capsys.readouterr().out
     lines = out.splitlines()
     assert len(out.encode()) <= 2048
-    assert lines[0].startswith("review: wall 2h 2m, lost 1h 35m, 1 sessions")
+    assert lines[0].startswith("review: wall 2h 2m, lost 1h 35m, 1 session")
+    assert "1 sessions" not in lines[0]
     assert [ln.split()[0] for ln in lines[1:5]] == ["stalled", "tests", "you", "polling"]
     assert "n=1 longest 1h 35m at" in lines[1] and "lost" in lines[1]
+    assert lines[1].rstrip().endswith(" T1")  # the stall's display_id, openable with `show`
     cli.main(["--db", str(tmp_path / "s.db"), "slow", "--table"])
     assert capsys.readouterr().out.splitlines()[0].startswith("review: wall")
 

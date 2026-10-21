@@ -125,7 +125,8 @@ def _shown(d: dict[str, Any], key: str) -> Any:
 
 def _review_lines(review: dict[str, Any]) -> list[str]:
     head = f"review: wall {_shown(review, 'wall_ms')}, lost {_shown(review, 'lost_ms')}"
-    head += f", {review['n_sessions']} sessions"
+    n = review["n_sessions"]
+    head += f", {n} session{'' if n == 1 else 's'}"
     if review["n_unmeasured"]:
         head += f" ({review['n_unmeasured']} without stall data)"
     lines = [head]
@@ -133,6 +134,8 @@ def _review_lines(review: dict[str, Any]) -> list[str]:
         ev = f["longest"]
         # FALLBACK-OK: CLI-2 — an unrendered dict has no ISO `start` sibling
         longest = "-" if ev is None else f"{_shown(ev, 'dur_ms')} at {ev.get('start', ev['start_ms'])}"
+        if ev is not None and ev["display_id"]:
+            longest += f" {ev['display_id']}"
         lost = " lost" if f["lost"] else ""
         lines.append(f"  {f['cause']}{lost} {_shown(f, 'ms')} n={f['n']} longest {longest}"[:_LINE_CHARS])
     return lines
