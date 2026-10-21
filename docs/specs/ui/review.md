@@ -70,7 +70,7 @@ REV-6 — Cards. A card is a 2-column grid (120 px figure column, text), l2 surf
   - `you`: the `you` substates of the session's `time_split` over 0 s, in SES-15 order and wording, each with its
     duration ("asked you a question 12m · the next turn is your message 1h06m");
   - `message`: "<n> waits of 2 min or more. Botsworth does not store message text, so it cannot say why.";
-- evidence (14, struct link): "Longest: HH:MM–HH:MM, <dur> · turn <display_id>" (no "· turn" when `turn` is null).
+- evidence (14, struct link): "Longest: HH:MM–HH:MM, <dur> · turn <display_id>" (no "· turn" when `turn` is null; no evidence line when `longest` is null, QRY-42).
   Clicking it opens the row like a finder jump (SES-51: the turn opens, the row is the cursor, its detail opens),
   and the view returns to Ledger;
 - change (14 ink1, after a 2 px struct-soft rule and the word "Change" in 12 ink3), fixed text:
@@ -82,7 +82,8 @@ REV-6 — Cards. A card is a 2-column grid (120 px figure column, text), l2 surf
 
 REV-7 — States. Loading: the claim, bars and three cards show skeletons (SYS-54). Error: the SYS-56 card with retry in
 the Review area; the header claim is omitted until the request succeeds. A Codex or omp session has no stalled part
-and no stalled card (no zero card).
+and no stalled card (no zero card). When `n_unmeasured` > 0 the footnote adds: "Stalls are not measured for Codex and omp
+sessions: their logs do not record when a background task finishes."
 
 REV-8 — Phone (width under 640 px): the bars span the width; each card stacks the figure above the heading; no
 horizontal scroll.

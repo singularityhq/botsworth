@@ -273,17 +273,20 @@ QRY-42 [D56] — Review. `session_review(session)` and `scope_review(scope)` ret
 ```ts
 type Cause = 'stalled' | 'tests' | 'polling' | 'you' | 'message' | 'limit' | 'working' | 'idle'
 interface CausePart { cause: Cause; ms: number }               // all eight, in this order; Σ ms = wall_ms
-interface Evidence { session: string; row: RowRef | null; turn: string | null; display_id: string | null;
+interface Evidence { session: string; session_id: string; row: RowRef | null; turn: string | null; display_id: string | null;
                      start_ms: number; end_ms: number; dur_ms: number }
 interface Finding { cause: 'stalled' | 'tests' | 'polling' | 'you' | 'message'; ms: number; lost: boolean;
                     n: number;                                  // stalled, you, message: stretches of ≥ 2 min; tests, polling: tool_calls of that class
-                    longest: Evidence | null;                   // stalled, you, message: the longest stretch (row = gap RowRef); tests, polling: the longest tool_call of that class (row = tool RowRef)
+                    longest: Evidence | null;                   // stalled, you, message: the longest stretch (row = gap RowRef); tests, polling: the longest candidate tool_call of that class (row = tool RowRef), its run to bg_end_ms when it ran in the background, else dur_ms. A main-transcript background run of class wait is no candidate: DM-50 counts it as tool/background (working), not polling. dur_ms is the call's whole run, so a call that overlapped work DM-50 ranks higher can exceed the finding's ms (18 of 1,244 findings on the real store, 2026-10-21, all agent calls but one)
                     threads: string[];                          // stalled only: the agent names (agent_name, else agent_id; "main" for the main thread) whose notices fall in the stall stretches; else []
                     sessions: { session: string; session_id: string; name: string; ms: number }[] }  // scope only: the 3 sessions with the most ms of the cause; [] for a session
-interface Review { wall_ms: number; lost_ms: number; n_sessions: number; causes: CausePart[]; findings: Finding[]; test_runs: TestRuns }
+interface Review { wall_ms: number; lost_ms: number; n_sessions: number;
+                  n_unmeasured: number;                         // sessions whose provider records no task notices (codex, omp; DM-41): stalls are not measured there
+                  causes: CausePart[]; findings: Finding[]; test_runs: TestRuns }
 ```
-- `findings`: one per cause among `stalled`, `tests`, `polling`, `you`, `message` with `ms` ≥ 120,000; lost findings first, then by `ms` descending, then by the cause order. `you` findings carry the split in the session's `time_split`; the UI reads it there.
+- `findings`: one per cause among `stalled`, `tests`, `polling`, `you`, `message` with `ms` ≥ 120,000; lost findings first, then by `ms` descending, then by the cause order. `you` findings carry the split in the session's `time_split`; the UI reads it there. A main-thread wait on the user (`AskUserQuestion`, a permission prompt) lies inside a tool_call and is no stretch (DM-52), so a `you` finding can have `ms` ≥ 2 min with `n` 0 and `longest` null; the UI then shows no evidence line (REV-6).
 - For a scope, `wall_ms`, `causes` and `test_runs` are sums over the in-scope sessions (QRY-9 full sessions), so `wall_ms` can exceed the clock time of the period; `longest` is the longest over all in-scope sessions.
+- `n` counts different things by cause: stretches of ≥ 2 min for `stalled`, `you` and `message`; tool_calls of the class for `tests` and `polling`. The `tests` cause is wall time held by tests (each instant once); `test_runs.run_ms` sums each run, and runs overlap, so it can be larger.
 - Invariants: Σ `causes.ms` = `wall_ms`; `lost_ms` = the `stalled` part; `test_runs` equals CLI-20/CLI-21's block for the same sessions.
   Scenario: Given the DM-56 test session, `session_review` → `lost_ms` 95 min, findings in the order `stalled` (lost), `tests`, `you`, `polling`; `causes` sum to the wall.
 
@@ -329,6 +332,8 @@ API-7 — Every 200 body is an object with `freshness` (QRY-17) at the top level
 | GET | `/api/sessions/{session}/resolve` | `resolve` | [new] | `step` URL ids (SES-9) |
 | GET | `/api/ops/{engagement}/rows` | `agent_rows` | [new] | an agent's rows (`l`) |
 | GET | `/api/ops/{op}/detail` | `detail` | [new] | detail blade |
+| GET | `/api/sessions/{session}/review` | `session_review` | [new] (API-33) | session Review (REV-3) |
+| GET | `/api/explorer/review` | `scope_review` | [new] (API-33) | project review (REV-20) |
 | GET | `/api/source` | `source` | [changed] | lazy full text |
 | POST | `/api/query` | `query` | [exists] | none in v4 (agents, D35) |
 | GET | `/api/ops/{op}` | `show` | [exists] | none in v4 |
@@ -743,6 +748,7 @@ CLI-21 — `session_breakdown(session, n)`. One session (QRY-6 lookup):
 - `waits` [D54]: the `n` longest waits of the session (CLI-20), as `Wait`. Their `dur_ms` values are the `n` largest values of `find(session, 'waits')`.
 - `test_runs` [D55]: the CLI-20 `TestRuns` over this session only.
 - `review` [D56]: `session_review(session)` (QRY-42) without `freshness`.
+- `--table` [D56]: CLI-20 and CLI-21 print `review` first (wall, lost, then one line per finding: cause, ms, n, longest), so the 2 KB table (CLI-2) shows it.
 - `models`: the session's `ModelLine[]`.
 - Invariant: every figure equals the one returned by `session_detail`, `session_turns` or `find` for the same session. This command composes those functions; it does not recompute their figures.
 
