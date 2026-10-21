@@ -270,6 +270,39 @@ describe('REV-4 unmeasured session', () => {
   })
 })
 
+describe('REV-6 evidence outside a turn', () => {
+  const outside: ReviewReport = {
+    ...R,
+    findings: R.findings.map((f) => (f.cause === 'tests' && f.longest ? { ...f, longest: { ...f.longest, turn: null, display_id: null, row: { type: 'tool' as const, id: 'tool-x' } } } : f)),
+  }
+
+  it('renders plain ink2 text, not a link, when longest.turn is null, and navigates nowhere on a click', async () => {
+    serve(() => reply(200, outside))
+    mount('&sview=review')
+    await screen.findByText('Without the stalls')
+    const card = review().querySelector('[data-finding="tests"]') as HTMLElement
+    const line = card.querySelector('[data-evidence="text"]') as HTMLElement
+    expect(line.textContent).toMatch(/^Longest: \d\d:\d\d–\d\d:\d\d, 3m · agent work outside a turn$/)
+    expect(line.className).toContain('text-ink2')
+    expect(within(card).queryByRole('button')).toBeNull()
+    const before = window.location.search
+    fireEvent.click(line)
+    expect(window.location.search).toBe(before)
+    expect(screen.queryByText(/not inside a numbered turn/)).toBeNull()
+    // the stalled card, whose turn is set, still has its link
+    expect(within(review().querySelector('[data-finding="stalled"]') as HTMLElement).getByRole('button', { name: /turn 2$/ })).toBeTruthy()
+  })
+
+  it('lists stalled first in the legend, then the rest largest first', async () => {
+    serve(() => reply(200, { ...R, causes: R.causes.map((c) => (c.cause === 'stalled' ? { ...c, ms: 60_000 } : c)) }))
+    mount('&sview=review')
+    await screen.findByText('Without the stalls')
+    const names = Array.from(review().querySelectorAll('[aria-label="Causes"] > span')).map((e) => e.textContent!.split(/\d/)[0].trim())
+    expect(names[0]).toBe('stalled')
+    expect(names[1]).toBe('working')
+  })
+})
+
 describe('REV-7 states', () => {
   it('shows skeletons while loading, then the claim', async () => {
     let release: (r: Response) => void = () => {}

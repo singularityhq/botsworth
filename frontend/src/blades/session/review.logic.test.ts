@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { fixtures } from '../../api/__fixtures__'
 import type { Cause, Finding, ReviewReport } from '../../api/types'
 import { CAUSE_KEYS, CAUSES, causeFill } from '../shared/causes'
-import { bars, CHANGE, claim, evidenceText, facts, footnote, heading, legend, largestCause, sharedNames, startText, threadsText, youFacts } from './review.logic'
+import { bars, CHANGE, claim, evidenceText, facts, footnote, heading, legend, largestCause, outsideATurn, sharedNames, startText, threadsText, youFacts } from './review.logic'
 import { fmt } from '../../lib/format'
 
 const R = fixtures.sessionReview as ReviewReport
@@ -110,6 +110,12 @@ describe('REV-5 bars', () => {
     expect(bars(withCauses({ working: 600_000, stalled: 60_000 }, 60_000))).toHaveLength(2)
   })
 
+  it('lists stalled first when present, even when other causes are larger, then the rest largest first', () => {
+    const causes = withCauses({ stalled: 100_000, working: 900_000, tests: 500_000, you: 700_000 }).causes
+    expect(legend(causes).map((c) => c.cause)).toEqual(['stalled', 'working', 'you', 'tests'])
+    expect(legend(withCauses({ working: 900_000, tests: 500_000 }).causes).map((c) => c.cause)).toEqual(['working', 'tests'])
+  })
+
   it('lists the legend largest first, causes present only', () => {
     expect(legend(R.causes).map((c) => c.cause)).toEqual(['stalled', 'working', 'tests', 'you', 'idle', 'polling', 'message'])
   })
@@ -117,7 +123,7 @@ describe('REV-5 bars', () => {
 
 describe('REV-6 card text', () => {
   it('words each heading as a claim', () => {
-    expect(heading(finding('stalled'))).toBe('Stalled 1h35m: finished tasks waited for the main thread, reviewer, builder +1 while nothing ran')
+    expect(heading(finding('stalled'))).toBe('Stalled 1h35m: finished tasks waited for the main thread, reviewer, builder and 1 more while nothing ran')
     expect(heading(finding('tests'))).toBe('Tests held the session for 20m')
     expect(heading(finding('polling'))).toBe('Polling loops held the session for 5m')
     expect(heading(finding('you'))).toBe('Waited 15m on you')
@@ -126,11 +132,13 @@ describe('REV-6 card text', () => {
 
   it('says "an agent" when a stalled finding has no threads, and lists at most three', () => {
     expect(heading({ ...finding('stalled'), threads: [] })).toBe('Stalled 1h35m: finished tasks waited for an agent while nothing ran')
-    expect(threadsText(['a', 'b', 'c'])).toBe('a, b, c')
-    expect(threadsText(['reviewer', 'main'])).toBe('reviewer, the main thread')
-    expect(threadsText(['a', 'b', 'c', 'main'])).toBe('a, b, c +1')
-    expect(threadsText(['main', 'b', 'c', 'd'])).toBe('the main thread, b, c +1')
-    expect(threadsText(['a', 'b', 'c', 'd', 'e'])).toBe('a, b, c +2')
+    expect(threadsText(['a'])).toBe('a')
+    expect(threadsText(['a', 'b'])).toBe('a and b')
+    expect(threadsText(['a', 'b', 'c'])).toBe('a, b and c')
+    expect(threadsText(['reviewer', 'main'])).toBe('reviewer and the main thread')
+    expect(threadsText(['a', 'b', 'c', 'main'])).toBe('a, b, c and 1 more')
+    expect(threadsText(['main', 'b', 'c', 'd'])).toBe('the main thread, b, c and 1 more')
+    expect(threadsText(['a', 'b', 'c', 'd', 'e'])).toBe('a, b, c and 2 more')
   })
 
   it('states the facts of each cause', () => {
@@ -155,10 +163,15 @@ describe('REV-6 card text', () => {
     expect(youFacts({ ask: 0, permission: 0, reply: 0 })).toBe('')
   })
 
-  it('shows the evidence line as range, duration and turn, without the turn when it is null', () => {
+  it('shows the evidence line as range, duration and turn; with turn null it says "agent work outside a turn" instead, also in a scope', () => {
     expect(evidenceText(finding('stalled'), 'UTC')).toBe('Longest: 06:28–07:30, 1h02m · turn 2')
     const f = finding('stalled')
-    expect(evidenceText({ ...f, longest: { ...f.longest!, turn: null, display_id: null } }, 'UTC')).toBe('Longest: 06:28–07:30, 1h02m')
+    const outside = { ...f, longest: { ...f.longest!, turn: null, display_id: null } }
+    expect(evidenceText(outside, 'UTC')).toBe('Longest: 06:28–07:30, 1h02m · agent work outside a turn')
+    expect(evidenceText(outside, 'UTC', true)).toBe('Longest: Fix the importer, Mon Oct 12 06:28–07:30, 1h02m · agent work outside a turn')
+    expect(outsideATurn(outside)).toBe(true)
+    expect(outsideATurn(f)).toBe(false)
+    expect(outsideATurn({ ...f, longest: null })).toBe(false)
     expect(evidenceText(finding('you'), 'UTC')).toBeNull()
   })
 

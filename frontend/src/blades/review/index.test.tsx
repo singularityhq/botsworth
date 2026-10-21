@@ -250,3 +250,35 @@ describe('scope review blade: same-named links, keys and crumb (REV-21, REV-22)'
     expect(params().get('review')).toBeNull()
   })
 })
+
+describe('scope review: evidence outside a turn (REV-22)', () => {
+  const outside: ReviewReport = {
+    ...S,
+    findings: [
+      ...S.findings,
+      {
+        ...S.findings[0],
+        cause: 'polling',
+        ms: 1_200_000,
+        lost: false,
+        longest: { ...S.findings[0].longest!, name: 'acme-wf-tui-graph', turn: null, display_id: null, row: { type: 'tool', id: 'tool-x' }, dur_ms: 600_000 },
+      },
+    ],
+  }
+
+  it('keeps the session name and date before the times, ends with "agent work outside a turn", and is plain text', async () => {
+    serve(() => json(outside))
+    render(<ScopeReviewBlade />)
+    await screen.findByRole('heading', { level: 2 })
+    const card = document.querySelector('[data-finding="polling"]') as HTMLElement
+    const line = card.querySelector('[data-evidence="text"]') as HTMLElement
+    expect(line.textContent).toMatch(/^Longest: acme-wf-tui-graph, Mon Oct 12 \d\d:\d\d–\d\d:\d\d, 10m · agent work outside a turn$/)
+    expect(line.className).toContain('text-ink2')
+    expect(within(card).queryByRole('button', { name: /^Longest:/ })).toBeNull()
+    const before = window.location.search
+    fireEvent.click(line)
+    expect(window.location.search).toBe(before)
+    // the stalled card keeps its link
+    expect(screen.getByRole('button', { name: /^Longest: master-control-acme/ })).toBeTruthy()
+  })
+})

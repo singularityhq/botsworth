@@ -83,17 +83,20 @@ export function bars(r: Pick<ReviewReport, 'wall_ms' | 'lost_ms' | 'causes'>): B
   return [ran, bar('Without the stalls', r.causes.filter((c) => c.cause !== 'stalled'), r.wall_ms)]
 }
 
-/** REV-5 legend: the causes present, largest first (ties keep DM-56 order). */
+/** REV-5 legend: the causes present, "stalled" first, then the rest largest first (ties keep DM-56 order). */
 export function legend(causes: readonly CausePart[]): CausePart[] {
-  return causes.filter((c) => c.ms > 0).sort((a, b) => b.ms - a.ms)
+  const present = causes.filter((c) => c.ms > 0)
+  return [...present.filter((c) => c.cause === 'stalled'), ...present.filter((c) => c.cause !== 'stalled').sort((a, b) => b.ms - a.ms)]
 }
 
 // ---- cards (REV-6) -------------------------------------------------------------
 
-/** "reviewer, builder, scout +1": at most 3 names, then "+N". */
+/** The stalled heading's list: "a", "a and b", "a, b and c", and over 3 "a, b, c and N more"; `main` is "the main thread". */
 export function threadsText(threads: readonly string[]): string {
-  const shown = threads.slice(0, 3).map((t) => (t === 'main' ? 'the main thread' : t)).join(', ')
-  return threads.length > 3 ? `${shown} +${threads.length - 3}` : shown
+  const names = threads.map((t) => (t === 'main' ? 'the main thread' : t))
+  if (names.length > 3) return `${names.slice(0, 3).join(', ')} and ${fmt.count(names.length - 3)} more`
+  if (names.length < 2) return names.join('')
+  return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`
 }
 
 /** REV-6 heading: a claim. */
@@ -163,13 +166,17 @@ export function turnNumber(displayId: string): string {
   return m[1]
 }
 
-/** REV-6 evidence line text, without the link wrapper; null when there is no longest. REV-22: a scope's line names the session and the day, and has no turn. */
+/** True when the evidence row is in no turn's list (agent work attributed to no turn, DM-45): its line is plain text, not a link (REV-6). */
+export const outsideATurn = (f: Finding): boolean => f.longest !== null && f.longest.turn === null
+
+/** REV-6 evidence line text, without the link wrapper; null when there is no longest. REV-22: a scope's line names the session and the day, and has no turn number. */
 export function evidenceText(f: Finding, tz: string, scope = false): string | null {
   const e = f.longest
   if (e === null) return null
   const when = `${fmt.range(e.start_ms, e.end_ms, tz)}, ${fmt.dur(e.dur_ms)}`
-  if (scope) return `Longest: ${e.name}, ${fmt.date(e.start_ms, tz)} ${when}`
-  return `Longest: ${when}${e.display_id === null ? '' : ` · turn ${turnNumber(e.display_id)}`}`
+  const outside = e.turn === null ? ' · agent work outside a turn' : ''
+  if (scope) return `Longest: ${e.name}, ${fmt.date(e.start_ms, tz)} ${when}${outside}`
+  return `Longest: ${when}${outside}${e.turn !== null && e.display_id !== null ? ` · turn ${turnNumber(e.display_id)}` : ''}`
 }
 
 /** REV-4 footnote with the REV-7 addition for sessions whose logs record no task notices; REV-22 words the additions for a scope. */

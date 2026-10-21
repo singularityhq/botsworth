@@ -141,18 +141,15 @@ export function SessionBlade({ width, compact }: { width: number; compact: boole
   // A link opens its row as a finder jump does (SES-51): the turn opens, the row is the cursor, its detail opens; the view returns to Ledger.
   const openEvidence = useCallback(
     (ev: Evidence) => {
-      const ix = ev.turn === null ? null : (ixByOp.get(ev.turn) ?? null) // FALLBACK-OK: QRY-42 (a stretch attached to no numbered turn has no ledger to open; the toast says why)
-      // FALLBACK-OK: QRY-42 (evidence with no row, or a row outside the numbered turns, has nothing to open)
-      if (ix === null || ev.row === null) {
-        show(['That stretch is not inside a numbered turn.'])
-        return
-      }
+      // The link exists only for evidence in a turn (REV-6); a turn with no ledger position would be a data error, as in `land`.
+      const ix = ev.turn === null ? undefined : ixByOp.get(ev.turn)
+      if (ix === undefined || ev.row === null) throw new Error(`evidence in turn ${String(ev.turn)} (row ${String(ev.row?.id)}) has no numbered turn to open (QRY-42)`)
       // SES-10 [D56]: the jump adds a history entry over Review, so Back returns to it; the view is Ledger in the new entry, so Esc from the turn returns to Ledger.
       const patch: Patch = { t: ix, step: ev.row.type === 'turn' ? null : ev.row.id, detail: true, zoom: null, order: null, sview: 'ledger' }
       if (url.t === null) nav.openBlade('turn', patch)
       else nav.push(patch)
     },
-    [ixByOp, nav, show, url.t],
+    [ixByOp, nav, url.t],
   )
 
   // ---- legend jump (SES-27) ----

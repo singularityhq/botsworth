@@ -8,7 +8,7 @@ import { ErrorCard } from '../../ui/ErrorCard'
 import { segmentWidths } from '../shared/answers.logic'
 import { CAUSES, causeFill } from '../shared/causes'
 import { useElementWidth } from '../shared/useElementWidth'
-import { bars, CHANGE, claim, evidenceText, facts, footnote, heading, legend, sharedNames, startText, type Bar } from './review.logic'
+import { bars, CHANGE, claim, evidenceText, facts, footnote, heading, legend, outsideATurn, sharedNames, startText, type Bar } from './review.logic'
 
 /** REV-4 to REV-8: the Review view of a session. */
 
@@ -96,7 +96,11 @@ function Card({ finding: f, review, scope, tz, onOpenSession, onOpenEvidence }: 
       <div className="flex min-w-0 flex-col gap-1">
         <h3 className="text-body font-semibold text-ink1">{heading(f, scope)}</h3>
         {factsText !== '' ? <p className="text-body text-ink2">{factsText}</p> : null}
-        {evidence !== null ? (
+        {evidence !== null && outsideATurn(f) ? (
+          <p data-evidence="text" className="text-body text-ink2">
+            {evidence}
+          </p>
+        ) : evidence !== null ? (
           <button
             type="button"
             disabled={!onOpenEvidence}
