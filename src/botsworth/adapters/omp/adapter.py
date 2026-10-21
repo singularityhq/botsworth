@@ -24,8 +24,8 @@ GUARANTEES:
   copied.
 - tool_call: one per `toolCall` block, key = `toolCallId` (derived
   `<agent|main>@L<line>:<id>` if repeated in the bundle), `src` = the call line
-  to its result line with path `message.content.<i>` (DM-7), `waits_on_user`
-  True for `ask` (DM-40), `occ_key` =
+  to its result line with path `message.content.<i>` (DM-7), `user_wait`
+  `ask` for `ask` (DM-40, D54), `occ_key` =
   `omp:tool:<id>`; timing per `records.tool_timing`; async launches keep their
   launch duration (`is_async`); bash carries `command`, `command_norm`,
   `command_key` (D17).
@@ -480,7 +480,7 @@ class _Walk:
             exit_code=code,
             exit_code_prov=Prov.PRESENT.value if code is not None else None,
             is_error=is_err,
-            waits_on_user=True if name == "ask" else None,
+            user_wait="ask" if name == "ask" else None,
             label=st.head(summ, LABEL_MAX),
         )
         ctx.ops.append(op)

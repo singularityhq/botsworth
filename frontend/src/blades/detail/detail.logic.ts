@@ -1,5 +1,6 @@
 import type { AgentDetail, CallDetail, CallRow, GapRow, NextTurn, ToolRow } from '../../api/types'
 import { fmt } from '../../lib/format'
+import { gapKind } from '../shared/states'
 import { displayIx } from '../session/turnList.logic'
 import { failureText, toolGlyph } from '../turn/rowName'
 
@@ -74,11 +75,11 @@ export function costCaption(part: number | null, whole: number | null, basis: 't
  * DET-40: a gap inside the turn's span reads "N% of the turn's wall time"; one between turns or before the first message reads
  * "N% of the session's wall time" (SES-21, SES-36). A gap before the first message is never inside a turn.
  */
-export function gapBasis(g: Pick<GapRow, 'label' | 'turn'>): 'turn' | 'session' {
-  return g.label === 'before_first' || g.turn === null ? 'session' : 'turn'
+export function gapBasis(g: Pick<GapRow, 'state' | 'substate' | 'turn'>): 'turn' | 'session' {
+  return gapKind(g) === 'before_first' || g.turn === null ? 'session' : 'turn'
 }
 
-export function gapCaption(g: Pick<GapRow, 'label' | 'turn' | 'dur_ms'>, turnWallMs: number | null, sessionWallMs: number | null): string | null {
+export function gapCaption(g: Pick<GapRow, 'state' | 'substate' | 'turn' | 'dur_ms'>, turnWallMs: number | null, sessionWallMs: number | null): string | null {
   const basis = gapBasis(g)
   const s = share(g.dur_ms, basis === 'turn' ? turnWallMs : sessionWallMs)
   return s === null ? null : `${s} of the ${basis === 'turn' ? "turn's" : "session's"} wall time`
@@ -244,8 +245,8 @@ export const runsText = (n: number): string | null => (n > 1 ? `${n} runs` : nul
 export const clip = (text: string, n: number): string => (text.length > n ? text.slice(0, n) : text)
 
 /** DET-41 (SES-17): the second line under a usage-limit gap. Null for every other gap. */
-export function limitInference(label: GapRow['label'], next: NextTurn | null): string | null {
-  if (label !== 'limit' || next === null) return null
+export function limitInference(g: Pick<GapRow, 'state'>, next: NextTurn | null): string | null {
+  if (g.state !== 'limit' || next === null) return null
   return `Inferred: the next turn starts with “${clip(next.label, 60)}”.`
 }
 

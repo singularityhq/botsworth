@@ -3,18 +3,20 @@
 GUARANTEES:
 - `session_detail(session)` (QRY-29; API-20): `cost.main` / `cost.agents` split the owned llm_call cost by
   `agent_id IS NULL`; `cost.unattributed` = cost of owned llm_calls with `attr_turn_rowid IS NULL`; all
-  three are None when the session has no owned llm_call (QRY-11). `time_split` is the session's
-  `model_ms`..`none_ms`. `none_split.you|agentmsg|limit` = Σ of the session's `none` stretches with that
-  label (QRY-41); `none` = `none_ms` minus those, so `before_first` counts under `none`. A `longest` target
-  exists only at 2 min or more; `model`/`tool` target the longest main-thread owned call, the other five
-  the longest stretch with that label (`none` covers `none` and `before_first`).
+  three are None when the session has no owned llm_call (QRY-11). `time_split` holds the session's
+  `time_split` rows of scope `session` (DM-51; D54), the parts above 0 ms in SES-15 order. A `longest`
+  target exists only at 2 min or more; `model` targets the longest main-thread owned llm_call, `tool` the
+  longest main-thread tool_call with `user_wait` NULL, `you` the longest of the `you` stretches and the
+  main-thread tool_calls with `user_wait` set, and `agents`, `agentmsg`, `limit`, `none` the longest
+  stretch of that state (`none` covers `before_first` too).
 - `session_turns(session, min_gap_ms)` (QRY-30; API-21): every main turn (harness included) and every gap
   row, in time order. Turns sort by `start_ms` then `seq`, or `pre` when `seq` is NULL (Codex ops carry no
   `seq`; DM-24); a turn with a null start takes the position of the turn before it in that order. A gap row
-  precedes the turn that starts at its `end_ms`. Gap rows are `none` stretches of at least `min_gap_ms` that
-  end where a main turn starts or are labelled `before_first`.
-  Turn figures: `wall_ms` = `span_wall_ms`, `time_split` = the four span columns, `waiting_ms` =
-  `span_agents_ms + span_none_ms`, `cost_usd` = `attr_cost_usd`; all null for a turn with a null start.
+  precedes the turn that starts at its `end_ms`. Gap rows are stretches of state `you`, `agentmsg`, `limit`
+  or `none` of at least `min_gap_ms` that end where a main turn starts or have substate `before_first`.
+  Turn figures: `wall_ms` = `span_wall_ms`, `time_split` = the turn's `time_split` rows of scope `span`,
+  `waiting_ms` = `wall_ms` - span `model` - span `tool` (D54), `cost_usd` = `attr_cost_usd`; all null for a
+  turn with a null start.
   `n_agents` counts causing tool_calls (agent rows) of engagements whose cause is attributed to the turn;
   `agent_runs` lists those engagements. `n_failed` counts failed tool_calls attributed to the turn, any depth.
 - `turn_row(conn, turn)` is one turn's `TurnRow`; `session_turns` builds equal rows in one batch.
@@ -25,13 +27,14 @@ GUARANTEES:
 - `model_lines(conn, where_sql, args)` (QRY-33): `where_sql` is a condition over `ops` (alias `o`) with `?`
   placeholders in `args`; it is combined with owned llm_calls (`kind = 'llm_call'`, `duplicate_of IS NULL`).
   One line per model, most costly first, then by model.
-EXPECTS: schema v7 filled by B3a (`turn_kind`, `turn_origin`, `display_ix`, `attr_*`, `skill_load`) and B3b
-  (`span_*`, session `model_ms`..`none_ms`, `stretches`).
+EXPECTS: schema v10 filled by B3a (`turn_kind`, `turn_origin`, `display_ix`, `attr_*`, `skill_load`) and B3b
+  (`span_wall_ms`, `time_split`, `stretches`).
 FAILURE BEHAVIOR: unknown session -> NotFound; ambiguous or short session key -> QueryError (QRY-6);
   `min_gap_ms` under 60000 -> QueryError; an id that names no row, or a row that belongs to no turn
   (unattributed agent work, DM-45), or a non-main turn -> NotFound; a missing derived value that B3 always
-  writes (a numbered turn without `display_ix` or `attr_n_llm_calls`) -> AssertionError.
-DOES NOT: write; store or cache stretch labels (QRY-41); read `stretches.turn_rowid`; build SQL in `http/`.
+  writes (a numbered turn without `display_ix` or `attr_n_llm_calls`), or session `time_split` rows that
+  do not sum to `wall_ms` (QRY-29) -> AssertionError.
+DOES NOT: write; label a stretch (QRY-41); read `stretches.turn_rowid`; build SQL in `http/`.
 """
 
 from __future__ import annotations
@@ -42,7 +45,14 @@ from collections.abc import Sequence
 from datetime import date
 
 from botsworth.query import Db, NotFound, QueryError, _conn, shapes, wire, zone
-from botsworth.query.views.common import lookup_session, money, project_ref, session_name
+from botsworth.query.views.common import (
+    lookup_session,
+    money,
+    project_ref,
+    session_name,
+    stored_split,
+    wire_split,
+)
 from botsworth.query.views.status import failed_sql
 from botsworth.query.views.stretches import display_id, stretches_for
 
@@ -174,6 +184,7 @@ def _turn_facts(conn: sqlite3.Connection, root: int) -> dict[str, dict]:
         causes[r["turn"]].add(r["cause"])
     skills = _skill_loads_by_turn(conn, root)
     return {
+        "spans": stored_split(conn, root, "span"),
         "main": main,
         "unpriced": unpriced,
         "failed": failed,
@@ -215,10 +226,11 @@ def _turn_row(turn: sqlite3.Row, facts: dict[str, dict]) -> wire.TurnRow:
     assert n_llm is not None, f"turn {turn['op_id']} has no attr_n_llm_calls (DM-45)"
     cost = money(turn["attr_cost_usd"], turn["attr_cost_lower_bound"], n_unpriced)
     spanned = turn["span_wall_ms"] is not None
-    if spanned:
-        split = wire.TimeSplit(
-            turn["span_model_ms"], turn["span_tool_ms"], turn["span_agents_ms"], turn["span_none_ms"]
-        )
+    # FALLBACK-OK: DM-51 (time_split rows with 0 ms are not stored: an absent part is 0)
+    span = facts["spans"].get(tid, {})
+    waiting = (
+        turn["span_wall_ms"] - span.get(("model", None), 0) - span.get(("tool", None), 0) if spanned else None
+    )
     return wire.TurnRow(
         cost.cost_usd,
         cost.cost_lower_bound,
@@ -231,8 +243,8 @@ def _turn_row(turn: sqlite3.Row, facts: dict[str, dict]) -> wire.TurnRow:
         start_ms=turn["start_ms"],
         end_ms=turn["end_ms"],
         wall_ms=turn["span_wall_ms"] if spanned else None,
-        time_split=split if spanned else None,
-        waiting_ms=split.agents_ms + split.none_ms if spanned else None,
+        time_split=wire_split(span) if spanned else None,
+        waiting_ms=waiting,
         cost_main=cost_main,
         tok_total=turn["attr_tok_total"],
         n_llm_calls=n_llm,
@@ -253,11 +265,12 @@ def turn_row(conn: sqlite3.Connection, turn: sqlite3.Row) -> wire.TurnRow:
 
 
 def _is_gap_row(s: wire.Stretch, min_gap_ms: int) -> bool:
-    """SES-36: a `none` stretch that ends where a main turn starts, or lies before the first numbered turn."""
+    """SES-36: a stretch of a state other than `agents` that ends where a main turn starts, or lies before
+    the first numbered turn (`before_first`)."""
     return (
-        s.state == "none"
+        s.state != "agents"
         and s.dur_ms >= min_gap_ms
-        and (s.next_turn is not None or s.label == "before_first")
+        and (s.next_turn is not None or s.substate == "before_first")
     )
 
 
@@ -296,7 +309,7 @@ def gap_row(g: wire.Stretch) -> wire.GapRow:
         g.end_ms,
         g.dur_ms,
         g.state,
-        g.label,
+        g.substate,
         g.turn,
         g.next_turn,
         g.running,
@@ -313,7 +326,7 @@ def _longest_call(conn: sqlite3.Connection, root: int, kind: str, ref: str) -> w
         SELECT o.op_id AS op_id, o.dur_ms AS dur_ms, t.op_id AS turn
         FROM ops o LEFT JOIN ops t ON t.rowid = o.attr_turn_rowid
         WHERE o.root_rowid = ? AND o.kind = ? AND o.agent_id IS NULL AND o.duplicate_of IS NULL
-          AND o.dur_ms >= ?
+          AND o.user_wait IS NULL AND o.dur_ms >= ?
         ORDER BY o.dur_ms DESC, o.start_ms, o.op_id LIMIT 1
         """,
         (root, kind, LONGEST_FLOOR_MS),
@@ -324,16 +337,39 @@ def _longest_call(conn: sqlite3.Connection, root: int, kind: str, ref: str) -> w
     return wire.LongestTarget(wire.RowRef(ref, r["op_id"]), r["turn"], r["dur_ms"])
 
 
-def _longest_stretch(stretches: list[wire.Stretch], labels: tuple[str, ...]) -> wire.LongestTarget | None:
+def _longest_stretch(stretches: list[wire.Stretch], state: str) -> wire.LongestTarget | None:
     best = None
     for s in stretches:
-        if s.label in labels and s.dur_ms >= LONGEST_FLOOR_MS and (best is None or s.dur_ms > best.dur_ms):
+        if s.state == state and s.dur_ms >= LONGEST_FLOOR_MS and (best is None or s.dur_ms > best.dur_ms):
             best = s
     if best is None or best.turn is None:
         # FALLBACK-OK: interfaces.md QRY-29 (a target needs a turn; SES-37 gives none
         # when the session has no numbered turn)
         return None
     return wire.LongestTarget(wire.RowRef("gap", f"gap-{best.start_ms}"), best.turn, best.dur_ms)
+
+
+def _longest_you(
+    conn: sqlite3.Connection, root: int, stretches: list[wire.Stretch]
+) -> wire.LongestTarget | None:
+    """QRY-29 `you` (D54): the longer of the longest `you` stretch and the longest main-thread tool_call
+    with `user_wait` set."""
+    row = conn.execute(
+        """
+        SELECT o.op_id AS op_id, o.dur_ms AS dur_ms, t.op_id AS turn
+        FROM ops o LEFT JOIN ops t ON t.rowid = o.attr_turn_rowid
+        WHERE o.root_rowid = ? AND o.kind = 'tool_call' AND o.agent_id IS NULL AND o.duplicate_of IS NULL
+          AND o.user_wait IS NOT NULL AND o.dur_ms >= ?
+        ORDER BY o.dur_ms DESC, o.start_ms, o.op_id LIMIT 1
+        """,
+        (root, LONGEST_FLOOR_MS),
+    ).fetchone()
+    stretch = _longest_stretch(stretches, "you")
+    if row is None:
+        return stretch
+    assert row["turn"] is not None, f"main-thread tool {row['op_id']} has no attributed turn (DM-45)"
+    call = wire.LongestTarget(wire.RowRef("tool", row["op_id"]), row["turn"], row["dur_ms"])
+    return call if stretch is None or call.dur_ms >= stretch.dur_ms else stretch
 
 
 def session_detail(session: str, db: Db = None, tz: str | None = None) -> wire.SessionDetail:
@@ -363,21 +399,20 @@ def session_detail(session: str, db: Db = None, tz: str | None = None) -> wire.S
             agents=agg["cost"] - agg["main"] if has_calls else None,
             unattributed=agg["unattributed"] if has_calls else None,
         )
+        # FALLBACK-OK: DM-51 (a session with a wall of 0 stores no time_split rows)
+        parts = stored_split(conn, root, "session").get(root, {})
+        assert sum(parts.values()) == s["wall_ms"], (
+            f"session {root}: time_split does not sum to wall_ms (QRY-29)"
+        )
         stretches = stretches_for(conn, root)
-        labelled = {k: 0 for k in ("you", "agentmsg", "limit")}
-        for st in stretches:
-            if st.state == "none" and st.label in labelled:
-                labelled[st.label] += st.dur_ms
-        assert s["none_ms"] is not None, f"session {s['op_id']} has no none_ms (DM-51)"
-        none_split = wire.NoneSplit(**labelled, none=s["none_ms"] - sum(labelled.values()))
         longest = wire.Longest(
             model=_longest_call(conn, root, "llm_call", "call"),
             tool=_longest_call(conn, root, "tool_call", "tool"),
-            agents=_longest_stretch(stretches, ("agents",)),
-            you=_longest_stretch(stretches, ("you",)),
-            agentmsg=_longest_stretch(stretches, ("agentmsg",)),
-            limit=_longest_stretch(stretches, ("limit",)),
-            none=_longest_stretch(stretches, ("none", "before_first")),
+            agents=_longest_stretch(stretches, "agents"),
+            you=_longest_you(conn, root, stretches),
+            agentmsg=_longest_stretch(stretches, "agentmsg"),
+            limit=_longest_stretch(stretches, "limit"),
+            none=_longest_stretch(stretches, "none"),
         )
         kinds = dict(
             conn.execute(
@@ -422,8 +457,7 @@ def session_detail(session: str, db: Db = None, tz: str | None = None) -> wire.S
             tok_total=s["incl_tok_total"],
             wall_ms=s["wall_ms"],
             active_ms=s["active_ms"],
-            time_split=wire.TimeSplit(s["model_ms"], s["tool_ms"], s["agents_ms"], s["none_ms"]),
-            none_split=none_split,
+            time_split=wire_split(parts),
             longest=longest,
             n_agents=n_agents,
             n_skill_loads=sum(_skill_loads_by_turn(conn, root).values()),

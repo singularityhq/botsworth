@@ -5,14 +5,14 @@ Spec ids: CLI-20, CLI-21, CLI-22, CLI-23 (interfaces.md §5.2); D42 (basis of th
 GUARANTEES:
 - Facts only: numbers, ids, labels and stored previews. No prose, no cause, no "slow" threshold.
 - `project_slow(scope, compare, n)` (CLI-20): sessions = `explorer.in_scope_roots` (QRY-5, QRY-7), every
-  figure the session's full figure (QRY-9). `current.time_split` is Σ of the sessions' stored
-  `model_ms`..`none_ms`, so it sums to `wall_ms`; `none_split` is Σ of `stretches_for_roots` labels (QRY-41)
-  with the rest of `none_ms` under `none`. `previous` is the same block for the `d` days ending the day
-  before `from_day` (`d` = the scope's day count), same filters; null when `compare` is false or the scope
-  is all time. `tools` / `slowest_tools` skip `waits_on_user = 1` calls (the column holds 1 or NULL, DM-40)
-  and count them in `waits_on_user`. Percentiles are nearest-rank (rank = ceil(p * N)) over non-null
-  `dur_ms`. `models` is Q2a's `model_lines`. `longest_wait` is the session's longest `none` stretch of
-  2 min or more.
+  figure the session's full figure (QRY-9). `current.time_split` is Σ per (state, substate) of the sessions'
+  stored `time_split` rows of scope `session`, so it sums to `wall_ms`. `previous` is the same block for
+  the `d` days ending the day before `from_day` (`d` = the scope's day count), same filters; null when
+  `compare` is false or the scope is all time. `tools` / `slowest_tools` skip calls with `user_wait` set
+  (DM-40, D54) and count them in `user_waits` (`ask`, `permission`: `{n, dur_ms}`). Percentiles are
+  nearest-rank (rank = ceil(p * N)) over non-null `dur_ms`. `models` is Q2a's `model_lines`.
+  `longest_wait` is the session's longest stretch of state `you`, `agentmsg`, `limit` or `none` of 2 min
+  or more.
 - `session_breakdown(session, n)` (CLI-21) composes: `session` copies `session_detail`; the turn lists
   are `session_turns` rows (harness turns and turns without the figure left out); `rows_by_*` are the
   first `n` hits of `find(.., 'biggest', measure)`; `agents` are the agent rows `find(.., 'agents')`
@@ -28,11 +28,11 @@ GUARANTEES:
   none above it -> `(main)`. `turn_attr`: whole turn figures. `unassigned` = `scope_totals` - Σ all groups.
   `n_unpriced` of a group counts the source units (calls; turns for `skill`/`slash`) whose cost is unknown.
   Groups sort by `measure` descending (nulls last), then key ascending; `count` sorts by `n`.
-EXPECTS: schema v7 filled by B3a/B3b (`waits_on_user`, `max_silence_ms`, `time_prov`, `command_key`,
-  `steps.verb`, `steps.skill_load`, `turn_origin`, `label`, `attr_*`, `span_wall_ms`,
-  `model_ms`..`none_ms`, `stretches`).
+EXPECTS: schema v10 filled by B3a/B3b (`user_wait`, `max_silence_ms`, `time_prov`, `command_key`,
+  `steps.verb`, `steps.skill_load`, `turn_origin`, `label`, `attr_*`, `span_wall_ms`, `time_split`,
+  `stretches`).
 FAILURE BEHAVIOR: `by`, `measure` or `n` outside the lists -> `QueryError`; unknown session -> `NotFound`;
-  a session without `model_ms`..`none_ms` asserts (DM-51).
+  a session whose `time_split` rows do not sum to `wall_ms` asserts (DM-51).
 DOES NOT: write, hold prose, label anything slow, or use `op_closure`.
 """
 
@@ -40,6 +40,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from collections import defaultdict
 from collections.abc import Sequence
 from dataclasses import fields, replace
 from datetime import date, timedelta
@@ -53,6 +54,7 @@ from botsworth.query.views.explorer import _figures, in_scope_roots
 from botsworth.query.views.find import find
 from botsworth.query.views.session import model_lines, session_detail, session_turns
 from botsworth.query.views.stretches import stretches_for, stretches_for_roots
+from botsworth.store import timesplit
 
 MAX_SLOW_N = 100
 MAX_TASKS_N = 500
@@ -88,7 +90,7 @@ def _fresh(conn: sqlite3.Connection) -> wire.Freshness:
 
 _SESSION_ROWS = f"""
 SELECT s.op_rowid, o.op_id, s.session_id, s.display_title, s.title_source, p.name AS project_name,
-  s.first_ms, s.wall_ms, s.active_ms, s.model_ms, s.tool_ms, s.agents_ms, s.none_ms,
+  s.first_ms, s.wall_ms, s.active_ms,
   s.n_llm_calls, s.n_tool_calls, s.incl_tok_total, s.incl_cost_usd, s.cost_lower_bound,
   (SELECT COALESCE(SUM(u.n_unpriced), 0) FROM rollup_time u
     WHERE u.root_rowid = s.op_rowid) AS n_unpriced
@@ -104,31 +106,41 @@ def _stretches(conn: sqlite3.Connection, roots: Sequence[int]) -> dict[int, list
     return out
 
 
-def _none_split(row: sqlite3.Row, stretches: Sequence[wire.Stretch]) -> wire.NoneSplit:
-    """QRY-29 for one session: labelled `none` stretches, the rest of `none_ms` under `none`."""
-    labelled = {"you": 0, "agentmsg": 0, "limit": 0}
-    for st in stretches:
-        if st.state == "none" and st.label in labelled:
-            labelled[st.label] += st.dur_ms
-    return wire.NoneSplit(**labelled, none=row["none_ms"] - sum(labelled.values()))
+Parts = dict[int, dict[timesplit.Part, int]]
 
 
-def _split_row(row: sqlite3.Row) -> wire.TimeSplit:
-    for col in ("wall_ms", "active_ms", "model_ms", "tool_ms", "agents_ms", "none_ms"):
+def _session_parts(conn: sqlite3.Connection, roots: Sequence[int]) -> Parts:
+    """The stored `time_split` rows of scope `session`, by session op rowid (DM-51)."""
+    out: Parts = defaultdict(dict)
+    for r in conn.execute(
+        "SELECT op_rowid, state, substate, ms FROM time_split WHERE scope = 'session' "
+        f"AND root_rowid IN {_IDS}",
+        {"ids": _json_ids(roots)},
+    ):
+        out[r["op_rowid"]][r["state"], r["substate"]] = r["ms"]
+    return out
+
+
+def _split_row(row: sqlite3.Row, parts: Parts) -> wire.TimeSplit:
+    for col in ("wall_ms", "active_ms"):
         assert row[col] is not None, f"session {row['op_id']} has no {col} (DM-51)"
-    return wire.TimeSplit(row["model_ms"], row["tool_ms"], row["agents_ms"], row["none_ms"])
+    acc = parts[row["op_rowid"]]
+    assert sum(acc.values()) == row["wall_ms"], f"session {row['op_id']}: time_split does not sum to wall_ms"
+    return common.wire_split(acc)
 
 
-def _block(rows: Sequence[sqlite3.Row], stretches: dict[int, list[wire.Stretch]]) -> wire.SlowBlock:
+def _block(rows: Sequence[sqlite3.Row], parts: Parts) -> wire.SlowBlock:
     money, tok = _figures(rows)
-    splits = [_split_row(r) for r in rows]
-    nones = [_none_split(r, stretches[r["op_rowid"]]) for r in rows]
+    total: dict[timesplit.Part, int] = defaultdict(int)
+    for r in rows:
+        _split_row(r, parts)  # the asserts of DM-51
+        for part, ms in parts[r["op_rowid"]].items():
+            total[part] += ms
     return wire.SlowBlock(
         n_sessions=len(rows),
         wall_ms=sum(r["wall_ms"] for r in rows),
         active_ms=sum(r["active_ms"] for r in rows),
-        time_split=wire.TimeSplit(*(sum(getattr(s, f.name) for s in splits) for f in fields(wire.TimeSplit))),
-        none_split=wire.NoneSplit(*(sum(getattr(s, f.name) for s in nones) for f in fields(wire.NoneSplit))),
+        time_split=common.wire_split(total),
         n_llm_calls=sum(r["n_llm_calls"] for r in rows),
         n_tool_calls=sum(r["n_tool_calls"] for r in rows),
         tok_total=tok,
@@ -141,7 +153,7 @@ WITH base AS (
   SELECT o.root_rowid AS r, o.tool_name AS tn, o.command_key AS ck, o.dur_ms AS d, o.time_prov AS tp,
          o.max_silence_ms AS ms
   FROM ops o
-  WHERE o.kind = 'tool_call' AND o.duplicate_of IS NULL AND o.waits_on_user IS NOT 1
+  WHERE o.kind = 'tool_call' AND o.duplicate_of IS NULL AND o.user_wait IS NULL
     AND o.root_rowid IN {_IDS}
 ), ranked AS (
   SELECT tn, ck, d, ROW_NUMBER() OVER (PARTITION BY tn, ck ORDER BY d) AS rn,
@@ -163,7 +175,7 @@ ORDER BY agg.dur DESC, agg.tn, agg.ck LIMIT :n
 
 
 def tool_groups(conn: sqlite3.Connection, roots: Sequence[int], n: int) -> list[wire.ToolGroup]:
-    """CLI-20 `tools`: owned tool_calls of `roots` (not `waits_on_user`) by (tool_name, command_key)."""
+    """CLI-20 `tools`: owned tool_calls of `roots` without `user_wait` by (tool_name, command_key)."""
     rows = conn.execute(_TOOL_GROUPS, {"ids": _json_ids(roots), "n": n}).fetchall()
     return [
         wire.ToolGroup(
@@ -187,7 +199,7 @@ SELECT t.op_id, t.tool_name, t.command_key, t.dur_ms, t.time_prov, t.max_silence
        so.op_id AS session, tu.op_id AS turn, tu.display_ix AS display_ix,
        (SELECT st.summary FROM steps st WHERE st.op_rowid = t.rowid ORDER BY st.ordinal LIMIT 1) AS summary
 FROM ops t JOIN ops so ON so.rowid = t.root_rowid LEFT JOIN ops tu ON tu.rowid = t.attr_turn_rowid
-WHERE t.kind = 'tool_call' AND t.duplicate_of IS NULL AND t.waits_on_user IS NOT 1
+WHERE t.kind = 'tool_call' AND t.duplicate_of IS NULL AND t.user_wait IS NULL
   AND t.dur_ms IS NOT NULL AND t.root_rowid IN {_IDS}
 ORDER BY t.dur_ms DESC, t.op_id LIMIT :n
 """
@@ -215,13 +227,20 @@ def _slowest_tools(conn: sqlite3.Connection, roots: Sequence[int], n: int) -> li
     return out
 
 
-def _waits_on_user(conn: sqlite3.Connection, roots: Sequence[int]) -> wire.WaitsOnUser:
-    r = conn.execute(
-        f"SELECT COUNT(*) AS n, COALESCE(SUM(dur_ms), 0) AS d FROM ops WHERE kind = 'tool_call' "
-        f"AND duplicate_of IS NULL AND waits_on_user = 1 AND root_rowid IN {_IDS}",
-        {"ids": _json_ids(roots)},
-    ).fetchone()
-    return wire.WaitsOnUser(r["n"], r["d"])
+def _user_waits(conn: sqlite3.Connection, roots: Sequence[int]) -> wire.UserWaits:
+    """CLI-20 `user_waits`: owned tool_calls with each `user_wait`, counted and summed."""
+    got = {
+        r["user_wait"]: wire.UserWaitCount(r["n"], r["d"])
+        for r in conn.execute(
+            "SELECT user_wait, COUNT(*) AS n, COALESCE(SUM(dur_ms), 0) AS d FROM ops "
+            f"WHERE kind = 'tool_call' AND duplicate_of IS NULL AND user_wait IS NOT NULL "
+            f"AND root_rowid IN {_IDS} GROUP BY user_wait",
+            {"ids": _json_ids(roots)},
+        )
+    }
+    # FALLBACK-OK: CLI-20 (a category with no call counts n 0, dur_ms 0)
+    none = wire.UserWaitCount(0, 0)
+    return wire.UserWaits(ask=got.get("ask", none), permission=got.get("permission", none))
 
 
 def _display_ids(conn: sqlite3.Connection, turn_ids: Sequence[str]) -> dict[str, str | None]:
@@ -233,7 +252,7 @@ def _display_ids(conn: sqlite3.Connection, turn_ids: Sequence[str]) -> dict[str,
 
 
 def _longest_wait(stretches: Sequence[wire.Stretch]) -> wire.Stretch | None:
-    waits = [s for s in stretches if s.state == "none" and s.dur_ms >= WAIT_FLOOR_MS]
+    waits = [s for s in stretches if s.state != "agents" and s.dur_ms >= WAIT_FLOOR_MS]
     return max(waits, key=lambda s: (s.dur_ms, -s.start_ms), default=None)
 
 
@@ -254,12 +273,13 @@ def project_slow(scope: Scope, compare: bool = True, n: int = 10, db: Db = None)
         roots = in_scope_roots(conn, scope)
         rows = conn.execute(_SESSION_ROWS, {"ids": _json_ids(roots)}).fetchall()
         stretches = _stretches(conn, roots)
-        current = _block(rows, stretches)
+        parts = _session_parts(conn, roots)
+        current = _block(rows, parts)
         previous = None
         if compare and scope.from_day is not None:
             prev_roots = in_scope_roots(conn, _previous_scope(scope))
             prev_rows = conn.execute(_SESSION_ROWS, {"ids": _json_ids(prev_roots)}).fetchall()
-            previous = _block(prev_rows, _stretches(conn, prev_roots))
+            previous = _block(prev_rows, _session_parts(conn, prev_roots))
         biggest = sorted(rows, key=lambda r: (-r["wall_ms"], r["op_id"]))[:n]
         sessions = []
         for r in biggest:
@@ -274,7 +294,7 @@ def project_slow(scope: Scope, compare: bool = True, n: int = 10, db: Db = None)
                     start_ms=r["first_ms"],
                     wall_ms=r["wall_ms"],
                     active_ms=r["active_ms"],
-                    time_split=_split_row(r),
+                    time_split=_split_row(r, parts),
                     cost=money,
                     tok_total=tok,
                     longest_wait=_longest_wait(stretches[r["op_rowid"]]),
@@ -301,7 +321,7 @@ def project_slow(scope: Scope, compare: bool = True, n: int = 10, db: Db = None)
             sessions=sessions,
             tools=tool_groups(conn, roots, n),
             slowest_tools=_slowest_tools(conn, roots, n),
-            waits_on_user=_waits_on_user(conn, roots),
+            user_waits=_user_waits(conn, roots),
             waits=waits,
             models=_models(conn, roots),
         )
@@ -396,7 +416,6 @@ def session_breakdown(session: str, n: int = 10, db: Db = None) -> wire.SessionB
                 cost=common.money(info.cost.cost_usd, info.cost.cost_lower_bound, info.cost.n_unpriced),
                 tok_total=info.tok_total,
                 time_split=info.time_split,
-                none_split=info.none_split,
             ),
             turns_by_time=top_turns("wall_ms"),
             turns_by_tokens=top_turns("tok_total"),

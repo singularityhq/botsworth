@@ -1,82 +1,200 @@
-"""CONTRACT: pure time-split math for sessions and main turns (DM-40, DM-50..DM-53).
+"""CONTRACT: pure time-split math for sessions and main turns (DM-40, DM-50..DM-53; D54).
 
-Intervals are `(start_ms, end_ms)` with `end_ms >= start_ms`. `turns` are the main turns by start:
-`(rowid, start_ms, end_ms, turn_kind)`.
+Intervals are `(start_ms, end_ms)` with `end_ms >= start_ms`. A `TurnFact` is one main turn as the rules
+need it. `waits` maps `(thread, substate)` to the intervals of tool_calls with that `user_wait`: `thread` is
+`main` or `agent`, `substate` is `ask` or `permission`. `main_tool` and `agent_leaf` hold only calls with
+`user_wait` NULL.
 
 GUARANTEES:
-- DM-50: inside the wall (the union of `wall_segments`) each instant has one state by priority:
-  `model` (a main llm_call covers it) > `tool` (a main tool_call, async included) > `agents` (an agent
-  leaf covers it) > `none`. Intervals outside the wall never count.
-- DM-51: `Split.model_ms/tool_ms/agents_ms/none_ms` sum to the wall. A turn's window is
-  `[start, next main turn start)`, the last one ends at the wall end; `Split.before_first` is the part of the
-  wall before the first turn. Per state, `before_first` plus all turn windows equals the session figure.
-- DM-53: `TurnFigures.span_*` count the states inside the turn's own `[start_ms, end_ms]` (not widened over
-  agents that end later). `span_wall_ms = end - start`. The four span states always sum to it. D48: time
-  in the span outside the wall (a resume gap between segments) counts as `span_none_ms`. DM-51 figures and
-  the per-turn windows are unchanged, and DM-52 stretches never include a resume gap.
-- DM-52: `Split.stretches` holds every maximal run of state `none` or `agents`, cut at main-turn starts,
-  each part kept when >= `MIN_STRETCH_MS`. `turn_rowid` = the turn whose window holds the part start (None
-  before the first turn). `next_turn_kind` = kind of the turn starting exactly at the part end, else None.
+- DM-50: `runs()` gives each instant inside the wall (the union of `wall_segments`) one
+  `(state, substate)`, by the first rule that matches: `model` (a main llm_call) > `tool` (a main
+  tool_call) > `agents` (an agent leaf) > `you`/`ask` (main call) > `you`/`permission` (main call) >
+  `you`/`ask` (agent call) > `you`/`permission` (agent call). An instant no rule covers belongs to
+  an idle run, cut at every main-turn start and labelled by the turn that starts where the run ends
+  (lowest `seq` at a shared start): no numbered turn starts at or before the run's start ->
+  `none`/`before_first`; `human` turn with a SES-17 label -> `limit`; other `human` turn ->
+  `you`/`reply`; `message` turn with origin `peer`, `coordinator`, `teammate` or `agent` ->
+  `agentmsg`; else `none`/`none`. Adjacent runs with equal (state, substate) are joined. Intervals
+  outside the wall never count.
+- DM-51: `Split.session` sums to the wall. A turn's window is `[start, next main turn start)`, the last
+  one ends at the wall end; the turn with the lowest `seq` at a shared start holds the window,
+  the others get none.
+  `Split.before_first` is the part of the wall before the first turn. Per (state, substate), `before_first`
+  plus all windows equals `Split.session`.
+- DM-53: `Split.spans[rowid]` counts the runs inside the turn's own `[start_ms, end_ms]`, plus the time of the
+  span outside the wall (a resume gap, D48) as `none`/`none`; the parts sum to `end_ms - start_ms`.
+  `clip()` gives the same figures for any range, so a range equal to the span gives the stored span.
+- DM-52: `Split.stretches` holds every run of at least `MIN_STRETCH_MS` that no main-transcript call covers,
+  cut at main-turn starts (each part kept when long enough); runs of `model`, `tool` and of a user-wait main
+  call give none. `turn_rowid` = the turn whose window holds the part start (None before the first turn).
 - DM-40: `max_silence` = longest sub-interval of `[start, end]` with no timestamp from `ts_sorted`; the
   call's own start and end count as timestamps.
-EXPECTS: no inverted interval; `turns` sorted by start; `ts_sorted` ascending. Turns that share a start: the
-last of them holds the window, the stretches and `next_turn_kind`; the earlier ones get an empty window.
+EXPECTS: no inverted interval or turn; every `human` turn has a label; `turns` have distinct rowids;
+  `ts_sorted` ascending.
 FAILURE BEHAVIOR: a violated EXPECTS raises AssertionError.
-DOES NOT: read or write the store; decide which ops are main, agent or tool (the caller does); store
-`ts_list` (DM-13); label a stretch "waiting for you" (readers use `next_turn_kind`).
+DOES NOT: read or write the store; decide which ops are main, agent or tool, or what their `user_wait` is (the
+  caller does); store `ts_list` (DM-13).
 """
 
 from __future__ import annotations
 
+import json
 from bisect import bisect_left, bisect_right
-from collections.abc import Iterable, Sequence
-from dataclasses import dataclass, field
-from typing import NamedTuple
+from collections import defaultdict
+from collections.abc import Iterable, Mapping, Sequence
+from typing import Any, NamedTuple
 
 from botsworth.store.intervals import Interval, merge
 
 MIN_STRETCH_MS = 60_000
-STATES = ("model", "tool", "agents", "none")
+# SES-15 order, then the substate order of DM-50: the order of every `parts` list on the wire
+PARTS: tuple[tuple[str, str | None], ...] = (
+    ("model", None),
+    ("tool", None),
+    ("agents", None),
+    ("you", "ask"),
+    ("you", "permission"),
+    ("you", "reply"),
+    ("agentmsg", None),
+    ("limit", None),
+    ("none", "before_first"),
+    ("none", "none"),
+)
+LIMIT_PREFIXES = (  # SES-17
+    "i hit my usage limit",
+    "please continue from where you left off",
+    "continue from where you left off",
+)
+AGENT_ORIGINS = frozenset({"peer", "coordinator", "teammate", "agent"})  # DM-50 rule 5 `agentmsg`
+# rule 4: the order in which the user-wait calls cover an instant
+_WAIT_ORDER = (("main", "ask"), ("main", "permission"), ("agent", "ask"), ("agent", "permission"))
+
+Part = tuple[str, str | None]
+Waits = Mapping[tuple[str, str], Iterable[Interval]]
+
+
+class TurnFact(NamedTuple):
+    """One main turn with a start. `end_ms` is None for a turn without one (no span); `seq` is
+    `COALESCE(ops.seq, ops.pre)`; `numbered` = the turn has a `display_ix`."""
+
+    rowid: int
+    start_ms: int
+    end_ms: int | None
+    seq: int
+    kind: str | None
+    origin: str | None
+    label: str | None
+    numbered: bool
+
+
+class Run(NamedTuple):
+    start_ms: int
+    end_ms: int
+    state: str
+    substate: str | None
 
 
 class Stretch(NamedTuple):
     turn_rowid: int | None
     state: str
+    substate: str | None
     start_ms: int
     end_ms: int
-    next_turn_kind: str | None
 
 
-@dataclass
-class Figures:
-    model_ms: int = 0
-    tool_ms: int = 0
-    agents_ms: int = 0
-    none_ms: int = 0
-
-    def add(self, state: str, ms: int) -> None:
-        setattr(self, f"{state}_ms", getattr(self, f"{state}_ms") + ms)
-
-
-@dataclass
-class TurnFigures:
-    window: Figures = field(default_factory=Figures)
-    span_wall_ms: int = 0
-    span_model_ms: int = 0
-    span_tool_ms: int = 0
-    span_agents_ms: int = 0
-    span_none_ms: int = 0
-
-
-@dataclass
-class Split:
-    model_ms: int
-    tool_ms: int
-    agents_ms: int
-    none_ms: int
-    before_first: Figures
-    turns: dict[int, TurnFigures]
+class Split(NamedTuple):
+    session: dict[Part, int]
+    before_first: dict[Part, int]
+    windows: dict[int, dict[Part, int]]
+    spans: dict[int, dict[Part, int]]
     stretches: list[Stretch]
+
+
+class Inputs(NamedTuple):
+    """The arguments of `runs()` and `split()` after the wall."""
+
+    wall: list[Interval]
+    main_llm: list[Interval]
+    main_tool: list[Interval]
+    agent_leaf: list[Interval]
+    waits: dict[tuple[str, str], list[Interval]]
+    turns: list[TurnFact]
+
+
+def collect(rows: Iterable[Mapping[str, Any]]) -> Inputs:
+    """The inputs of the split from the ops of one session. Load (folded rows) and the query layer (stored
+    rows) both call this, so they feed `runs()` and `split()` the same facts. A row has `kind`, `start_ms`,
+    `end_ms`, `agent_id`, `duplicate_of`, `n_inverted`, `segments` (a list, or its JSON text), `user_wait`,
+    and for a turn `rowid`, `seq`, `pre`, `turn_kind`, `turn_origin`, `label`, `display_ix`.
+
+    The wall is the union of the containers' segments (a container without segments counts as its own
+    `[start_ms, end_ms]`) and the intervals of the non-duplicate (owned, DM-45), non-inverted leaves.
+    A main turn without a start is no fact (it starts no run)."""
+    wall: list[Interval] = []
+    llm: list[Interval] = []
+    tool: list[Interval] = []
+    agents: list[Interval] = []
+    waits: dict[tuple[str, str], list[Interval]] = defaultdict(list)
+    turns: list[TurnFact] = []
+    for r in rows:
+        start, end = r["start_ms"], r["end_ms"]
+        if r["kind"] not in ("llm_call", "tool_call"):
+            segs = r["segments"]
+            if isinstance(segs, str):
+                segs = json.loads(segs)
+            if segs:
+                wall += [(a, b) for a, b in segs if b >= a]
+            elif start is not None and end is not None and end >= start:
+                wall.append((start, end))
+            if r["kind"] == "turn" and r["agent_id"] is None and start is not None:
+                kind, display_ix = r["turn_kind"], r["display_ix"]
+                assert (kind in ("human", "message")) == (display_ix is not None), (
+                    f"main turn {r['rowid']}: display_ix does not match kind {kind!r} (DM-24)"
+                )
+                assert kind != "human" or r["label"] is not None, (
+                    f"human turn {r['rowid']} has no label (DM-24)"
+                )
+                seq = r["pre"] if r["seq"] is None else r["seq"]
+                turns.append(
+                    TurnFact(
+                        r["rowid"],
+                        start,
+                        end,
+                        seq,
+                        kind,
+                        r["turn_origin"],
+                        r["label"],
+                        display_ix is not None,
+                    )
+                )
+            continue
+        if r["duplicate_of"] is not None or r["n_inverted"] or start is None or end is None:
+            continue
+        iv = (start, end)
+        wall.append(iv)
+        main = r["agent_id"] is None
+        if r["user_wait"] is not None:
+            assert r["user_wait"] in ("ask", "permission"), f"unknown user_wait {r['user_wait']!r}"
+            waits["main" if main else "agent", r["user_wait"]].append(iv)
+        elif not main:
+            agents.append(iv)
+        elif r["kind"] == "llm_call":
+            llm.append(iv)
+        else:
+            tool.append(iv)
+    turns.sort(key=lambda t: (t.start_ms, t.seq))
+    return Inputs(merge(wall), merge(llm), merge(tool), merge(agents), dict(waits), turns)
+
+
+def is_limit_text(label: str) -> bool:
+    """SES-17: the text, trimmed and lower-cased, starts with a usage-limit prefix."""
+    return label.strip().lower().startswith(LIMIT_PREFIXES)
+
+
+def ordered(acc: Mapping[Part, int]) -> list[tuple[str, str | None, int]]:
+    """`(state, substate, ms)` of the parts above 0 ms, in wire order."""
+    assert set(acc) <= set(PARTS), f"unknown part in {sorted(map(str, acc))}"
+    return [(s, sub, acc[s, sub]) for s, sub in PARTS if acc.get((s, sub), 0) > 0]
 
 
 def _covers(merged: list[Interval], starts: list[int], t: int) -> bool:
@@ -85,27 +203,130 @@ def _covers(merged: list[Interval], starts: list[int], t: int) -> bool:
     return i >= 0 and merged[i][0] <= t < merged[i][1]
 
 
-def _runs(
-    wall: list[Interval], llm: list[Interval], tool: list[Interval], agents: list[Interval]
-) -> list[tuple[int, int, str]]:
-    """Elementary state runs inside the wall, adjacent equal states joined."""
-    sets = [(m, [a for a, _ in m]) for m in (llm, tool, agents)]
+def _idle_label(first_numbered: int | None, start: int, nxt: TurnFact | None) -> tuple[str, str | None]:
+    if first_numbered is None or start < first_numbered:
+        return "none", "before_first"
+    if nxt is None:
+        return "none", "none"
+    if nxt.kind == "human":
+        assert nxt.label is not None  # checked in collect()
+        return ("limit", None) if is_limit_text(nxt.label) else ("you", "reply")
+    if nxt.kind == "message" and nxt.origin in AGENT_ORIGINS:
+        return "agentmsg", None
+    return "none", "none"
+
+
+def _segments(
+    wall: list[Interval],
+    main_llm: Iterable[Interval],
+    main_tool: Iterable[Interval],
+    agent_leaf: Iterable[Interval],
+    waits: Waits,
+    turns: Sequence[TurnFact],
+) -> list[tuple[int, int, str, str | None, bool]]:
+    """Labelled runs `(start, end, state, substate, main_call)`; `main_call` is True for a user-wait
+    covered by a main-transcript call. Adjacent runs are joined only when all four labels are equal."""
+    sets: list[tuple[list[Interval], list[int], str, str | None, bool]] = []
+    rules = [
+        (main_llm, "model", None, False),
+        (main_tool, "tool", None, False),
+        (agent_leaf, "agents", None, False),
+        # FALLBACK-OK: DM-50 (a wait category with no call covers nothing)
+        *((waits.get(key, ()), "you", key[1], key[0] == "main") for key in _WAIT_ORDER),
+    ]
+    for ivs, state, sub, main in rules:
+        m = merge(ivs)
+        sets.append((m, [a for a, _ in m], state, sub, main))
     wall_starts = [a for a, _ in wall]
-    bounds = sorted({t for m in (wall, llm, tool, agents) for a, b in m for t in (a, b)})
-    out: list[tuple[int, int, str]] = []
+    turn_at: dict[int, TurnFact] = {}
+    for t in turns:
+        cur = turn_at.get(t.start_ms)
+        if cur is None or t.seq < cur.seq:
+            turn_at[t.start_ms] = t
+    numbered = [t.start_ms for t in turns if t.numbered]
+    first_numbered = min(numbered, default=None)
+    bounds = sorted({t for m in (wall, *(s[0] for s in sets)) for a, b in m for t in (a, b)} | set(turn_at))
+    out: list[tuple[int, int, str, str | None, bool]] = []
+    idle: list[int] | None = None  # [start, end] of the open idle run
+
+    def close_idle() -> None:
+        nonlocal idle
+        if idle is None:
+            return
+        state, sub = _idle_label(first_numbered, idle[0], turn_at.get(idle[1]))
+        _append(out, (idle[0], idle[1], state, sub, False))
+        idle = None
+
     for a, b in zip(bounds, bounds[1:], strict=False):
         if not _covers(wall, wall_starts, a):
+            close_idle()
             continue
-        state = "none"
-        for (m, s), name in zip(sets, ("model", "tool", "agents"), strict=True):
-            if _covers(m, s, a):
-                state = name
-                break
-        if out and out[-1][2] == state and out[-1][1] == a:
-            out[-1] = (out[-1][0], b, state)
-        else:
-            out.append((a, b, state))
+        hit = next(((s[2], s[3], s[4]) for s in sets if _covers(s[0], s[1], a)), None)
+        if hit is None:
+            if idle is not None and idle[1] == a and a not in turn_at:
+                idle[1] = b
+            else:
+                close_idle()
+                idle = [a, b]
+            continue
+        close_idle()
+        _append(out, (a, b, *hit))
+    close_idle()
     return out
+
+
+def _append(out: list, seg: tuple[int, int, str, str | None, bool]) -> None:
+    if out and out[-1][1] == seg[0] and out[-1][2:] == seg[2:]:
+        out[-1] = (out[-1][0], seg[1], *seg[2:])
+    else:
+        out.append(seg)
+
+
+def runs(
+    wall_segments: Iterable[Interval],
+    main_llm: Iterable[Interval],
+    main_tool: Iterable[Interval],
+    agent_leaf: Iterable[Interval],
+    waits: Waits,
+    turns: Sequence[TurnFact],
+) -> list[Run]:
+    """DM-50: the (state, substate) runs inside the wall, adjacent equal runs joined."""
+    return _join(_segments(merge(wall_segments), main_llm, main_tool, agent_leaf, waits, turns))
+
+
+def _join(segs: Iterable[tuple[int, int, str, str | None, bool]]) -> list[Run]:
+    out: list[Run] = []
+    for a, b, state, sub, _ in segs:
+        if out and out[-1].end_ms == a and out[-1].state == state and out[-1].substate == sub:
+            out[-1] = Run(out[-1].start_ms, b, state, sub)
+        else:
+            out.append(Run(a, b, state, sub))
+    return out
+
+
+def clip(
+    rs: Sequence[Run], lo: int, hi: int, fill_outside: bool = False, ends: Sequence[int] | None = None
+) -> dict[Part, int]:
+    """Time per (state, substate) of the runs inside `[lo, hi)`. With `fill_outside`, the part of the range
+    that no run covers (outside the wall, D48) counts as `none`/`none`, so the parts sum to `hi - lo`.
+    `ends` = the runs' end times, for a caller that clips many ranges."""
+    acc: dict[Part, int] = {}
+    i = bisect_right([r.end_ms for r in rs] if ends is None else ends, lo)  # the first run ending after lo
+    covered = 0
+    while i < len(rs) and rs[i].start_ms < hi:
+        r = rs[i]
+        ms = min(r.end_ms, hi) - max(r.start_ms, lo)
+        if ms > 0:  # an empty range inside a run has no time
+            acc[r.state, r.substate] = acc.get((r.state, r.substate), 0) + ms
+            covered += ms
+        i += 1
+    if fill_outside and hi - lo > covered:
+        acc["none", "none"] = acc.get(("none", "none"), 0) + hi - lo - covered
+    return acc
+
+
+def _add(acc: dict[Part, int], part: Part, ms: int) -> None:
+    acc[part] = acc.get(part, 0) + ms
 
 
 def split(
@@ -113,48 +334,50 @@ def split(
     main_llm: Iterable[Interval],
     main_tool: Iterable[Interval],
     agent_leaf: Iterable[Interval],
-    turns: Sequence[tuple[int, int, int, str | None]],
+    waits: Waits,
+    turns: Sequence[TurnFact],
 ) -> Split:
     wall = merge(wall_segments)
-    runs = _runs(wall, merge(main_llm), merge(main_tool), merge(agent_leaf))
-    starts = [t[1] for t in turns]
-    assert starts == sorted(starts), "turns must be sorted by start"
-    for _, s, e, _ in turns:
-        assert e >= s, f"inverted turn {(s, e)}"
+    for t in turns:
+        assert t.end_ms is None or t.end_ms >= t.start_ms, f"inverted turn {t.rowid}"
+    assert len({t.rowid for t in turns}) == len(turns), "duplicate turn rowid"
+    segs = _segments(wall, main_llm, main_tool, agent_leaf, waits, turns)
+    joined = _join(segs)
 
-    total = Figures()
-    before = Figures()
-    figs = {t[0]: TurnFigures() for t in turns}
-    for a, b, state in runs:
-        total.add(state, b - a)
-        # cut the run at every turn start; each piece belongs to one window
-        cuts = [a, *dict.fromkeys(starts[bisect_right(starts, a) : bisect_left(starts, b)]), b]
-        for x, y in zip(cuts, cuts[1:], strict=False):
-            i = bisect_right(starts, x) - 1
-            (before if i < 0 else figs[turns[i][0]].window).add(state, y - x)
-    for rowid, s, e, _ in turns:
-        f = figs[rowid]
-        f.span_wall_ms = e - s
-        for a, b, state in runs:
-            ov = min(b, e) - max(a, s)
-            if ov > 0 and state != "none":
-                setattr(f, f"span_{state}_ms", getattr(f, f"span_{state}_ms") + ov)
-        # D48: `none` is the rest of the span, so wall `none` and a resume gap outside the wall both land here
-        f.span_none_ms = f.span_wall_ms - f.span_model_ms - f.span_tool_ms - f.span_agents_ms
+    holders: dict[int, TurnFact] = {}  # DM-51: the lowest seq at a shared start holds the window
+    for t in turns:
+        cur = holders.get(t.start_ms)
+        if cur is None or t.seq < cur.seq:
+            holders[t.start_ms] = t
+    starts = sorted(holders)
+
+    session: dict[Part, int] = {}
+    before: dict[Part, int] = {}
+    windows: dict[int, dict[Part, int]] = {h.rowid: {} for h in holders.values()}
+
+    def cut(a: int, b: int) -> Iterable[tuple[int, int, int]]:
+        """`(x, y, i)`: the pieces of [a, b) between turn starts; `i` indexes `starts` (-1: before all)."""
+        edges = [a, *starts[bisect_right(starts, a) : bisect_left(starts, b)], b]
+        for x, y in zip(edges, edges[1:], strict=False):
+            yield x, y, bisect_right(starts, x) - 1
+
+    for r in joined:
+        for x, y, i in cut(r.start_ms, r.end_ms):
+            _add(session, (r.state, r.substate), y - x)
+            _add(before if i < 0 else windows[holders[starts[i]].rowid], (r.state, r.substate), y - x)
+
+    spans = {
+        t.rowid: clip(joined, t.start_ms, t.end_ms, fill_outside=True) for t in turns if t.end_ms is not None
+    }
 
     stretches: list[Stretch] = []
-    kind_at = {s: k for _, s, _, k in turns}
-    for a, b, state in runs:
-        if state not in ("none", "agents"):
+    for a, b, state, sub, main in segs:  # joined on all four labels, so a main call's wait stays apart
+        if state in ("model", "tool") or main:
             continue
-        cuts = [a, *dict.fromkeys(starts[bisect_right(starts, a) : bisect_left(starts, b)]), b]
-        for x, y in zip(cuts, cuts[1:], strict=False):
-            if y - x < MIN_STRETCH_MS:
-                continue
-            i = bisect_right(starts, x) - 1
-            # FALLBACK-OK: DM-52 (next_turn_kind is NULL when no main turn starts at end_ms)
-            stretches.append(Stretch(None if i < 0 else turns[i][0], state, x, y, kind_at.get(y)))
-    return Split(total.model_ms, total.tool_ms, total.agents_ms, total.none_ms, before, figs, stretches)
+        for x, y, i in cut(a, b):
+            if y - x >= MIN_STRETCH_MS:
+                stretches.append(Stretch(None if i < 0 else holders[starts[i]].rowid, state, sub, x, y))
+    return Split(session, before, windows, spans, stretches)
 
 
 def max_silence(tool_calls: Iterable[tuple[str, int, int]], ts_sorted: Sequence[int]) -> dict[str, int]:

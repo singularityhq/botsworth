@@ -124,7 +124,7 @@ export function ErrorFlag({ text }: { text: string }) {
   )
 }
 
-/** TRN-32: an ink3 `hourglass` flag ("no records 6m", "waits on you"). */
+/** TRN-32: an ink3 `hourglass` flag ("no records 6m", "asked you"). */
 export function QuietFlag({ text }: { text: string }) {
   return (
     <span className="inline-flex items-center gap-1 whitespace-nowrap text-ink3">

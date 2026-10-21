@@ -38,16 +38,33 @@
     "wall_ms": 525000,
     "active_ms": 165000,
     "time_split": {
-      "model_ms": 120000,
-      "tool_ms": 45000,
-      "agents_ms": 300000,
-      "none_ms": 60000
-    },
-    "none_split": {
-      "you": 30000,
-      "agentmsg": 0,
-      "limit": 30000,
-      "none": 0
+      "parts": [
+        {
+          "state": "model",
+          "substate": null,
+          "ms": 120000
+        },
+        {
+          "state": "tool",
+          "substate": null,
+          "ms": 45000
+        },
+        {
+          "state": "agents",
+          "substate": null,
+          "ms": 300000
+        },
+        {
+          "state": "you",
+          "substate": "reply",
+          "ms": 30000
+        },
+        {
+          "state": "limit",
+          "substate": null,
+          "ms": 30000
+        }
+      ]
     },
     "longest": {
       "model": {

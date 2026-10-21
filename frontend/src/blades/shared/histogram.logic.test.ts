@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { Histogram, Stretch } from '../../api/types'
+import type { Histogram, Stretch, TimeSplit } from '../../api/types'
 import { parseUrl, serializeUrl } from '../../state/url'
 import {
   axisLabels, barHeight, rangeCost, binIndexAt, binTip, familyTotals, binColumns, brushRange, dominantState, familyColumns, histogramLabel, labelStepMs, laneSegments, makeAxis,
@@ -12,7 +12,7 @@ const TZ = 'Asia/Kolkata'
 
 function stretch(startMin: number, durMin: number, o: Partial<Stretch> = {}): Stretch {
   return {
-    start_ms: T0 + startMin * MIN, end_ms: T0 + (startMin + durMin) * MIN, dur_ms: durMin * MIN, state: 'none', label: 'you',
+    start_ms: T0 + startMin * MIN, end_ms: T0 + (startMin + durMin) * MIN, dur_ms: durMin * MIN, state: 'you', substate: 'reply',
     turn: null, next_turn: null, running: [], ...o,
   }
 }
@@ -27,7 +27,7 @@ describe('waitFolds (SES-29)', () => {
   })
 
   it('never folds an agents-only stretch: something ran', () => {
-    expect(waitFolds([stretch(0, 60, { state: 'agents', label: 'agents' })], T0, T0 + 100 * MIN, 10 * MIN)).toEqual([])
+    expect(waitFolds([stretch(0, 60, { state: 'agents', substate: null })], T0, T0 + 100 * MIN, 10 * MIN)).toEqual([])
   })
 
   it('clips a wait to the axis', () => {
@@ -173,12 +173,17 @@ describe('brushRange (SES-30, TRN-24)', () => {
   })
 })
 
+/** A time split of model, tool, agents and nothing-running parts; zero parts are left out. */
+const sp = (model: number, tool: number, agents: number, none: number): TimeSplit => ({
+  parts: ([['model', model], ['tool', tool], ['agents', agents], ['none', none]] as const).filter(([, ms]) => ms > 0).map(([state, ms]) => ({ state, substate: state === 'none' ? 'none' : null, ms })),
+})
+
 function hist(o: Partial<Histogram> = {}): Histogram {
   return {
     freshness: {} as Histogram['freshness'], start_ms: T0, bin_ms: 10 * MIN, tail_from_ms: null,
     bins: [
-      { cost_usd: 1, main_cost_usd: 0, tok_total: 100, state_ms: { model_ms: 5, tool_ms: 3, agents_ms: 0, none_ms: 0 } },
-      { cost_usd: 2, main_cost_usd: 0, tok_total: 200, state_ms: { model_ms: 1, tool_ms: 1, agents_ms: 0, none_ms: 8 } },
+      { cost_usd: 1, main_cost_usd: 0, tok_total: 100, state_ms: sp(5, 3, 0, 0) },
+      { cost_usd: 2, main_cost_usd: 0, tok_total: 200, state_ms: sp(1, 1, 0, 8) },
     ],
     marks: { turn_starts: [], skill_loads: [] }, stretches: [], ...o,
   }
@@ -186,14 +191,19 @@ function hist(o: Partial<Histogram> = {}): Histogram {
 
 describe('state lane (SES-29)', () => {
   it('colours a bin by the state with the most time; ties go model, tool, agents, none', () => {
-    expect(dominantState({ model_ms: 5, tool_ms: 3, agents_ms: 0, none_ms: 0 })).toBe('model')
-    expect(dominantState({ model_ms: 1, tool_ms: 1, agents_ms: 0, none_ms: 8 })).toBe('none')
-    expect(dominantState({ model_ms: 2, tool_ms: 2, agents_ms: 2, none_ms: 0 })).toBe('model')
-    expect(dominantState({ model_ms: 0, tool_ms: 0, agents_ms: 0, none_ms: 0 })).toBeNull()
+    expect(dominantState(sp(5, 3, 0, 0))).toBe('model')
+    expect(dominantState(sp(1, 1, 0, 8))).toBe('none')
+    expect(dominantState(sp(2, 2, 2, 0))).toBe('model')
+    expect(dominantState(sp(0, 0, 0, 0))).toBeNull()
+  })
+
+  it('sums the substates of a state: a bin of 3 ask + 4 reply `you` beats 6 of model (SES-15, SES-29)', () => {
+    const split: TimeSplit = { parts: [{ state: 'model', substate: null, ms: 6 }, { state: 'you', substate: 'ask', ms: 3 }, { state: 'you', substate: 'reply', ms: 4 }] }
+    expect(dominantState(split)).toBe('you')
   })
 
   it('draws a stretch over its bins in the stretch label state, so none becomes limit', () => {
-    const h = hist({ stretches: [stretch(10, 10, { label: 'limit' })] })
+    const h = hist({ stretches: [stretch(10, 10, { state: 'limit', substate: null })] })
     const axis = makeAxis(T0, T0 + 20 * MIN, 200, [], 24)
     const segs = laneSegments(h, axis)
     expect(segs[0]).toEqual({ state: 'model', x0: 0, x1: 100 })
@@ -202,7 +212,7 @@ describe('state lane (SES-29)', () => {
   })
 
   it('merges adjacent bins of one state', () => {
-    const bin = { cost_usd: 0, main_cost_usd: 0, tok_total: 0, state_ms: { model_ms: 1, tool_ms: 0, agents_ms: 0, none_ms: 0 } }
+    const bin = { cost_usd: 0, main_cost_usd: 0, tok_total: 0, state_ms: sp(1, 0, 0, 0) }
     const h = hist({ bins: [bin, bin, bin] })
     const axis = makeAxis(T0, T0 + 30 * MIN, 300, [], 24)
     expect(laneSegments(h, axis)).toEqual([{ state: 'model', x0: 0, x1: 300 }])
@@ -222,7 +232,7 @@ describe('by-model stack (SES-22, TRN-22)', () => {
 
   it('groups model ids by family into columns and picks cost or tokens', () => {
     const h = hist({
-      bins: [{ cost_usd: 3, main_cost_usd: 0, tok_total: 30, state_ms: { model_ms: 1, tool_ms: 0, agents_ms: 0, none_ms: 0 }, by_model: { 'claude-opus-5-5': [2, 20], 'claude-sonnet-5-5': [1, 10] } }],
+      bins: [{ cost_usd: 3, main_cost_usd: 0, tok_total: 30, state_ms: sp(1, 0, 0, 0), by_model: { 'claude-opus-5-5': [2, 20], 'claude-sonnet-5-5': [1, 10] } }],
     })
     const axis = makeAxis(T0, T0 + 10 * MIN, 3, [], 24)
     const cost = familyColumns(h, axis, 'cost')
@@ -243,7 +253,7 @@ describe('histogramLabel (aria-label states range and totals)', () => {
 
 describe('hover (TRN-22)', () => {
   const h = hist({
-    bins: [{ cost_usd: 3, main_cost_usd: 0, tok_total: 30, state_ms: { model_ms: 1, tool_ms: 0, agents_ms: 0, none_ms: 0 }, by_model: { 'claude-opus-5-5': [2, 20], 'claude-sonnet-5-5': [1, 10] } }, { cost_usd: 0, main_cost_usd: 0, tok_total: 0, state_ms: { model_ms: 0, tool_ms: 0, agents_ms: 0, none_ms: 0 } }],
+    bins: [{ cost_usd: 3, main_cost_usd: 0, tok_total: 30, state_ms: sp(1, 0, 0, 0), by_model: { 'claude-opus-5-5': [2, 20], 'claude-sonnet-5-5': [1, 10] } }, { cost_usd: 0, main_cost_usd: 0, tok_total: 0, state_ms: sp(0, 0, 0, 0) }],
   })
   const axis = makeAxis(T0, T0 + 20 * MIN, 200, [], 24)
 
@@ -263,7 +273,7 @@ describe('hover (TRN-22)', () => {
 
 describe('familyTotals (TRN-22 legend)', () => {
   it('lists each family present with its total for the measure, in stack order', () => {
-    const bin = (o: Record<string, [number, number]>) => ({ cost_usd: 0, main_cost_usd: 0, tok_total: 0, state_ms: { model_ms: 0, tool_ms: 0, agents_ms: 0, none_ms: 0 }, by_model: o })
+    const bin = (o: Record<string, [number, number]>) => ({ cost_usd: 0, main_cost_usd: 0, tok_total: 0, state_ms: sp(0, 0, 0, 0), by_model: o })
     const h = { bins: [bin({ 'claude-sonnet-5-5': [1, 10] }), bin({ 'claude-opus-5-5': [4, 40], 'claude-sonnet-5-5': [2, 20] })] }
     expect(familyTotals(h, 'cost')).toEqual([{ family: 'opus', value: 4 }, { family: 'sonnet', value: 3 }])
     expect(familyTotals(h, 'tokens')).toEqual([{ family: 'opus', value: 40 }, { family: 'sonnet', value: 30 }])
@@ -271,7 +281,7 @@ describe('familyTotals (TRN-22 legend)', () => {
 })
 
 describe('rangeCost (SES-13, D47: the clock rule in a brushed range)', () => {
-  const bin = (cost: number, main: number) => ({ cost_usd: cost, main_cost_usd: main, tok_total: 0, state_ms: { model_ms: 0, tool_ms: 0, agents_ms: 0, none_ms: 0 } })
+  const bin = (cost: number, main: number) => ({ cost_usd: cost, main_cost_usd: main, tok_total: 0, state_ms: sp(0, 0, 0, 0) })
   const h = { start_ms: T0, bin_ms: 10 * MIN, bins: [bin(1, 1), bin(4, 1), bin(2, 0.5), bin(8, 8)] }
 
   it('sums the bins that start inside the range: main from main_cost_usd, agents is the rest', () => {

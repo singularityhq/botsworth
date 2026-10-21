@@ -1,7 +1,7 @@
 import type { AgentRow, AnyRow, CallRow, GapRow, ToolRow } from '../../api/types'
 import { fmt } from '../../lib/format'
 import type { IconName } from '../../ui/glyphs'
-import { GAP_GLYPH, GAP_LABEL, gapReason } from '../shared/states'
+import { GAP_GLYPH, GAP_LABEL, gapKind, gapReason } from '../shared/states'
 
 /**
  * The names and sub-texts of the turn blade's rows (TRN-31 to TRN-34). Pure: wire rows in, text out. The row components draw them and the
@@ -118,12 +118,11 @@ export function failureText(t: ToolRow): string | null {
   return null
 }
 
-/** TRN-32: `no records <duration>` from a silence of 5 min or more; `waits on you` for a tool that waits on the user (DM-40). */
+/** TRN-32: `no records <duration>` from a silence of 5 min or more; the user-wait flags (`asked you`, `waited for your approval`) are in shared/states.ts (DM-40). */
 export const SILENCE_FLAG_MS = 300_000
 export function silenceText(t: Pick<ToolRow, 'max_silence_ms'>): string | null {
   return t.max_silence_ms !== null && t.max_silence_ms >= SILENCE_FLAG_MS ? `no records ${fmt.dur(t.max_silence_ms)}` : null
 }
-export const WAITS_TEXT = 'waits on you'
 
 /** TRN-32: a derived duration is prefixed by `≈` (tooltip "End taken from the next record"). */
 export const DERIVED_TIP = 'End taken from the next record'
@@ -168,10 +167,10 @@ export interface GapName {
 
 export function gapName(g: GapRow, firstTurnIsHuman: boolean): GapName {
   return {
-    glyph: GAP_GLYPH[g.label],
+    glyph: GAP_GLYPH[gapKind(g)],
     dur: fmt.dur(g.dur_ms),
-    label: GAP_LABEL[g.label],
-    reason: gapReason(g.label, { firstTurnIsHuman, running: g.running.map((r) => r.agent_name) }),
+    label: GAP_LABEL[gapKind(g)],
+    reason: gapReason(g, { firstTurnIsHuman, running: g.running.map((r) => r.agent_name) }),
   }
 }
 

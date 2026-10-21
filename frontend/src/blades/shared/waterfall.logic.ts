@@ -18,11 +18,11 @@ export const MIN_BAR_PX = 2
 /** SES-42: a thin agent tail. */
 export const TAIL_PX = 2
 
-/** The gaps that fold: wait states (`none` stretches, not agents-only) of at least `minMs`, clipped to the axis. Real time folds nothing. */
+/** The gaps that fold: wait states (every stretch but agents-only) of at least `minMs`, clipped to the axis. Real time folds nothing. */
 export function gapFolds(gaps: readonly GapRow[], a: number, b: number, minMs: number, realTime: boolean): Fold[] {
   if (realTime) return []
   return gaps
-    .filter((g) => g.state === 'none' && g.dur_ms >= minMs && g.end_ms > a && g.start_ms < b)
+    .filter((g) => g.state !== 'agents' && g.dur_ms >= minMs && g.end_ms > a && g.start_ms < b)
     .map((g) => ({ a: Math.max(a, g.start_ms), b: Math.min(b, g.end_ms) }))
     .filter((f) => f.b > f.a)
     .sort((p, q) => p.a - q.a)
@@ -117,7 +117,7 @@ export function axisCaption(realTime: boolean, foldMinMs: number): string {
 }
 
 /** State of a gap row's bar (SES-42: hatched in its state colour). */
-export const gapBarState = (g: GapRow) => gapState(g.label)
+export const gapBarState = (g: GapRow) => gapState(g)
 
 /** The turn's span for its bar (SES-21): both ends needed; a turn with no start or end has no bar (SES-85). */
 export function turnSpan(t: Pick<TurnRow, 'start_ms' | 'end_ms'>): { start: number; end: number } | null {

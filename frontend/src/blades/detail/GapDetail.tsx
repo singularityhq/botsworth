@@ -1,6 +1,6 @@
 import type { AnyRow, GapRow, NextTurn } from '../../api/types'
 import { fmt } from '../../lib/format'
-import { gapReason, GAP_LABEL, gapState, stateFill } from '../shared/states'
+import { gapKind, gapReason, GAP_LABEL, gapState, stateFill } from '../shared/states'
 import { clockSec } from '../turn/turn.logic'
 import { ContextRow } from './ContextRow'
 import { GAP_AGENTS_MAX, gapCaption, limitInference, startsTurnLine } from './detail.logic'
@@ -32,10 +32,10 @@ function RowLink({ ctx, r }: { ctx: DetailCtx; r: AnyRow }) {
 /** DET-40 to DET-43: a gap. Facts only (D29): what the data says about the stretch and what is next to it. */
 export function GapDetailView({ ctx, gap, turnWallMs, sessionWallMs, before, after, startsTurn, sessionEnd }: GapDetailProps) {
   const caption = gapCaption(gap, turnWallMs, sessionWallMs)
-  const inference = limitInference(gap.label, gap.next_turn)
+  const inference = limitInference(gap, gap.next_turn)
   const running = gap.running.slice(0, GAP_AGENTS_MAX)
   const starts = startsTurn === null ? null : startsTurnLine(startsTurn)
-  const reason = gapReason(gap.label, { firstTurnIsHuman: ctx.firstTurnIsHuman, running: gap.running.map((r) => r.agent_name) })
+  const reason = gapReason(gap, { firstTurnIsHuman: ctx.firstTurnIsHuman, running: gap.running.map((r) => r.agent_name) })
   return (
     <div className="flex flex-col gap-8">
       <div className="flex flex-col gap-3">
@@ -44,9 +44,9 @@ export function GapDetailView({ ctx, gap, turnWallMs, sessionWallMs, before, aft
           {caption ? <span className="text-ink3">{caption}</span> : null}
         </Hero>
         <p className="flex items-center gap-2 text-ink2">
-          <i aria-hidden="true" className="inline-block h-2.5 w-2.5 shrink-0 rounded-chip" style={stateFill(gapState(gap.label))} />
+          <i aria-hidden="true" className="inline-block h-2.5 w-2.5 shrink-0 rounded-chip" style={stateFill(gapState(gap))} />
           <span>
-            {GAP_LABEL[gap.label]}: {reason}.
+            {GAP_LABEL[gapKind(gap)]}: {reason}.
           </span>
         </p>
         {inference ? <p className="text-ink3">{inference}</p> : null}

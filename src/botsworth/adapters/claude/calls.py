@@ -26,7 +26,10 @@ GUARANTEES:
   (`derived`).
 - Every leaf carries `agent_id`, `agent_type`, `spawn_depth`, `is_fork`,
   `occ_key`, `src` (lines first..last; `h` on single-line pointers).
-- `waits_on_user` = True on `AskUserQuestion` calls (DM-40), else None.
+- `user_wait` (DM-40, D54): `ask` on `AskUserQuestion` calls; else `permission` when the result record's
+  `permissionDecision.source` starts with `user`, or the result text starts with "The user doesn't want to
+  proceed"; else None (a `config` source, or an unseen source value, leaves it None). Only the category is
+  stored, never the result text (D39).
 - `sends` lists every Agent/Task/SendMessage call with the hash of its
   message body and the result's `agentId`, for engagement linking.
 EXPECTS: `turn_of` covers every line (tree.build).
@@ -56,6 +59,7 @@ from botsworth.pricing import Pricer
 SPAWN_TOOLS = frozenset({"Agent", "Task"})
 SEND_TOOLS = SPAWN_TOOLS | {"SendMessage"}
 ASK_USER_TOOL = "AskUserQuestion"  # DM-40
+REJECTION_TEXT = "The user doesn't want to proceed"  # DM-40 [D54]
 _EXIT_TEXT = re.compile(r"(?:Exit code:|exit code|exited with code)\s*(\d+)", re.I)
 
 
@@ -153,6 +157,35 @@ def _result_bytes(block: dict[str, Any]) -> int | None:
         return len(content.encode())
     if isinstance(content, list):
         return sum(len((b.get("text") or "").encode()) for b in content if isinstance(b, dict))
+    return None
+
+
+def _result_text(block: dict[str, Any]) -> str:
+    """The text of a tool_result block: the string, else the first text block (tested, never stored, D39)."""
+    content = block.get("content")
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        for b in content:
+            if isinstance(b, dict) and isinstance(b.get("text"), str):
+                return b["text"]
+    return ""  # FALLBACK-OK: DM-40 (no result text: not a rejection, user_wait NULL)
+
+
+def user_wait(name: str | None, result: tuple[Line, dict[str, Any]] | None) -> str | None:
+    """DM-40 [D54]: `ask`, `permission` or None for one tool call and its paired result."""
+    if name == ASK_USER_TOOL:
+        return "ask"
+    if result is None:
+        return None
+    line, block = result
+    # FALLBACK-OK: DM-40 (no permissionDecision, or an unseen shape: user_wait NULL otherwise)
+    decision = line.rec.get("permissionDecision")
+    source = decision.get("source") if isinstance(decision, dict) else None
+    if isinstance(source, str) and source.startswith("user"):
+        return "permission"
+    if _result_text(block).lstrip().startswith(REJECTION_TEXT):
+        return "permission"
     return None
 
 
@@ -292,7 +325,7 @@ def _tool_call(
         exit_code_prov=exit_prov,
         is_error=bool(rblock.get("is_error")) if rblock is not None else None,
         interrupted=outcome == "interrupted",
-        waits_on_user=True if name == ASK_USER_TOOL else None,
+        user_wait=user_wait(name, result),
         result_bytes=_result_bytes(rblock) if rblock is not None else None,
     )
     return ToolUse(op, name, inp, ti, line, bi, result, duplicate)

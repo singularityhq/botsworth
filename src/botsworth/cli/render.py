@@ -4,8 +4,10 @@ GUARANTEES:
 - `render_table(cmd, data)` returns lines until the 2 KB budget (`TABLE_BYTES`), then one line
   `... N more lines (use --json)`. The legacy commands keep their column layouts; the v4 commands print
   `key: value` lines and one line of scalar fields per list item.
-- A v4 table shows the readable sibling (`<x>` of `<x>_ms`, `<x>_ms_h`, `<value>_h` of a `none_split` value)
+- A v4 table shows the readable sibling (`<x>` of `<x>_ms`, `<x>_ms_h`, `ms_h` of a `time_split` part)
   and leaves out the raw number it belongs to (D50, `cli.timefmt`).
+- A `TimeSplit` (`{parts: [...]}`, D54) prints as `key=[state/substate=duration ...]`; the substate `none` of
+  state `none` is left out of the name.
 - Output is for people: its text and layout are not stable (CLI-11).
 DOES NOT: read the store, or decide what a command returns.
 """
@@ -73,11 +75,27 @@ def _scalars(v: dict[str, Any], prefix: str = "", depth: int = 2) -> list[str]:
     for k, x in v.items():
         if _raw_time(k, v):
             continue
-        if isinstance(x, dict) and depth > 1:
+        if _is_split(x):
+            out.append(f"{prefix}{k}=[{_split_text(x)}]")
+        elif isinstance(x, dict) and depth > 1:
             out += _scalars(x, f"{prefix}{k}.", depth - 1)
         elif not isinstance(x, dict | list):
             out.append(f"{prefix}{k}={_cell(x, k)}")
     return out
+
+
+def _is_split(x: Any) -> bool:
+    """A `TimeSplit`: `{parts: [{state, substate, ms}, ...]}` (D54)."""
+    return isinstance(x, dict) and set(x) <= {"parts"} and isinstance(x.get("parts"), list)
+
+
+def _split_text(x: dict[str, Any]) -> str:
+    """`you/ask=5m 00s model=1m 02s`: each part's state, substate and readable duration."""
+    parts = []
+    for p in x["parts"]:
+        name = p["state"] if p["substate"] in (None, p["state"]) else f"{p['state']}/{p['substate']}"
+        parts.append(f"{name}={p.get('ms_h', p['ms'])}")
+    return " ".join(parts)
 
 
 def _v4_lines(data: Any) -> list[str]:
@@ -89,6 +107,8 @@ def _v4_lines(data: Any) -> list[str]:
         if isinstance(x, list) and x and all(isinstance(i, dict) for i in x):
             lines.append(f"{k} ({len(x)}):")
             lines += [("  " + " ".join(_scalars(i)))[:_LINE_CHARS] for i in x]
+        elif _is_split(x):
+            lines.append(f"{k}: {_split_text(x)}"[:_LINE_CHARS])
         elif isinstance(x, dict):
             lines.append((f"{k}: " + " ".join(_scalars(x)))[:_LINE_CHARS])
         elif not isinstance(x, list):

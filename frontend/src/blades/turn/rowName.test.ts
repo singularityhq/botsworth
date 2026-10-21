@@ -129,11 +129,11 @@ describe('agentName (TRN-33)', () => {
 
 describe('gapName (TRN-34)', () => {
   it('gives glyph, duration, label and reason', () => {
-    expect(gapName(gap(0, 3720, { label: 'limit' }), true)).toEqual({ glyph: 'timer-off', dur: '1h02m', label: 'Usage limit (inferred)', reason: 'the next turn resumes after a usage limit' })
+    expect(gapName(gap(0, 3720, { state: 'limit', substate: null }), true)).toEqual({ glyph: 'timer-off', dur: '1h02m', label: 'Usage limit (inferred)', reason: 'the next turn resumes after a usage limit' })
   })
   it('names up to three running agents and counts the rest', () => {
     const running = ['a', 'b', 'c', 'd'].map((n) => ({ row: n, agent_name: n, start_ms: 0, end_ms: 1, cost_usd: null }))
-    const g = gapName(gap(0, 300, { state: 'agents', label: 'agents', running }), true)
+    const g = gapName(gap(0, 300, { state: 'agents', substate: null, running }), true)
     expect(g).toMatchObject({ glyph: 'bot', label: 'Only agents running', reason: '4 agents running: a, b, c +1' })
   })
 })

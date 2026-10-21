@@ -26,11 +26,13 @@ GUARANTEES:
   turn (DM-45), agents included. Default range: session `[first_ms, last_ms]`; turn `[start_ms,
   max(end_ms, latest agent run end)]`, with `tail_from_ms` = `end_ms` when an agent run ends later.
   Σ `cost_usd` over the default range = the session's cost or the turn's `attr_cost_usd`;
-  `main_cost_usd` counts owned calls with `agent_id IS NULL` (D47). `state_ms` is the DM-50 state
-  time inside the bin (and the range), rebuilt from the session's leaves and container segments;
-  over a session's whole range the four states equal the stored `model_ms`..`none_ms`. `stretches`
-  are the session's stretches of 60 s or more that overlap the range.
-EXPECTS: schema v7 filled by B3a/B3b. A turn id is an op_id or a display id (QRY-2); a session key
+  `main_cost_usd` counts owned calls with `agent_id IS NULL` (D47). `state_ms` is the DM-50
+  (state, substate) time inside the bin (a `TimeSplit`), rebuilt by `timesplit` from the stored rows; over
+  a session's whole range the parts equal the stored session `time_split` rows. A turn zoom's
+  `range.time_split` comes from the same function and also counts the range outside the wall as
+  `none`/`none` (D48), so a range equal to the turn's span gives the stored span split. `stretches` are
+  the session's stretches of 60 s or more that overlap the range.
+EXPECTS: schema v10 filled by B3a/B3b. A turn id is an op_id or a display id (QRY-2); a session key
   is any key QRY-6 accepts.
 FAILURE BEHAVIOR: unknown id -> NotFound; a turn id that is not a main turn, `from_ms` without
   `to_ms`, `to_ms` before `from_ms`, `bins` outside 1-1000, `limit` outside 1-2000 or a negative
@@ -42,25 +44,21 @@ DOES NOT: write, read source files, or hold SQL outside this module and `rows.py
 
 from __future__ import annotations
 
-import json
 import sqlite3
-from bisect import bisect_right
 from collections.abc import Sequence
 from dataclasses import fields
 
 from botsworth.query import Db, NotFound, QueryError, _conn, shapes, wire
 from botsworth.query.outline import resolve_op
 from botsworth.query.views import rows as R
-from botsworth.query.views.common import lookup_session, money
+from botsworth.query.views.common import lookup_session, money, wire_split
 from botsworth.query.views.session import model_lines, turn_row
 from botsworth.query.views.stretches import display_id, stretches_for
 from botsworth.store import timesplit
-from botsworth.store.intervals import merge
 
 MAX_BINS = 1000
 DEFAULT_BINS = {"session": 600, "turn": 120}
 MAX_LIMIT = 2000
-STATES = ("model", "tool", "agents", "none")
 _LEAVES = "('llm_call', 'tool_call')"
 
 # ── lookups ──────────────────────────────────────────────────────────────────
@@ -94,57 +92,39 @@ def _fresh(conn: sqlite3.Connection) -> wire.Freshness:
 # ── DM-50 states at query time ───────────────────────────────────────────────
 
 
-def state_runs(conn: sqlite3.Connection, root_rowid: int) -> list[tuple[int, int, str]]:
-    """The session's elementary state runs inside its wall (DM-50), as the fold found them (DM-51).
-
-    The wall is the union of the containers' segments (a container without `segments` counts as its own
-    `[start_ms, end_ms]`) and the owned, non-inverted leaf intervals, the rule of `store.load`.
-    """
-    wall: list[tuple[int, int]] = []
-    llm: list[tuple[int, int]] = []
-    tool: list[tuple[int, int]] = []
-    agents: list[tuple[int, int]] = []
-    for r in conn.execute(
-        f"""
-        SELECT kind, start_ms, end_ms, agent_id, segments, n_inverted FROM ops
-        WHERE root_rowid = ? AND (kind NOT IN {_LEAVES} OR duplicate_of IS NULL)
+def split_inputs(conn: sqlite3.Connection, root_rowid: int) -> timesplit.Inputs:
+    """The DM-50 split inputs of one session from the stored rows (`timesplit.collect`, as the load)."""
+    rows = conn.execute(
+        """
+        SELECT rowid, kind, start_ms, end_ms, agent_id, segments, n_inverted, duplicate_of, user_wait,
+               seq, pre, turn_kind, turn_origin, display_ix,
+               CASE WHEN kind = 'turn' THEN label END AS label
+        FROM ops WHERE root_rowid = ?
         """,
         (root_rowid,),
-    ):
-        if r["kind"] not in ("llm_call", "tool_call"):
-            if r["segments"]:
-                wall += [(a, b) for a, b in json.loads(r["segments"]) if b >= a]
-            elif r["start_ms"] is not None and r["end_ms"] is not None and r["end_ms"] >= r["start_ms"]:
-                wall.append((r["start_ms"], r["end_ms"]))
-            continue
-        if r["n_inverted"] or r["start_ms"] is None or r["end_ms"] is None:
-            continue
-        iv = (r["start_ms"], r["end_ms"])
-        wall.append(iv)
-        if r["agent_id"] is not None:
-            agents.append(iv)
-        elif r["kind"] == "llm_call":
-            llm.append(iv)
-        else:
-            tool.append(iv)
-    # `_runs` is the one place where the four states are decided (store.timesplit); the fold's split() uses it
-    return timesplit._runs(merge(wall), merge(llm), merge(tool), merge(agents))
+    )
+    return timesplit.collect(rows)
 
 
-def _split_bins(runs: Sequence[tuple[int, int, str]], edges: Sequence[int]) -> list[wire.TimeSplit]:
-    """State time inside each interval `[edges[i], edges[i + 1])`."""
-    starts = [a for a, _, _ in runs]
-    ends = [b for _, b, _ in runs]
-    out = []
-    for lo, hi in zip(edges, edges[1:], strict=False):
-        acc = dict.fromkeys(STATES, 0)
-        i = max(bisect_right(ends, lo), 0)  # the first run that ends after lo
-        while i < len(runs) and starts[i] < hi:
-            a, b, state = runs[i]
-            acc[state] += min(b, hi) - max(a, lo)
-            i += 1
-        out.append(wire.TimeSplit(acc["model"], acc["tool"], acc["agents"], acc["none"]))
-    return out
+def state_runs(conn: sqlite3.Connection, root_rowid: int) -> list[timesplit.Run]:
+    """The session's (state, substate) runs inside its wall (DM-50), from the stored rows.
+
+    The inputs come from `timesplit.collect` and the runs from `timesplit.runs`, the functions the load
+    uses, so the sums over the whole session equal the stored `time_split` rows."""
+    inp = split_inputs(conn, root_rowid)
+    return timesplit.runs(inp.wall, inp.main_llm, inp.main_tool, inp.agent_leaf, inp.waits, inp.turns)
+
+
+def _split_bins(
+    runs: Sequence[timesplit.Run], edges: Sequence[int], fill_outside: bool = False
+) -> list[wire.TimeSplit]:
+    """(state, substate) time inside each interval `[edges[i], edges[i + 1])`. With `fill_outside` the part
+    outside the wall counts as `none`/`none` (D48), as in the stored span figures."""
+    ends = [r.end_ms for r in runs]
+    return [
+        wire_split(timesplit.clip(runs, lo, hi, fill_outside, ends))
+        for lo, hi in zip(edges, edges[1:], strict=False)
+    ]
 
 
 # ── turn_rows ────────────────────────────────────────────────────────────────
@@ -198,7 +178,7 @@ def _range(
     n = main.rng_n + agents.rng_n
     priced = main.rng_priced + agents.rng_priced
     total = money(main.rng_cost + agents.rng_cost if n else None, priced < n, n - priced)
-    split = _split_bins(state_runs(conn, root), [rng[0], rng[1]])[0]
+    split = _split_bins(state_runs(conn, root), [rng[0], rng[1]], fill_outside=True)[0]
     per_agent = []
     for e in entries:
         if e.kind != "agent":

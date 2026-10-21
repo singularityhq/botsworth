@@ -1,3 +1,4 @@
+import { USER_WAIT_NOTE } from '../shared/states'
 import { useState } from 'react'
 import type { ToolDetail as ToolDetailWire, ToolRow } from '../../api/types'
 import { fmt } from '../../lib/format'
@@ -31,7 +32,7 @@ export function ToolDetailView({ session, row, detail, error }: ToolDetailProps)
   const dur = t.dur_ms === null ? '—' : `${derived ? '≈' : ''}${fmt.dur(t.dur_ms)}`
   const name = toolName({ ...t, type: 'tool' })
   const shell = isShell(t)
-  const waits = t.waits_on_user
+  const waits = t.user_wait
   // DET-69: with no pointer for any section, one line says so.
   const target = t.file_path ?? t.target // FALLBACK-OK: DET-23 (the main target is the file path, else the pattern or URL)
   const noText = detail !== undefined && !t.command_src && !detail.output_src && !detail.input_src && (shell ? t.command === null : target === '') && t.result_bytes !== 0
@@ -61,7 +62,7 @@ export function ToolDetailView({ session, row, detail, error }: ToolDetailProps)
           {t.result_bytes !== null && t.result_bytes > 0 ? <span className="text-ink3">{fmtBytes(t.result_bytes)} output</span> : null}
         </Hero>
         {silent ? <InfoLine>No records for {fmt.dur(t.max_silence_ms)} inside this call. Its duration includes that time.</InfoLine> : null}
-        {waits ? <InfoLine>This tool waits for your answer. Its duration includes your reply.</InfoLine> : null}
+        {waits !== null ? <InfoLine>{USER_WAIT_NOTE[waits]}</InfoLine> : null}
         {t.skill_load !== null ? (
           <p className="flex items-center gap-1.5 text-ink2">
             <Icon name="book-open" tone="quiet" />

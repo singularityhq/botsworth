@@ -62,13 +62,13 @@ describe('the percent captions (DET-10, DET-30, DET-40)', () => {
     expect(costCaption(2, 4, 'range')).toBe("50% of the range's cost")
   })
   it("a gap inside the turn is a share of the turn's wall time", () => {
-    const g: Pick<GapRow, 'label' | 'turn' | 'dur_ms'> = { label: 'none', turn: 'x/turn/1', dur_ms: 30_000 }
+    const g: Pick<GapRow, 'state' | 'substate' | 'turn' | 'dur_ms'> = { state: 'none', substate: 'none', turn: 'x/turn/1', dur_ms: 30_000 }
     expect(gapBasis(g)).toBe('turn')
     expect(gapCaption(g, 120_000, 3_600_000)).toBe("25% of the turn's wall time")
   })
   it("a gap between turns or before the first message is a share of the session's wall time", () => {
-    expect(gapCaption({ label: 'you', turn: null, dur_ms: 360_000 }, 120_000, 3_600_000)).toBe("10% of the session's wall time")
-    expect(gapCaption({ label: 'before_first', turn: 'x/turn/1', dur_ms: 360_000 }, 120_000, 3_600_000)).toBe("10% of the session's wall time")
+    expect(gapCaption({ state: 'you', substate: 'reply', turn: null, dur_ms: 360_000 }, 120_000, 3_600_000)).toBe("10% of the session's wall time")
+    expect(gapCaption({ state: 'none', substate: 'before_first', turn: 'x/turn/1', dur_ms: 360_000 }, 120_000, 3_600_000)).toBe("10% of the session's wall time")
   })
 })
 
@@ -178,11 +178,11 @@ describe('gap lines (DET-41, DET-42)', () => {
   const next = (label: string, display_id: string | null = 'T7'): NextTurn => ({ turn: 'x/turn/7', kind: 'human', origin: 'typed', label, display_id })
   it('infers a usage limit from the first 60 characters of the next turn', () => {
     const text = 'I hit my usage limit and now it is back, please continue from where you left off with the work'
-    expect(limitInference('limit', next(text))).toBe(`Inferred: the next turn starts with “${text.slice(0, 60)}”.`)
+    expect(limitInference({ state: 'limit' }, next(text))).toBe(`Inferred: the next turn starts with “${text.slice(0, 60)}”.`)
   })
   it('only a usage-limit gap carries it', () => {
-    expect(limitInference('you', next('x'))).toBeNull()
-    expect(limitInference('limit', null)).toBeNull()
+    expect(limitInference({ state: 'you' }, next('x'))).toBeNull()
+    expect(limitInference({ state: 'limit' }, null)).toBeNull()
   })
   it('names the turn a gap leads into, with 120 characters of its text', () => {
     expect(startsTurnLine(next('y'.repeat(200)))).toBe(`Starts turn 7: ${'y'.repeat(120)}`)

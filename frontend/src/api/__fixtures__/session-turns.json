@@ -13,8 +13,7 @@
       "start_ms": 1791786480000,
       "end_ms": 1791790200000,
       "dur_ms": 3720000,
-      "state": "none",
-      "label": "limit",
+      "state": "limit",
       "turn": "claude_code/a11ce5e5-1111-4222-8333-944455556666/turn/2",
       "next_turn": {
         "turn": "claude_code/a11ce5e5-1111-4222-8333-944455556666/turn/2",
@@ -23,7 +22,8 @@
         "label": "I hit my usage limit. Please continue",
         "display_id": "T2"
       },
-      "running": []
+      "running": [],
+      "substate": null
     },
     {
       "type": "turn",
@@ -39,10 +39,28 @@
       "end_ms": 1791790500000,
       "wall_ms": 300000,
       "time_split": {
-        "model_ms": 120000,
-        "tool_ms": 45000,
-        "agents_ms": 300000,
-        "none_ms": 60000
+        "parts": [
+          {
+            "state": "model",
+            "substate": null,
+            "ms": 120000
+          },
+          {
+            "state": "tool",
+            "substate": null,
+            "ms": 45000
+          },
+          {
+            "state": "agents",
+            "substate": null,
+            "ms": 300000
+          },
+          {
+            "state": "none",
+            "substate": "none",
+            "ms": 60000
+          }
+        ]
       },
       "waiting_ms": 360000,
       "cost_main": 1.0,
@@ -73,7 +91,6 @@
       "end_ms": 1791790800000,
       "dur_ms": 300000,
       "state": "agents",
-      "label": "agents",
       "turn": "claude_code/a11ce5e5-1111-4222-8333-944455556666/turn/2",
       "next_turn": null,
       "running": [
@@ -84,7 +101,8 @@
           "end_ms": 1791790600000,
           "cost_usd": 8.4
         }
-      ]
+      ],
+      "substate": null
     },
     {
       "type": "turn",

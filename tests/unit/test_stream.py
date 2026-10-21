@@ -326,7 +326,7 @@ def v7_bundle():
     b.ops[0].originator = "codex_exec"
     b.ops[1].turn_kind = "human"
     b.ops[1].turn_origin = "typed"
-    b.ops[3].waits_on_user = True
+    b.ops[3].user_wait = "permission"
     b.source_files[0].ts_list = [5, 5, 9, 12]
     return b
 
@@ -337,7 +337,7 @@ def test_v7_fields_round_trip(tmp_path):
     back = stream.read_bundle(stream.write_bundle(b, tmp_path))
     session, turn, _, call = back.ops
     assert (session.title_source, session.entrypoint, session.originator) == ("rename", "cli", "codex_exec")
-    assert (turn.turn_kind, turn.turn_origin, call.waits_on_user) == ("human", "typed", True)
+    assert (turn.turn_kind, turn.turn_origin, call.user_wait) == ("human", "typed", "permission")
     assert back.source_files[0].ts_list == [5, 5, 9, 12]
 
 
@@ -348,11 +348,17 @@ def test_bad_turn_kind_bad_enum():
     assert kinds(b) == ["bad_enum"] * 2
 
 
+def test_bad_user_wait_bad_enum():
+    b = v7_bundle()
+    b.ops[3].user_wait = "maybe"
+    assert kinds(b) == ["bad_enum"]
+
+
 def test_turn_kind_on_llm_call_kind_field():
     b = v7_bundle()
     b.ops[2].turn_kind = "human"
     b.ops[0].turn_origin = "typed"
-    b.ops[1].waits_on_user = False  # False is still a value on the wrong kind
+    b.ops[1].user_wait = "ask"  # a user_wait on a turn
     assert kinds(b) == ["kind_field"] * 3
     b = v7_bundle()
     b.ops[2].title_source = "rename"  # session-only field on an llm_call

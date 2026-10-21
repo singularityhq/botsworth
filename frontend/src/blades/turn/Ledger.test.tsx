@@ -68,10 +68,18 @@ describe('Ledger rows (TRN-30 to TRN-34)', () => {
     expect(within(r).getByText('SKILL.md read')).toBeTruthy()
   })
   it('draws the silence and waits flags in ink3', () => {
-    mount([tool('t', { max_silence_ms: 420_000, waits_on_user: true })])
+    mount([tool('t', { max_silence_ms: 420_000, user_wait: 'ask' })])
     const r = row('tool/t')
     expect(within(r).getByText('no records 7m')).toBeTruthy()
-    expect(within(r).getByText('waits on you')).toBeTruthy()
+    expect(within(r).getByText('asked you')).toBeTruthy()
+  })
+  it('flags a permission wait as "waited for your approval" (TRN-32, D54)', () => {
+    mount([tool('p', { user_wait: 'permission' })])
+    expect(within(row('tool/p')).getByText('waited for your approval')).toBeTruthy()
+  })
+  it('draws no wait flag on a tool that did not wait on the user', () => {
+    mount([tool('q')])
+    expect(within(row('tool/q')).queryByText(/asked you|waited for your approval/)).toBeNull()
   })
   it('draws an agent row with its names, sub-text, row count button and whole cost', () => {
     const { calls } = mount([agent('ag', { agent_names: ['explorer'], description: 'Survey', cost_usd: 19.88 })])
@@ -84,7 +92,7 @@ describe('Ledger rows (TRN-30 to TRN-34)', () => {
     expect(calls.open).not.toHaveBeenCalled() // the toggle does not open the detail
   })
   it('draws a gap with its duration, label and reason on an l2 row', () => {
-    mount([gap(0, 3720, { label: 'limit' })])
+    mount([gap(0, 3720, { state: 'limit', substate: null })])
     const r = document.querySelector('[data-row-id^="gap-"]') as HTMLElement
     expect(r.className).toContain('bg-l2')
     expect(within(r).getAllByText('1h02m')).toHaveLength(2) // the name and the Time column

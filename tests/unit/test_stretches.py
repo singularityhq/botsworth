@@ -13,7 +13,7 @@ import pytest
 from qstore import expected, qstore  # noqa: F401 (the QF fixture)
 from qstore_ids import SAGENTS, SHARNESS, SSTRETCH, turn
 
-from botsworth.query import _conn
+from botsworth.query import _conn, wire
 from botsworth.query.views import stretches as S
 from botsworth.query.views.common import lookup_session
 
@@ -26,69 +26,54 @@ def root(conn: sqlite3.Connection, key: str) -> int:
     return lookup_session(conn, key.split("/")[1])["rowid"]
 
 
-def human(label: str = "go on") -> dict:
-    return {"op_id": "t", "turn_kind": "human", "turn_origin": "typed", "label": label}
+# ── stored state and substate ────────────────────────────────────────────────
 
 
-# ── labels ───────────────────────────────────────────────────────────────────
-
-
-def test_label_you_limit_agentmsg_before_first_none_agents(qstore):
+def test_state_and_substate_are_the_stored_ones(qstore):
     want = expected()["case_8_sstretch"]["b3"]["stretches"]
     with _conn(qstore) as conn:
         got = S.stretches_for(conn, root(conn, SSTRETCH))
-    assert [s.label for s in got] == ["you", "none", "limit", "agentmsg", "agents"]
-    assert [s.label for s in got] == [w["label"] for w in want]
+    assert [(s.state, s.substate) for s in got] == [
+        ("you", "reply"),
+        ("none", "none"),
+        ("limit", None),
+        ("agentmsg", None),
+        ("agents", None),
+        ("you", "permission"),
+        ("agents", None),
+    ]
+    assert [(s.state, s.substate) for s in got] == [(w["state"], w["substate"]) for w in want]
     for s, w in zip(got, want, strict=True):
-        assert (s.start_ms, s.end_ms, s.state) == (ms(w["start"]), ms(w["end"]), w["state"])
+        assert (s.start_ms, s.end_ms) == (ms(w["start"]), ms(w["end"]))
         assert s.turn == turn(SSTRETCH, int(w["turn"].split("#")[1]))
         assert s.dur_ms == s.end_ms - s.start_ms
 
 
-def test_label_rules_in_precedence_order():
-    # the fixture has no stretch before its first numbered turn, so before_first is checked on the rules
-    assert S._label("none", True, human()) == "before_first"  # SES-18: never `you`, whatever the next turn is
-    assert S._label("none", True, None) == "before_first"
-    assert S._label("none", False, human()) == "you"
-    assert S._label("none", False, human("I hit my usage limit. Resets 5pm")) == "limit"
-    assert S._label("none", False, human("  PLEASE CONTINUE from where you left off")) == "limit"
-    assert S._label("none", False, human("continue from where you left off")) == "limit"
-    assert S._label("none", False, human("please continue")) == "you"
-    for origin in ("peer", "coordinator", "teammate", "agent"):
-        nxt = {"op_id": "t", "turn_kind": "message", "turn_origin": origin, "label": "x"}
-        assert S._label("none", False, nxt) == "agentmsg"
-    for kind, origin in (("message", "typed"), ("harness", "interrupt"), ("system", "x")):
-        assert (
-            S._label("none", False, {"op_id": "t", "turn_kind": kind, "turn_origin": origin, "label": "x"})
-            == "none"
-        )
-    assert S._label("none", False, None) == "none"
-    assert S._label("agents", False, human()) == "agents"
+def test_module_decides_no_label():
+    assert not hasattr(S, "_label") and not hasattr(S, "is_limit_text")  # the load decided them (DM-50)
+    assert not hasattr(wire.Stretch, "label")
 
 
 def test_attached_turn_is_latest_numbered_at_or_before_start():
     a, b = {"start_ms": 100}, {"start_ms": 500}
-    assert S._attached([a, b], 100) == (a, False)
-    assert S._attached([a, b], 499) == (a, False)
-    assert S._attached([a, b], 500) == (b, False)
-    assert S._attached([a, b], 99) == (a, True)  # SES-37: before the first numbered turn -> the first one
-    assert S._attached([], 99) == (None, True)
+    assert S._attached([a, b], 100) == a
+    assert S._attached([a, b], 499) == a
+    assert S._attached([a, b], 500) == b
+    assert S._attached([a, b], 99) == a  # SES-37: before the first numbered turn -> the first one
+    assert S._attached([], 99) is None
 
 
 def test_next_turn_only_when_adjacent(qstore):
-    want = expected()["case_8_sstretch"]["b3"]["stretches"]
     with _conn(qstore) as conn:
         got = S.stretches_for(conn, root(conn, SSTRETCH))
-    for s, w in zip(got, want, strict=True):
-        assert (s.next_turn is None) == (w["next_turn_kind"] is None), w
-    you, wait, limit, agentmsg, agents = got
+    you, wait, limit, agentmsg, agents1, permission, agents2 = got
+    assert [s.next_turn is None for s in got] == [False, True, False, False, True, True, True]
     assert you.next_turn.turn == turn(SSTRETCH, 1)
     assert (you.next_turn.kind, you.next_turn.origin, you.next_turn.display_id) == ("human", "typed", "T2")
     assert wait.next_turn is None  # 22 min of nothing; the ask T2 started 22 min earlier
     assert limit.next_turn.label.startswith(expected()["case_8_sstretch"]["limit_label_prefix"])
     assert limit.next_turn.display_id == "T3"
     assert (agentmsg.next_turn.kind, agentmsg.next_turn.origin) == ("message", "peer")
-    assert agents.next_turn is None
 
 
 def test_attached_turn_ses37_skips_harness(qstore):
@@ -122,8 +107,8 @@ def test_running_lists_overlapping_engagements_max_8(qstore, monkeypatch):
     with _conn(qstore) as conn:
         got = S.stretches_for(conn, root(conn, SAGENTS))
         agents = [s for s in got if s.state == "agents"]
-        none = [s for s in got if s.state == "none"]
-        assert [s.running for s in none] == [[]] * len(none)
+        idle = [s for s in got if s.state in ("none", "you")]
+        assert [s.running for s in idle] == [[]] * len(idle)
         eng = lambda k: f"claude_code/sagents/engagement/{k}"  # noqa: E731
         # (id, whole cost): ra#0 2.00 + its nested rn#0 0.50; B#0 0.40; C#0 0.30 (case 6 attr note)
         first = [(r.row, r.cost_usd) for r in agents[0].running]
@@ -141,6 +126,24 @@ def test_running_lists_overlapping_engagements_max_8(qstore, monkeypatch):
         assert len(capped.running) == 2  # the first two by start time
 
 
+def test_you_stretch_from_an_agent_call_lists_the_running_engagement(qstore):
+    # D54: the permission wait of the forecaster's Bash call (04:20-04:24) has no main-thread call, so it is a
+    # stretch; `running` names the agent that waits
+    with _conn(qstore) as conn:
+        got = S.stretches_for(conn, root(conn, SSTRETCH))
+    permission = next(s for s in got if s.substate == "permission")
+    assert [r.row for r in permission.running] == ["claude_code/sstretch/engagement/rd#0"]
+    assert permission.running[0].cost_usd == pytest.approx(0.8)  # the whole engagement: 0.40 + 0.40
+    for s in got:
+        if s.state not in ("agents",) and s is not permission:
+            assert s.running == []
+
+
+def test_main_thread_wait_makes_no_stretch(qstore):
+    with _conn(qstore) as conn:
+        assert S.stretches_for(conn, root(conn, "claude_code/sslow1")) == []  # the 15-min ask is a tool row
+
+
 def test_batched_equals_single(qstore):
     with _conn(qstore) as conn:
         roots = [r[0] for r in conn.execute("SELECT rowid FROM sessions ORDER BY rowid")]
@@ -156,8 +159,8 @@ def test_range_and_floor_filters(qstore):
     with _conn(qstore) as conn:
         r = root(conn, SSTRETCH)
         inside = S.stretches_for(conn, r, from_ms=limit_start + 1000, to_ms=limit_end - 1000)
-        assert [s.label for s in inside] == ["limit"]  # overlap keeps the whole stretch, unclipped
+        assert [s.state for s in inside] == ["limit"]  # overlap keeps the whole stretch, unclipped
         assert (inside[0].start_ms, inside[0].end_ms) == (limit_start, limit_end)
-        assert [s.label for s in S.stretches_for(conn, r, min_ms=2_000_000)] == ["limit", "agents"]
+        assert [s.state for s in S.stretches_for(conn, r, min_ms=1_400_000)] == ["you", "limit", "agents"]
         with pytest.raises(AssertionError):
             S.stretches_for(conn, r, min_ms=59_999)

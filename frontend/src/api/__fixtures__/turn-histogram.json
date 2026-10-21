@@ -15,10 +15,13 @@
       "main_cost_usd": 0.0,
       "tok_total": 0,
       "state_ms": {
-        "model_ms": 0,
-        "tool_ms": 10,
-        "agents_ms": 0,
-        "none_ms": 0
+        "parts": [
+          {
+            "state": "tool",
+            "substate": null,
+            "ms": 10
+          }
+        ]
       },
       "by_model": {
         "claude-opus-5-5": [
@@ -32,10 +35,18 @@
       "main_cost_usd": 0.05,
       "tok_total": 1000,
       "state_ms": {
-        "model_ms": 100,
-        "tool_ms": 10,
-        "agents_ms": 0,
-        "none_ms": 0
+        "parts": [
+          {
+            "state": "model",
+            "substate": null,
+            "ms": 100
+          },
+          {
+            "state": "tool",
+            "substate": null,
+            "ms": 10
+          }
+        ]
       },
       "by_model": {
         "claude-opus-5-5": [
@@ -49,10 +60,18 @@
       "main_cost_usd": 0.1,
       "tok_total": 2000,
       "state_ms": {
-        "model_ms": 200,
-        "tool_ms": 10,
-        "agents_ms": 0,
-        "none_ms": 0
+        "parts": [
+          {
+            "state": "model",
+            "substate": null,
+            "ms": 200
+          },
+          {
+            "state": "tool",
+            "substate": null,
+            "ms": 10
+          }
+        ]
       },
       "by_model": {
         "claude-opus-5-5": [

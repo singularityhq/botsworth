@@ -34,16 +34,16 @@ def columns(conn, table):
     return {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
 
 
-def test_ensure_creates_v9_tables_and_indexes(tmp_path):
+def test_ensure_creates_v10_tables_and_indexes(tmp_path):
     conn = sqlite3.connect(tmp_path / "s.db")
     schema.ensure(conn)
-    assert schema.SCHEMA_VERSION == 9
-    assert conn.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0] == "9"
+    assert schema.SCHEMA_VERSION == 10
+    assert conn.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0] == "10"
     for table in schema.TABLES:
         n = conn.execute(f"SELECT count(*) FROM {table}").fetchone()[0]
         assert n == (1 if table == "meta" else 0), table  # only meta.schema_version
     tables = names(conn, "table")
-    assert {"stretches", "projects", "src_files", "names"} <= tables
+    assert {"stretches", "time_split", "projects", "src_files", "names"} <= tables
     assert "op_closure" not in tables and "tz" not in schema.META_KEYS
     assert "stream_files" not in tables and "reject_reason" in columns(conn, "source_files")  # D52
     indexes = names(conn, "index")
@@ -54,11 +54,16 @@ def test_ensure_creates_v9_tables_and_indexes(tmp_path):
     assert not {"turn_id", "op_id", "bundle", "src"} & columns(conn, "steps")
     assert not {"bundle", "src"} & columns(conn, "events")
     assert {"caused_by_rowid", "cwd_id", "account_id", "path_sig_id", "occ_hash", "src_file", "src_loc",
-            "src_h", "pre", "post", "turn_kind", "turn_origin", "display_ix", "waits_on_user",
+            "src_h", "pre", "post", "turn_kind", "turn_origin", "display_ix", "user_wait",
             "max_silence_ms", "attr_turn_rowid", "span_wall_ms"} <= columns(conn, "ops")  # fmt: skip
     assert {"turn_rowid", "op_rowid", "skill_load"} <= columns(conn, "steps")
     assert {"title_source", "display_title", "n_human_asks", "is_automated", "activity_bin_ms",
-            "activity_tok", "model_ms", "none_ms"} <= columns(conn, "sessions")  # fmt: skip
+            "activity_tok"} <= columns(conn, "sessions")  # fmt: skip
+    # D54: the split lives in `time_split`; the per-state columns and `waits_on_user` are gone
+    assert not {"model_ms", "tool_ms", "agents_ms", "none_ms"} & columns(conn, "sessions")
+    assert not {"model_ms", "span_model_ms", "span_none_ms", "waits_on_user"} & columns(conn, "ops")
+    assert {"substate"} <= columns(conn, "stretches") and "next_turn_kind" not in columns(conn, "stretches")
+    assert columns(conn, "time_split") == {"root_rowid", "op_rowid", "scope", "state", "substate", "ms"}
     assert {"timed_out_tok", "timed_ms", "n_ttft", "ttft_ms_sum"} <= columns(conn, "rollup_time")
     assert not {"bucket_day", "bucket_kind"} & columns(conn, "rollup_time")  # DM-41 [D50]
     bucket_ix = [r[2] for r in conn.execute("PRAGMA index_info(rollup_bucket)")]
@@ -78,7 +83,7 @@ def test_ensure_upgrades_a_v6_store_in_place(tmp_path):
     conn.commit()
     schema.ensure(conn)
     assert not {"op_closure", "stream_files"} & names(conn, "table")
-    assert conn.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0] == "9"
+    assert conn.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0] == "10"
 
 
 def full_bundle():
@@ -316,8 +321,8 @@ def test_new_adapter_fields_persist(tmp_path):
     human = b.turn("main#0", turn_kind="human", turn_origin="typed")
     harness = b.turn("main#1", turn_kind="harness", turn_origin="builtin:clear")
     c = b.llm("r0", human, 0, 5)
-    ask = b.tool("ask", c, 6, 9, tool_name="AskUserQuestion", waits_on_user=True)
-    plain = b.tool("sh", c, 10, 12, tool_name="Bash", waits_on_user=False)
+    ask = b.tool("ask", c, 6, 9, tool_name="AskUserQuestion", user_wait="ask")
+    plain = b.tool("sh", c, 10, 12, tool_name="Bash", user_wait="permission")
     other = b.tool("rd", c, 13, 14, tool_name="Read")
     conn = store(tmp_path)
     put(conn, b)
@@ -326,12 +331,13 @@ def test_new_adapter_fields_persist(tmp_path):
         for r in conn.execute("SELECT * FROM ops WHERE kind='turn'")
     }
     assert turns == {human: ("human", "typed"), harness: ("harness", "builtin:clear")}
-    waits = {r["op_id"]: r["waits_on_user"] for r in conn.execute("SELECT * FROM ops WHERE kind='tool_call'")}
-    assert waits == {ask: 1, plain: 0, other: None}
+    waits = {r["op_id"]: r["user_wait"] for r in conn.execute("SELECT * FROM ops WHERE kind='tool_call'")}
+    assert waits == {ask: "ask", plain: "permission", other: None}
     s = conn.execute("SELECT * FROM sessions").fetchone()
     assert (s["entrypoint"], s["originator"]) == ("cli", "codex_exec")
     # B3a fills the display, attribution, title, bin and bucket columns (test_store_fold_v7), B3b the time
     # split and span columns (test_store_time_v7); only projects waits for `ingest` (DM-60)
-    assert s["model_ms"] + s["tool_ms"] + s["agents_ms"] + s["none_ms"] == s["wall_ms"]
+    total = conn.execute("SELECT sum(ms) FROM time_split WHERE scope='session'").fetchone()[0]
+    assert total == s["wall_ms"]
     assert conn.execute("SELECT count(*) FROM rollup_time").fetchone()[0] > 0
     assert conn.execute("SELECT count(*) FROM projects").fetchone()[0] == 0

@@ -26,11 +26,13 @@ export interface Money {
   n_unpriced: number
 }
 
+/** DM-50 [D54]: the seven wall states and the substates of `you` and `none`. */
+export type WallState = 'model' | 'tool' | 'agents' | 'you' | 'agentmsg' | 'limit' | 'none'
+export type Substate = 'ask' | 'permission' | 'reply' | 'before_first' | 'none' | null
+
+/** DM-51, DM-53: time per (state, substate), in SES-15 order. */
 export interface TimeSplit {
-  model_ms: number
-  tool_ms: number
-  agents_ms: number
-  none_ms: number
+  parts: { state: WallState; substate: Substate; ms: number }[]
 }
 
 export interface ModelLine extends Money {
@@ -191,20 +193,18 @@ export interface NextTurn {
   display_id: string | null
 }
 
-export type StretchLabel = 'you' | 'agentmsg' | 'limit' | 'before_first' | 'none' | 'agents'
-
 export interface Stretch {
   start_ms: number
   end_ms: number
   dur_ms: number
-  state: 'none' | 'agents'
-  label: StretchLabel
+  state: 'agents' | 'you' | 'agentmsg' | 'limit' | 'none'
+  substate: Substate
   turn: string | null
   next_turn: NextTurn | null
   running: { row: string; agent_name: string | null; start_ms: number; end_ms: number; cost_usd: number | null }[]
 }
 
-export type LongestState = 'model' | 'tool' | 'agents' | 'you' | 'agentmsg' | 'limit' | 'none'
+export type LongestState = WallState
 
 export interface SessionDetail {
   freshness: Freshness
@@ -230,7 +230,6 @@ export interface SessionDetail {
     wall_ms: number
     active_ms: number
     time_split: TimeSplit
-    none_split: { you: number; agentmsg: number; limit: number; none: number }
     longest: Record<LongestState, { row: RowRef; turn: string; dur_ms: number } | null>
     n_agents: number
     n_skill_loads: number
@@ -368,7 +367,7 @@ export interface ToolRow {
   interrupted: boolean
   skill_load: string | null
   skill_via: 'tool' | 'read' | 'slash' | null
-  waits_on_user: boolean
+  user_wait: 'ask' | 'permission' | null
   max_silence_ms: number | null
   result_bytes: number | null
   src: string

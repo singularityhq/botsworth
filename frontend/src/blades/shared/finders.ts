@@ -212,7 +212,7 @@ export function biggestRowToast(rank: number, total: number, bars: Bars, hit: Hi
 
 /** SES-52: tool rows that wait on the user, or whose derived time hides a silence of 5 min or more, do not rank by time (DM-40, Open Q8). */
 export function excludedFromTimeRanking(t: ToolRow): boolean {
-  return t.waits_on_user || (t.max_silence_ms !== null && t.max_silence_ms >= 300_000)
+  return t.user_wait !== null || (t.max_silence_ms !== null && t.max_silence_ms >= 300_000)
 }
 
 /** The value a main-thread row takes on a measure (SES-52): calls by cost, time or tokens; tools by time; agent rows with their whole figure; gaps by time. */

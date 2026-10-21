@@ -194,17 +194,17 @@ describe('b ranking of turns by each measure (SES-52)', () => {
 
 describe('row ranking (SES-52: tools by time, agents as one row, gaps by time, zero left out)', () => {
   const tool = (o: Partial<ToolRow>): ToolRow =>
-    ({ type: 'tool', id: 't', depth: 0, dur_ms: 1000, waits_on_user: false, max_silence_ms: null, ...o }) as ToolRow
+    ({ type: 'tool', id: 't', depth: 0, dur_ms: 1000, user_wait: null, max_silence_ms: null, ...o }) as ToolRow
   const call = (id: string, cost: number, dur: number, tok: number): AnyRow =>
     ({ type: 'call', id, depth: 0, cost_usd: cost, dur_ms: dur, tok: { total: tok } }) as AnyRow
   const agent = (id: string, cost: number, run: number, tok: number): AnyRow =>
     ({ type: 'agent', id, depth: 0, cost_usd: cost, run_ms: run, tok_total: tok }) as AnyRow
 
   it('by time leaves out a tool that waits on the user and one with a silence of 5 min or more', () => {
-    expect(excludedFromTimeRanking(tool({ waits_on_user: true }))).toBe(true)
+    expect(excludedFromTimeRanking(tool({ user_wait: 'permission' }))).toBe(true)
     expect(excludedFromTimeRanking(tool({ max_silence_ms: 300_000 }))).toBe(true)
     expect(excludedFromTimeRanking(tool({ max_silence_ms: 299_999 }))).toBe(false)
-    const rows = [tool({ id: 'a', dur_ms: 9000, waits_on_user: true }), tool({ id: 'b', dur_ms: 8000, max_silence_ms: 400_000 }), tool({ id: 'c', dur_ms: 500 })]
+    const rows = [tool({ id: 'a', dur_ms: 9000, user_wait: 'permission' }), tool({ id: 'b', dur_ms: 8000, max_silence_ms: 400_000 }), tool({ id: 'c', dur_ms: 500 })]
     expect(rankRows(rows, 'time').map((r) => r.id)).toEqual(['c'])
   })
 

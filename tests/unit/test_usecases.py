@@ -11,12 +11,12 @@ from __future__ import annotations
 import math
 import sqlite3
 from collections import defaultdict
-from dataclasses import asdict
 
 import pytest
 from qstore import qstore  # noqa: F401 (the QF fixture)
 from qstore_ids import (
     A0,
+    AGENT_PERMISSION,
     ASK_USER,
     NESTED,
     PYTEST_OK,
@@ -26,6 +26,7 @@ from qstore_ids import (
     SLOW_PROJECT,
     SSLOW1,
     STOOLS,
+    parts,
 )
 
 from botsworth.query import NotFound, QueryError, wire
@@ -71,8 +72,15 @@ def test_slow_scenario(qstore):
     r = U.project_slow(SLOW, db=qstore)
     assert r.current.n_sessions == 2
     assert r.current.wall_ms == 5_400_000
-    assert sum(asdict(r.current.time_split).values()) == r.current.wall_ms
-    assert r.current.none_split.you == 1_500_000
+    assert sum(parts(r.current.time_split).values()) == r.current.wall_ms
+    # CLI-20 scenario (D54): model 585 s, tool 2400 s (bash), you/ask 900 s, you/reply 1500 s, none/none 15 s
+    assert parts(r.current.time_split) == {
+        "model": 585_000,
+        "tool": 2_400_000,
+        "you/ask": 900_000,
+        "you/reply": 1_500_000,
+        "none/none": 15_000,
+    }
     top = r.slowest_tools[0]
     assert top.row == wire.RowRef("tool", SLOW_BASH)
     assert (top.time_prov, top.max_silence_ms, top.dur_ms, top.command_key) == (
@@ -97,16 +105,18 @@ def test_slow_split_sums_to_wall(qstore):
     scope = Scope(show_automated=True)
     r = U.project_slow(scope, n=100, db=qstore)
     assert r.current.n_sessions == 13
-    assert sum(asdict(r.current.time_split).values()) == r.current.wall_ms
-    assert sum(asdict(r.current.none_split).values()) <= r.current.wall_ms
+    assert sum(parts(r.current.time_split).values()) == r.current.wall_ms
     # each session row sums to its wall and the block is the sum of the rows
     for s in r.sessions:
-        assert sum(asdict(s.time_split).values()) == s.wall_ms
+        assert sum(parts(s.time_split).values()) == s.wall_ms
     assert sum(s.wall_ms for s in r.sessions) == r.current.wall_ms
-    # none_split labels cover exactly the session's `none_ms` (QRY-29): compare with session_detail
-    detail_none = [session_detail(s.session, db=qstore).session.none_split for s in r.sessions]
-    for f in ("you", "agentmsg", "limit", "none"):
-        assert getattr(r.current.none_split, f) == sum(getattr(d, f) for d in detail_none)
+    # the block's parts are the sessions' parts (QRY-29), per (state, substate)
+    want: dict[str, int] = {}
+    for s in r.sessions:
+        for part, value in parts(session_detail(s.session, db=qstore).session.time_split).items():
+            want[part] = want.get(part, 0) + value
+    assert parts(r.current.time_split) == want
+    assert not hasattr(r.current, "none_split")
 
 
 def test_slow_previous_period_same_length(qstore):
@@ -130,9 +140,15 @@ def test_slow_previous_null_all_time_or_no_compare(qstore):
     assert U.project_slow(SLOW, db=qstore).previous is not None
 
 
-def test_slow_waits_on_user_excluded_and_counted(qstore):
+def test_slow_user_waits_excluded_and_counted(qstore):
     r = U.project_slow(SLOW, n=100, db=qstore)
-    assert r.waits_on_user == wire.WaitsOnUser(n=1, dur_ms=900_000)
+    assert r.user_waits == wire.UserWaits(
+        ask=wire.UserWaitCount(1, 900_000), permission=wire.UserWaitCount(0, 0)
+    )
+    # the store-wide count adds the forecaster's 4 min permission wait (an agent's Bash call)
+    everything = U.project_slow(Scope(show_automated=True), n=100, db=qstore)
+    assert everything.user_waits.permission == wire.UserWaitCount(1, 240_000)
+    assert AGENT_PERMISSION not in [t.row.id for t in everything.slowest_tools]
     assert ASK_USER not in [t.row.id for t in r.slowest_tools]
     assert "AskUserQuestion" not in [g.tool_name for g in r.tools]
     # the group totals still hold the other call: 2 tool_calls in the sessions, 1 waits on the user
@@ -145,7 +161,7 @@ def test_slow_tool_groups_percentiles_nearest_rank(qstore):
     for o in rows(
         qstore,
         "SELECT tool_name, command_key, dur_ms FROM ops WHERE kind = 'tool_call' AND duplicate_of IS NULL "
-        "AND waits_on_user IS NOT 1",
+        "AND user_wait IS NULL",
     ):
         raw[(o["tool_name"], o["command_key"])].append(o["dur_ms"])
     assert {(g.tool_name, g.command_key) for g in r.tools} == set(raw)
@@ -204,7 +220,7 @@ def test_breakdown_equals_composed_views(qstore, session):
     assert (s.cost.cost_usd, s.cost.cost_lower_bound, s.cost.n_unpriced) == (
         d.cost.cost_usd, d.cost.cost_lower_bound, d.cost.n_unpriced
     )  # fmt: skip
-    assert s.time_split == d.time_split and s.none_split == d.none_split
+    assert s.time_split == d.time_split
     assert b.models == d.models
     turns = [
         t

@@ -1,11 +1,12 @@
+import type { TimeSplit } from '../../api/types'
 import { fmt } from '../../lib/format'
 import { Duration } from '../../ui/figures'
 import { Money } from '../../ui/figures'
 import { Skeleton } from '../../ui/Skeleton'
 import { Tooltip } from '../../ui/Tooltip'
-import { costCaption, legendStates, runningSplit, type StateTotals } from './answers.logic'
+import { costCaption, legendStates, runningSplit, stateTotals, youBreakdown } from './answers.logic'
 import { SplitBar, type Segment } from './SplitBar'
-import { STATE_KEYS, STATES, stateFill, type StateKey } from './states'
+import { STATE_KEYS, STATES, SUBSTATE_WORDING, stateFill, type StateKey } from './states'
 
 export interface AnswersCost {
   cost_usd: number | null
@@ -18,7 +19,8 @@ export interface AnswersCost {
 interface AnswersProps {
   cost: AnswersCost | undefined
   wallMs: number | undefined
-  totals: StateTotals | undefined
+  /** The DM-51 / DM-53 parts; the seven totals and the `you` substates come from them. */
+  split: TimeSplit | undefined
   /** SES-13: false inside a brushed range, where the agents part counts calls that started in the range. */
   causal?: boolean
   /** A caveat shown as a tooltip on the cost figure (TRN-4, TRN-24: the zoomed cost does not equal the turn's total). */
@@ -29,11 +31,11 @@ interface AnswersProps {
 }
 
 /** SES-26 (R3 top 5 #1): where the money went, where the time went. Shared by the session header and the turn header. */
-export function Answers({ cost, wallMs, totals, causal = true, costNote, onJump, className = '' }: AnswersProps) {
+export function Answers({ cost, wallMs, split, causal = true, costNote, onJump, className = '' }: AnswersProps) {
   return (
     <div className={`grid grid-cols-[minmax(220px,1fr)_minmax(0,2.2fr)] gap-x-10 ${className}`}>
       <CostAnswer cost={cost} causal={causal} note={costNote} />
-      <TimeAnswer wallMs={wallMs} totals={totals} onJump={onJump} />
+      <TimeAnswer wallMs={wallMs} split={split} onJump={onJump} />
     </div>
   )
 }
@@ -92,8 +94,8 @@ function CostAnswer({ cost, causal, note }: { cost: AnswersCost | undefined; cau
   )
 }
 
-function TimeAnswer({ wallMs, totals, onJump }: { wallMs: number | undefined; totals: StateTotals | undefined; onJump?: (s: StateKey) => void }) {
-  if (wallMs === undefined || !totals) {
+function TimeAnswer({ wallMs, split, onJump }: { wallMs: number | undefined; split: TimeSplit | undefined; onJump?: (s: StateKey) => void }) {
+  if (wallMs === undefined || !split) {
     return (
       <div aria-busy="true">
         <Skeleton width={220} height={36} />
@@ -102,6 +104,7 @@ function TimeAnswer({ wallMs, totals, onJump }: { wallMs: number | undefined; to
       </div>
     )
   }
+  const totals = stateTotals(split)
   const { running, nothing } = runningSplit(totals, wallMs)
   const segments: Segment[] = STATE_KEYS.map((k) => ({ key: k, value: totals[k], style: stateFill(k), title: `${STATES[k].label} ${fmt.dur(totals[k])}` }))
   return (
@@ -116,7 +119,7 @@ function TimeAnswer({ wallMs, totals, onJump }: { wallMs: number | undefined; to
       <SplitBar segments={segments} label="Time split over seven states" />
       <div className="flex flex-wrap gap-x-5 gap-y-1">
         {legendStates(totals).map((k) => (
-          <Tooltip key={k} content={`Go to the longest stretch of: ${STATES[k].label}`}>
+          <Tooltip key={k} content={legendTip(k, split)}>
             <button
               type="button"
               disabled={!onJump}
@@ -131,5 +134,21 @@ function TimeAnswer({ wallMs, totals, onJump }: { wallMs: number | undefined; to
         ))}
       </div>
     </div>
+  )
+}
+
+/** SES-27 tooltip; SES-15: the `you` item lists its substates with their durations. */
+function legendTip(k: StateKey, split: TimeSplit): React.ReactNode {
+  const go = `Go to the longest stretch of: ${STATES[k].label}`
+  if (k !== 'you') return go
+  return (
+    <>
+      {go}
+      {youBreakdown(split).map((r) => (
+        <span key={r.substate} className="block">
+          {SUBSTATE_WORDING[r.substate]} <span className="fig">{fmt.dur(r.ms)}</span>
+        </span>
+      ))}
+    </>
   )
 }

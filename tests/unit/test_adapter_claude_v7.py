@@ -1,5 +1,5 @@
 """Claude adapter, v7 capture (B2a): turn kind and origin (DM-20), slash and message labels (DM-21, DM-23),
-titles (DM-10), entrypoint (DM-26), slash event step ids (DM-30), AskUserQuestion and ts_list (DM-40),
+titles (DM-10), entrypoint (DM-26), slash event step ids (DM-30), user_wait and ts_list (DM-40, D54),
 and content references (DM-7). Every record is synthetic and written to tmp_path."""
 
 from __future__ import annotations
@@ -304,10 +304,10 @@ def test_slash_event_without_step_has_null_step_id(tmp_path):
     assert event.op_id == main_turns(b)[0].op_id
 
 
-# ---- DM-40: waits_on_user and ts_list ----------------------------------------
+# ---- DM-40 [D54]: user_wait and ts_list ----------------------------------------
 
 
-def test_ask_user_question_waits_on_user(tmp_path):
+def test_ask_user_question_is_user_wait_ask(tmp_path):
     rows = [
         user("u"),
         assistant(
@@ -323,8 +323,55 @@ def test_ask_user_question_waits_on_user(tmp_path):
     ]
     b = build(tmp_path, rows)
     by_name = {o.tool_name: o for o in ops(b, "tool_call")}
-    assert by_name["AskUserQuestion"].waits_on_user is True
-    assert by_name["Bash"].waits_on_user is None
+    assert by_name["AskUserQuestion"].user_wait == "ask"
+    assert by_name["Bash"].user_wait is None
+
+
+def _user_waits(tmp_path, result_row):
+    rows = [user("u"), assistant("r1", 1, content=[tool("b", "Bash", command="ls")]), result_row]
+    (op,) = ops(build(tmp_path, rows), "tool_call")
+    return op.user_wait
+
+
+def test_permission_decision_user_source_is_permission(tmp_path):
+    decision = {"decision": "accept", "source": "user_temporary"}
+    assert _user_waits(tmp_path, result("b", 30, permissionDecision=decision)) == "permission"
+    decision = {"decision": "reject", "source": "user_reject"}
+    assert _user_waits(tmp_path, result("b", 30, permissionDecision=decision)) == "permission"
+
+
+def test_permission_decision_config_source_is_not_a_wait(tmp_path):
+    decision = {"decision": "reject", "source": "config"}
+    assert _user_waits(tmp_path, result("b", 30, permissionDecision=decision)) is None
+
+
+def test_permission_decision_unseen_source_is_not_a_wait(tmp_path):
+    # DM-40: a source that is neither `user*` nor `config` leaves user_wait NULL (known values pinned here)
+    decision = {"decision": "accept", "source": "classifier"}
+    assert _user_waits(tmp_path, result("b", 30, permissionDecision=decision)) is None
+    assert _user_waits(tmp_path, result("b", 30, permissionDecision="odd")) is None
+
+
+def test_rejection_text_without_decision_is_permission(tmp_path):
+    text = "  The user doesn't want to proceed with this tool use. The tool use was rejected."
+    assert _user_waits(tmp_path, result("b", 30, content=text)) == "permission"
+    block = [{"type": "text", "text": text}]
+    assert _user_waits(tmp_path, result("b", 30, content=block)) == "permission"
+
+
+def test_ask_beats_rejection_text_and_decision(tmp_path):
+    rows = [
+        user("u"),
+        assistant("r1", 1, content=[tool("q", "AskUserQuestion", questions=[])]),
+        result("q", 30, content="The user doesn't want to proceed", permissionDecision={"source": "user"}),
+    ]
+    (op,) = ops(build(tmp_path, rows), "tool_call")
+    assert op.user_wait == "ask"
+
+
+def test_ordinary_result_text_is_not_a_wait(tmp_path):
+    assert _user_waits(tmp_path, result("b", 30, content="done")) is None
+    assert _user_waits(tmp_path, result("b", 30, content="note: The user doesn't want to proceed")) is None
 
 
 def test_ts_list_sorted_all_timestamped_records(tmp_path):

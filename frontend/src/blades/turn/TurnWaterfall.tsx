@@ -152,7 +152,7 @@ export function TurnWaterfall(p: TurnWaterfallProps) {
               <b className="fig shrink-0 font-medium text-ink1">{g.dur}</b>
               <span className="truncate text-ink2">{g.label}</span>
             </>
-          ), bar(stateFill(gapState(r.label)), g.label), <span className="fig text-ink2">{g.dur}</span>, { cursor, onClick: open, className: 'bg-l2', title: `${g.dur} ${g.label}, ${g.reason}` })
+          ), bar(stateFill(gapState(r)), g.label), <span className="fig text-ink2">{g.dur}</span>, { cursor, onClick: open, className: 'bg-l2', title: `${g.dur} ${g.label}, ${g.reason}` })
         }
       }
     },

@@ -1,13 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import { fixtures } from '../../api/__fixtures__'
 import type { TurnRow } from '../../api/types'
+import { gapKind } from '../shared/states'
 import { gap, turn } from './testRows'
 import {
   buildEntries, cursorStops, displayIx, foldCost, foldLabels, foldTitle, gapBarPct, initialCursor, kindsVary, listColumns, listHead,
   maxGap, maxMeasure, measureValue, moveCursor, orderItems, revealInBox, scrollTarget, tokensText, turnFlags, waitingShown, withinOneDay,
 } from './turnList.logic'
 
-const types = (items: ReturnType<typeof buildEntries>) => items.map((e) => (e.type === 'turn' ? `T${e.ix}` : e.type === 'gap' ? `gap:${e.gap.label}` : `fold:${e.rows.length}`))
+const types = (items: ReturnType<typeof buildEntries>) => items.map((e) => (e.type === 'turn' ? `T${e.ix}` : e.type === 'gap' ? `gap:${gapKind(e.gap)}` : `fold:${e.rows.length}`))
 
 describe('displayIx', () => {
   it('reads the number from T<n>', () => {
@@ -20,7 +21,7 @@ describe('displayIx', () => {
 describe('buildEntries order (SES-36)', () => {
   it('lists turns, gaps and folds in time order whatever order the wire gives', () => {
     const a = turn(1)
-    const g = gap(1_200_000, 300_000, { turn: a.turn, label: 'you' }) // ends at 1_500_000, where turn 2 starts
+    const g = gap(1_200_000, 300_000, { turn: a.turn, state: 'you', substate: 'reply' }) // ends at 1_500_000, where turn 2 starts
     const b = turn(2, { start_ms: 1_500_000, end_ms: 1_600_000 })
     expect(types(buildEntries([b, g, a]))).toEqual(['T1', 'gap:you', 'T2'])
   })
@@ -79,14 +80,14 @@ describe('harness folds (SES-35)', () => {
 describe('gap rows (SES-36, SES-19)', () => {
   it('keeps none-state stretches of 2 min or more and drops agents-only and shorter ones', () => {
     const items = [
-      turn(1, { start_ms: 0, end_ms: 100_000 }), gap(200_000, 120_000), gap(400_000, 119_999), gap(600_000, 300_000, { state: 'agents', label: 'agents' }), turn(2, { start_ms: 900_000, end_ms: 950_000 }),
+      turn(1, { start_ms: 0, end_ms: 100_000 }), gap(200_000, 120_000), gap(400_000, 119_999), gap(600_000, 300_000, { state: 'agents', substate: null }), turn(2, { start_ms: 900_000, end_ms: 950_000 }),
     ]
     expect(types(buildEntries(items))).toEqual(['T1', 'gap:you', 'T2'])
   })
 
   it('resolves the turn a gap belongs to and builds its reason', () => {
     const t1 = turn(1)
-    const g = gap(150_000, 200_000, { turn: t1.turn, label: 'before_first' })
+    const g = gap(150_000, 200_000, { turn: t1.turn, state: 'none', substate: 'before_first' })
     const entries = buildEntries([g, t1])
     const e = entries[0]
     if (e.type !== 'gap') throw new Error('gap expected')
@@ -97,7 +98,7 @@ describe('gap rows (SES-36, SES-19)', () => {
 
   it('"before its first message" when the first numbered turn is not a human turn', () => {
     const t1 = turn(1, { kind: 'message', origin: 'peer' })
-    const e = buildEntries([gap(0, 200_000, { label: 'before_first' }), t1])[0]
+    const e = buildEntries([gap(0, 200_000, { state: 'none', substate: 'before_first' }), t1])[0]
     if (e.type !== 'gap') throw new Error('gap expected')
     expect(e.reason).toBe('the session was open before its first message')
   })

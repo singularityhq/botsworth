@@ -2,7 +2,7 @@
 
 import dataclasses
 
-from store_builders import T0, B, put, row, store
+from store_builders import T0, B, put, row, split_rows, store
 from stream_load import load_streams
 
 from botsworth import stream
@@ -27,7 +27,7 @@ def _split_session(sid="a", **kw):
 
 def _stretches(conn):
     return [
-        (r["turn_op"], r["state"], r["start_ms"] - T0, r["end_ms"] - T0, r["next_turn_kind"])
+        (r["turn_op"], r["state"], r["substate"], r["start_ms"] - T0, r["end_ms"] - T0)
         for r in conn.execute(
             "SELECT o.op_id AS turn_op, s.* FROM stretches s LEFT JOIN ops o ON o.rowid = s.turn_rowid"
             " ORDER BY s.start_ms"
@@ -35,28 +35,89 @@ def _stretches(conn):
     ]
 
 
+def _rows(conn, op_id, scope):
+    return split_rows(conn, row(conn, op_id)["rowid"], scope)
+
+
+def _session_rows(conn, session_id="a"):
+    rowid = conn.execute("SELECT op_rowid FROM sessions WHERE session_id=?", (session_id,)).fetchone()[0]
+    return split_rows(conn, rowid, "session")
+
+
 def test_columns_written_on_load(tmp_path):
     conn = store(tmp_path)
     put(conn, _split_session())
     s = conn.execute("SELECT * FROM sessions").fetchone()
-    assert (s["model_ms"], s["tool_ms"], s["agents_ms"], s["none_ms"]) == (15 * M, 5 * M, 10 * M, 40 * M)
-    assert s["model_ms"] + s["tool_ms"] + s["agents_ms"] + s["none_ms"] == s["wall_ms"] == 70 * M
-    t1, t2 = row(conn, "claude_code/a/turn/t1"), row(conn, "claude_code/a/turn/t2")
+    assert _session_rows(conn) == {
+        ("model", None): 15 * M,
+        ("tool", None): 5 * M,
+        ("agents", None): 10 * M,
+        ("you", "reply"): 35 * M,  # 25-60: idle, ends where the human turn t2 starts
+        ("none", "none"): 5 * M,  # 65-70: idle at the session's end
+    }
+    assert sum(_session_rows(conn).values()) == s["wall_ms"] == 70 * M
+    t1, t2 = "claude_code/a/turn/t1", "claude_code/a/turn/t2"
     # DM-53: span figures over the turn's own bounds; DM-51: windows run to the next main turn
-    assert (t1["span_wall_ms"], t1["span_model_ms"], t1["span_tool_ms"]) == (30 * M, 10 * M, 5 * M)
-    assert (t1["span_agents_ms"], t1["span_none_ms"]) == (10 * M, 5 * M)
-    assert (t1["model_ms"], t1["tool_ms"], t1["agents_ms"], t1["none_ms"]) == (10 * M, 5 * M, 10 * M, 35 * M)
-    assert (t2["span_wall_ms"], t2["span_model_ms"], t2["span_none_ms"]) == (10 * M, 5 * M, 5 * M)
-    assert (t2["model_ms"], t2["none_ms"]) == (5 * M, 5 * M)
+    assert row(conn, t1)["span_wall_ms"] == 30 * M
+    assert _rows(conn, t1, "span") == {
+        ("model", None): 10 * M,
+        ("tool", None): 5 * M,
+        ("agents", None): 10 * M,
+        ("you", "reply"): 5 * M,
+    }
+    assert _rows(conn, t1, "window") == {
+        ("model", None): 10 * M,
+        ("tool", None): 5 * M,
+        ("agents", None): 10 * M,
+        ("you", "reply"): 35 * M,
+    }
+    assert row(conn, t2)["span_wall_ms"] == 10 * M
+    assert _rows(conn, t2, "span") == {("model", None): 5 * M, ("none", "none"): 5 * M}
+    assert _rows(conn, t2, "window") == {("model", None): 5 * M, ("none", "none"): 5 * M}
     # DM-52
     assert _stretches(conn) == [
-        ("claude_code/a/turn/t1", "agents", 15 * M, 25 * M, None),
-        ("claude_code/a/turn/t1", "none", 25 * M, 60 * M, "human"),
-        ("claude_code/a/turn/t2", "none", 65 * M, 70 * M, None),
+        (t1, "agents", None, 15 * M, 25 * M),
+        (t1, "you", "reply", 25 * M, 60 * M),
+        (t2, "none", "none", 65 * M, 70 * M),
     ]
-    # time columns exist on main turns only
+    # span_wall_ms exists on main turns only; time_split rows hang on the session op and main turns
     assert row(conn, "claude_code/a/llm_call/l1")["span_wall_ms"] is None
-    assert row(conn, "claude_code/a/engagement/e1")["model_ms"] is None
+    ops = {r[0] for r in conn.execute("SELECT DISTINCT op_rowid FROM time_split")}
+    assert ops == {row(conn, x)["rowid"] for x in (t1, t2, "claude_code/a/session/-")}
+    assert not conn.execute("SELECT 1 FROM time_split WHERE ms <= 0").fetchone()  # 0-ms rows are not stored
+
+
+def test_user_wait_ask_is_you_ask_in_session_window_and_span(tmp_path):
+    # DM-50 rule 4, DM-53 test: a turn 0-30 with a 12 min ask and 18 min model -> span you/ask 12
+    b = B("a", start=0, end=30 * M)
+    t = b.turn("t", start=0, end=30 * M, turn_kind="human")
+    b.llm("l", t, 12 * M, 30 * M, occ="a:l")
+    b.tool("ask", t, 0, 12 * M, tool_name="AskUserQuestion", user_wait="ask", occ="a:ask")
+    conn = store(tmp_path)
+    put(conn, b)
+    want = {("you", "ask"): 12 * M, ("model", None): 18 * M}
+    assert _session_rows(conn) == want
+    assert _rows(conn, "claude_code/a/turn/t", "span") == want
+    assert _rows(conn, "claude_code/a/turn/t", "window") == want
+    assert row(conn, "claude_code/a/tool_call/ask")["user_wait"] == "ask"
+    assert _stretches(conn) == []  # a main-thread wait is a tool row, not a stretch
+
+
+def test_agent_permission_wait_is_a_you_permission_stretch(tmp_path):
+    b = B("a", start=0, end=20 * M)
+    t = b.turn("t", start=0, end=20 * M, turn_kind="human")
+    b.llm("l", t, 0, 5 * M, occ="a:l")
+    spawn = b.tool("spawn", t, 5 * M, 6 * M, tool_name="Agent", occ="a:spawn")
+    eng = b.engagement("e", spawn, "ag", start=6 * M, end=20 * M)
+    b.tool("sh", eng, 6 * M, 10 * M, agent="ag", tool_name="Bash", user_wait="permission", occ="a:sh")
+    b.llm("al", eng, 10 * M, 20 * M, agent="ag", occ="a:al")
+    conn = store(tmp_path)
+    put(conn, b)
+    assert _session_rows(conn)[("you", "permission")] == 4 * M
+    assert _stretches(conn) == [
+        ("claude_code/a/turn/t", "you", "permission", 6 * M, 10 * M),
+        ("claude_code/a/turn/t", "agents", None, 10 * M, 20 * M),
+    ]
 
 
 def test_turn_keeps_stream_bounds_and_span_excludes_agent_tail(tmp_path):
@@ -71,10 +132,10 @@ def test_turn_keeps_stream_bounds_and_span_excludes_agent_tail(tmp_path):
     put(conn, b)
     turn = row(conn, "claude_code/a/turn/t")
     assert turn["end_ms"] == T0 + 20 * M and turn["span_wall_ms"] == 20 * M
-    assert turn["span_model_ms"] == 20 * M and turn["span_agents_ms"] == 0
+    assert _rows(conn, "claude_code/a/turn/t", "span") == {("model", None): 20 * M}
     s = conn.execute("SELECT * FROM sessions").fetchone()
     assert s["last_ms"] == T0 + 30 * M
-    assert s["agents_ms"] == 10 * M and s["model_ms"] == 20 * M
+    assert _session_rows(conn) == {("model", None): 20 * M, ("agents", None): 10 * M}
 
 
 def test_load_and_refold_same_wall_ms(tmp_path):
@@ -87,15 +148,20 @@ def test_load_and_refold_same_wall_ms(tmp_path):
     b.llm("a2", eng, 20 * M, 25 * M, agent="ag", occ="a2")
     conn = store(tmp_path)
     put(conn, b)
-    q = "SELECT op_id, wall_ms, model_ms, agents_ms, none_ms FROM ops ORDER BY op_id"
-    s_q = "SELECT wall_ms, model_ms, tool_ms, agents_ms, none_ms FROM sessions"
+    q = "SELECT op_id, wall_ms FROM ops ORDER BY op_id"
+    everything = (
+        "SELECT root_rowid, op_rowid, scope, state, substate, ms FROM time_split ORDER BY 1, 2, 3, 4, 5"
+    )
     before = [tuple(r) for r in conn.execute(q)]
-    s_before = tuple(conn.execute(s_q).fetchone())
+    split_before = [tuple(r) for r in conn.execute(everything)]
+    stretches_before = _stretches(conn)
+    wall = conn.execute("SELECT wall_ms FROM sessions").fetchone()[0]
     with load.write_txn(conn):
         load.refold(conn, "claude_code/a")
     assert [tuple(r) for r in conn.execute(q)] == before
-    assert tuple(conn.execute(s_q).fetchone()) == s_before
-    assert s_before[0] == sum(s_before[1:])
+    assert [tuple(r) for r in conn.execute(everything)] == split_before
+    assert _stretches(conn) == stretches_before
+    assert sum(_session_rows(conn).values()) == wall
 
 
 def test_refold_after_ownership_flip_recomputes_split(tmp_path):
@@ -105,20 +171,14 @@ def test_refold_after_ownership_flip_recomputes_split(tmp_path):
     later.llm("c1x", t, 0, 4 * M, occ="c1")
     conn = store(tmp_path)
     put(conn, later)
-    z = "SELECT model_ms, none_ms FROM sessions WHERE session_id='z'"
-    assert tuple(conn.execute(z).fetchone()) == (4 * M, 6 * M)
+    assert _session_rows(conn, "z") == {("model", None): 4 * M, ("none", "none"): 6 * M}
     first = B("a", start=0, end=10 * M, first_line_ms=T0)
     ft = first.turn("t", start=0, end=10 * M, turn_kind="human")
     first.llm("c1", ft, 0, 4 * M, occ="c1")
     assert put(conn, first)[0].refolded == ["claude_code/z"]
-    assert tuple(conn.execute(z).fetchone()) == (0, 10 * M)
-    turn = row(conn, t)
-    assert (turn["model_ms"], turn["none_ms"], turn["span_model_ms"], turn["span_none_ms"]) == (
-        0,
-        10 * M,
-        0,
-        10 * M,
-    )
+    assert _session_rows(conn, "z") == {("none", "none"): 10 * M}
+    assert _rows(conn, t, "window") == {("none", "none"): 10 * M}
+    assert _rows(conn, t, "span") == {("none", "none"): 10 * M}
     assert [
         r[0]
         for r in conn.execute(
@@ -127,26 +187,30 @@ def test_refold_after_ownership_flip_recomputes_split(tmp_path):
     ] == ["none"]
 
 
-def test_stretches_replaced_on_reload(tmp_path):
+def test_stretches_and_time_split_replaced_on_reload(tmp_path):
     conn = store(tmp_path)
     other = _split_session("o")
     put(conn, other)
     n_other = conn.execute("SELECT count(*) FROM stretches").fetchone()[0]
+    n_split_other = conn.execute("SELECT count(*) FROM time_split").fetchone()[0]
     b = B("a", start=0, end=40 * M)
     t = b.turn("t", start=0, end=40 * M, turn_kind="human")
     b.llm("l", t, 0, M, occ="a:l")
     put(conn, b)
     mine = (
-        "SELECT start_ms - ?, end_ms - ?, state FROM stretches s JOIN sessions z ON z.rowid=s.root_rowid"
-        " WHERE z.session_id='a'"
+        "SELECT start_ms - ?, end_ms - ?, state, substate FROM stretches s"
+        " JOIN sessions z ON z.rowid=s.root_rowid WHERE z.session_id='a'"
     )
-    assert [tuple(r) for r in conn.execute(mine, (T0, T0))] == [(M, 40 * M, "none")]
+    assert [tuple(r) for r in conn.execute(mine, (T0, T0))] == [(M, 40 * M, "none", "none")]
     b2 = B("a", start=0, end=40 * M)
     t = b2.turn("t", start=0, end=40 * M, turn_kind="human")
     b2.llm("l", t, 0, 40 * M, occ="a:l")  # the gap is now covered
     put(conn, b2)
     assert conn.execute(mine, (T0, T0)).fetchall() == []
     assert conn.execute("SELECT count(*) FROM stretches").fetchone()[0] == n_other
+    assert _session_rows(conn) == {("model", None): 40 * M}
+    # the other session's rows are untouched, and a's old rows are gone (session + window + span = 3 rows)
+    assert conn.execute("SELECT count(*) FROM time_split").fetchone()[0] == n_split_other + 3
 
 
 def _bundle_with_stamps(sid, stamps):

@@ -10,7 +10,7 @@ GUARANTEES:
   provenance. `is_link_basis` and `is_outcome` cover the two open-ended forms
   (`<basis>+cycle`, `exit:<n>`).
 - `OWN_METRIC_FIELDS` lists the fields only leaf ops may set (invariant 2).
-- v7 fields (data-model.md §2.2, §3): `Op.turn_kind`/`turn_origin` (turn only), `Op.waits_on_user`
+- v7 fields (data-model.md §2.2, §3): `Op.turn_kind`/`turn_origin` (turn only), `Op.user_wait`
   (tool_call only), `Op.title_source`/`entrypoint`/`originator` (session only, in
   `SESSION_ONLY_FIELDS`), `SourceFile.ts_list` (sorted epoch ms, stream only, DM-13). `TurnKind` and
   `AdapterTitleSource` name the closed values; `PREVIEW_MAX` is the stored-preview cap (DM-9).
@@ -129,6 +129,13 @@ _EXIT = re.compile(r"exit:-?\d+")
 
 def is_outcome(value: str) -> bool:
     return value in Outcome.__members__.values() or _EXIT.fullmatch(value) is not None
+
+
+class UserWait(StrEnum):
+    """DM-40 [D54]: why a tool_call waited on the user."""
+
+    ASK = "ask"
+    PERMISSION = "permission"
 
 
 class TurnKind(StrEnum):
@@ -272,7 +279,7 @@ class Op:
     originator: str | None = None  # DM-26 session only
     turn_kind: str | None = None  # DM-20 turn only: TurnKind
     turn_origin: str | None = None  # DM-20 turn only
-    waits_on_user: bool | None = None  # DM-40 tool_call only
+    user_wait: str | None = None  # DM-40, D54 tool_call only: "ask" | "permission" (enum UserWait)
     segments: list[list[int]] | None = None  # D19: [[start_ms, end_ms], ...]; containers only
 
 

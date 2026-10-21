@@ -97,7 +97,12 @@ describe('SessionBlade with the F1a fixtures', () => {
   it('a legend click opens the turn that holds the longest stretch and toasts it', async () => {
     // The fixture's two waits tie at 30 s and only four states fit; make the limit the larger so it is listed.
     const detail = structuredClone(fixtures.sessionDetail)
-    detail.session.none_split = { you: 20000, agentmsg: 0, limit: 40000, none: 0 }
+    detail.session.time_split = {
+      parts: [
+        { state: 'model', substate: null, ms: 120000 }, { state: 'tool', substate: null, ms: 45000 }, { state: 'agents', substate: null, ms: 300000 },
+        { state: 'you', substate: 'reply', ms: 20000 }, { state: 'limit', substate: null, ms: 40000 },
+      ],
+    }
     serve({ detail: reply(200, detail) })
     mount(`s=${encodeURIComponent(S)}`)
     const btn = await screen.findByRole('button', { name: /^usage limit/ })

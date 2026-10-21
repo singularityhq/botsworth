@@ -104,14 +104,16 @@ describe('longestInTurn (TRN-4 legend jump)', () => {
   it('finds the longest main-thread call and tool, and the longest gap of each state', () => {
     const rows = [
       call('a', { dur_ms: 3000 }), call('b', { dur_ms: 9000, sec: 10 }), call('inner', { dur_ms: 99_000, depth: 1, sec: 11 }),
-      tool('t1', { dur_ms: 4000, sec: 20 }), tool('w', { dur_ms: 900_000, waits_on_user: true, sec: 30 }),
-      gap(100, 200, { label: 'you' }), gap(400, 400, { label: 'you' }), gap(900, 100), gap(1100, 300, { state: 'agents', label: 'agents' }),
+      tool('t1', { dur_ms: 4000, sec: 20 }), tool('w', { dur_ms: 900_000, user_wait: 'ask', sec: 30 }),
+      gap(100, 200, { state: 'you', substate: 'reply' }), gap(400, 400, { state: 'you', substate: 'reply' }), gap(900, 100), gap(1100, 300, { state: 'agents', substate: null }),
     ]
     const l = longestInTurn(rows, 'T')
     expect(l.model).toMatchObject({ dur_ms: 9000, turn: 'T' })
     expect(l.model!.row.id.endsWith('llm/b')).toBe(true)
     expect(l.tool!.dur_ms).toBe(4000)
-    expect(l.you!.dur_ms).toBe(400_000)
+    expect(l.you!.dur_ms).toBe(900_000) // the AskUserQuestion row outlasts the 400 s gap
+    expect(l.you!.row.type).toBe('tool')
+    expect(l.tool!.dur_ms).toBe(4000)
     expect(l.agents!.dur_ms).toBe(300_000)
     expect(l.none).toBeNull() // 100 s is under 2 min
     expect(l.limit).toBeNull()

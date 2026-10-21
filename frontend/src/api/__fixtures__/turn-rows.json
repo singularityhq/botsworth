@@ -20,10 +20,28 @@
     "end_ms": 1791790500000,
     "wall_ms": 300000,
     "time_split": {
-      "model_ms": 120000,
-      "tool_ms": 45000,
-      "agents_ms": 300000,
-      "none_ms": 60000
+      "parts": [
+        {
+          "state": "model",
+          "substate": null,
+          "ms": 120000
+        },
+        {
+          "state": "tool",
+          "substate": null,
+          "ms": 45000
+        },
+        {
+          "state": "agents",
+          "substate": null,
+          "ms": 300000
+        },
+        {
+          "state": "none",
+          "substate": "none",
+          "ms": 60000
+        }
+      ]
     },
     "waiting_ms": 360000,
     "cost_main": 1.0,
@@ -127,10 +145,10 @@
       "interrupted": false,
       "skill_load": null,
       "skill_via": null,
-      "waits_on_user": false,
       "max_silence_ms": null,
       "result_bytes": 11000,
-      "src": "src://claude_code/projects/-Users-a-bizdemo/a11ce5e5.jsonl#L120"
+      "src": "src://claude_code/projects/-Users-a-bizdemo/a11ce5e5.jsonl#L120",
+      "user_wait": null
     },
     {
       "type": "gap",
@@ -139,10 +157,10 @@
       "end_ms": 1791790250000,
       "dur_ms": 10000,
       "state": "none",
-      "label": "none",
       "turn": null,
       "next_turn": null,
-      "running": []
+      "running": [],
+      "substate": "none"
     },
     {
       "type": "agent",

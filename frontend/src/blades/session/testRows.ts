@@ -1,7 +1,7 @@
 import type { GapRow, TurnRow } from '../../api/types'
 
 // Builders for tests: a TurnRow or GapRow with sensible defaults. Test-only; the product never imports this file.
-const NO_SPLIT = { model_ms: 0, tool_ms: 0, agents_ms: 0, none_ms: 0 }
+const NO_SPLIT = { parts: [] }
 
 export function turn(n: number | null, o: Partial<TurnRow> = {}): TurnRow {
   return {
@@ -15,6 +15,6 @@ export function turn(n: number | null, o: Partial<TurnRow> = {}): TurnRow {
 
 export function gap(start: number, dur: number, o: Partial<GapRow> = {}): GapRow {
   return {
-    type: 'gap', id: `gap-${start}`, start_ms: start, end_ms: start + dur, dur_ms: dur, state: 'none', label: 'you', turn: null, next_turn: null, running: [], ...o,
+    type: 'gap', id: `gap-${start}`, start_ms: start, end_ms: start + dur, dur_ms: dur, state: 'you', substate: 'reply', turn: null, next_turn: null, running: [], ...o,
   }
 }

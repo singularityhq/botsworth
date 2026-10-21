@@ -2,7 +2,7 @@ import { Duration } from '../../ui/figures'
 import { Icon } from '../../ui/Icon'
 import { FigureCell, Row } from '../../ui/Row'
 import { fmt } from '../../lib/format'
-import { GAP_GLYPH, GAP_LABEL, stateFill } from '../shared/states'
+import { GAP_GLYPH, GAP_LABEL, gapKind, stateFill } from '../shared/states'
 import { gapBarPct, GRID_GAP, GRID_PAD, type ColumnId, type ListEntry } from './turnList.logic'
 import { WhenStack, type RowShared } from './TurnRow'
 
@@ -19,7 +19,7 @@ interface GapRowProps extends RowShared {
 export function GapRowView({ entry, prevStartMs, maxMs, onOpen, tz, singleDay, columns }: GapRowProps) {
   const g = entry.gap
   const has = (id: ColumnId) => columns.ids.includes(id)
-  const text = `${fmt.dur(g.dur_ms)} ${GAP_LABEL[g.label]}, ${entry.reason}`
+  const text = `${fmt.dur(g.dur_ms)} ${GAP_LABEL[gapKind(g)]}, ${entry.reason}`
   return (
     <Row
       columns={columns.template}
@@ -32,11 +32,11 @@ export function GapRowView({ entry, prevStartMs, maxMs, onOpen, tz, singleDay, c
       style={{ columnGap: GRID_GAP, padding: GRID_PAD }}
     >
       <WhenStack startMs={g.start_ms} prevStartMs={prevStartMs} tz={tz} singleDay={singleDay} />
-      {has('kind') ? <Icon name={GAP_GLYPH[g.label]} tone="quiet" /> : null}
+      {has('kind') ? <Icon name={GAP_GLYPH[gapKind(g)]} tone="quiet" /> : null}
       {/* The flags slot is empty on a gap row, so the name runs across it (more room for the reason). */}
       <span className="flex min-w-0 items-baseline gap-2 whitespace-nowrap" style={has('flags') ? { gridColumn: 'span 2' } : undefined}>
         <b className="fig font-medium text-ink1">{fmt.dur(g.dur_ms)}</b>
-        <span className="shrink-0 text-ink2">{GAP_LABEL[g.label]}</span>
+        <span className="shrink-0 text-ink2">{GAP_LABEL[gapKind(g)]}</span>
         <span className="truncate text-ink3">{entry.reason}</span>
       </span>
       {has('bar') ? (

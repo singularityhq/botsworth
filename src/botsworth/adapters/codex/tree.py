@@ -43,7 +43,7 @@ GUARANTEES:
   (a range over the turn only when it has no `user_message`).
 - Tool_call `src` spans the call line to its result line with the json path of
   the call block (`payload.arguments|input|action`) and a hash over the range
-  (DM-7). `waits_on_user` is set on `request_user_input` (DM-40).
+  (DM-7). `user_wait` = `ask` on `request_user_input` (DM-40, D54; Codex records no approvals).
   `SourceFile.ts_list` = sorted timestamps of the file's records.
 - `occ_key` (provider-scoped): tool_call = `codex:call:<call_id>`; natural llm_call =
   `codex:response:<response_id>`; derived
@@ -492,7 +492,7 @@ class _Parser:
         n.hashed = True
         n.path = next((f"payload.{k}" for k in ("arguments", "input", "action") if k in p), None)
         if steps.base_name(name) == "request_user_input":
-            n.attrs["waits_on_user"] = True
+            n.attrs["user_wait"] = "ask"
         if pt in ("web_search_call", "image_generation_call"):
             n.attrs.update(end_ms=ts, time_prov=Prov.DERIVED)
         outcome0 = Outcome.OK if pt in ("web_search_call", "image_generation_call") else Outcome.UNKNOWN

@@ -28,19 +28,22 @@ from botsworth.cli.scope import cli_zone, resolve_projects, scope_args, to_scope
 from botsworth.query.views.usecases import BY, MEASURES
 
 _TIME_FIELDS = """\
-time_split: where the session wall went. Four states, each instant in exactly
-  one (no overlap), by priority: model_ms (a main-thread model call runs),
-  tool_ms (else a main-thread tool call runs), agents_ms (else an agent's call
-  or tool runs), none_ms (nothing runs). They sum to wall_ms (DM-51).
-none_split: none_ms by label: you (the stretch ends where a human turn starts),
-  agentmsg (ends at an agent or teammate message), limit (inferred usage
-  limit), none (all other stretches, and any stretch before the first
-  numbered turn: before_first). The four sum to none_ms.
+time_split: where the session wall went, as parts {state, substate, ms}. Each
+  instant is in exactly one part, by the first rule that matches: model (a
+  main-thread model call runs), tool (a main-thread tool call runs), agents
+  (an agent's call or tool runs), you/ask or you/permission (a call waits for
+  your answer or your approval; main-thread calls first), else nothing runs
+  and the next turn decides: you/reply (it is your message), limit (inferred
+  usage limit), agentmsg (an agent's message), none/before_first (before the
+  first numbered turn) or none/none. Parts sum to wall_ms (DM-50, DM-51).
 time_prov: how a tool duration was measured. derived = result time minus call
   time. It can include a permission or usage-limit wait, or a sleeping machine
   (DM-40). n_no_records counts calls with 5 min or more without any record.
-waits_on_user: calls of tools that ask the user (AskUserQuestion,
-  request_user_input, ask). They are left out of tools and slowest_tools."""
+user_waits: calls that waited on you: ask = tools that ask the user
+  (AskUserQuestion, request_user_input, ask); permission = Claude calls you
+  approved or rejected (approvals before Claude Code 2.1.293, and all Codex and
+  omp approvals, leave no record; a permission wait includes the run after the
+  approval). Each is {n, dur_ms}. They are left out of tools and slowest_tools."""
 _TIME_FORMAT = """\
 time: tz is the zone used (--tz). Each <x>_ms timestamp has an ISO sibling <x>; each duration has <x>_ms_h
   (45s, 12m 05s, 2h 15m, 3d 4h)."""
@@ -49,7 +52,7 @@ SLOW_EPILOG = (
     """\
 output fields:
   freshness, current, previous (same block for the prior period, or null),
-  sessions, tools, slowest_tools, waits_on_user, waits, models
+  sessions, tools, slowest_tools, user_waits, waits, models
 """
     + _TIME_FIELDS
     + _TIME_FORMAT

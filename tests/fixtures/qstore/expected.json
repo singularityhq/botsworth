@@ -1,5 +1,5 @@
 {
-  "_readme": "Hand-derived numbers for the QF fixture store (TST-1). Each value comes from the timeline in make.py and the spec rule named in its note, never from the code under test. Times are UTC ISO strings, durations ms, money USD. Keys marked b3 need the B3 fold (display_ix, attr_*, span_*, stretches, projects, local rollup_time, max_silence_ms, skill_load); the rest are stored by the loader today. Do not change a value to make a test pass: report both numbers.",
+  "_readme": "Hand-derived numbers for the QF fixture store (TST-1). Each value comes from the timeline in make.py and the spec rule named in its note, never from the code under test. Times are UTC ISO strings, durations ms, money USD. Keys marked b3 need the B3 fold (display_ix, attr_*, time_split, stretches, projects, local rollup_time, max_silence_ms, skill_load); the rest are stored by the loader today. Do not change a value to make a test pass: report both numbers.",
   "tz": "Asia/Kolkata",
   "store_total_owned_cost_usd": {
     "value": 22.75,
@@ -16,7 +16,7 @@
     "sskills": {"incl_cost_usd": 1.3, "n_llm_calls": 3, "wall_ms": 622000, "note": "08:00:00 to 08:10:22; 0.50 + 0.60 + 0.20"},
     "sslow1": {"incl_cost_usd": 1.0, "n_llm_calls": 2, "wall_ms": 3600000, "note": "CLI-20 scenario: wall 60 min"},
     "sslow2": {"incl_cost_usd": 0.5, "n_llm_calls": 2, "wall_ms": 1800000, "note": "CLI-20 scenario: wall 30 min"},
-    "sstretch": {"incl_cost_usd": 1.4, "n_llm_calls": 7, "wall_ms": 10085000, "note": "02:00:00 to 04:48:05 = 2h48m05s; six main calls of 0.10 and the agent call of 0.80"},
+    "sstretch": {"incl_cost_usd": 1.4, "n_llm_calls": 8, "wall_ms": 10085000, "note": "02:00:00 to 04:48:05 = 2h48m05s; six main calls of 0.10 and the two agent calls of 0.40 (D54: the agent call that waits for a permission splits the agent run in two)"},
     "stools": {"incl_cost_usd": 0.9, "n_llm_calls": 3, "wall_ms": 136000, "note": "05:00:00 to 05:02:16; the fork's copy does not change it"},
     "sunpriced": {"incl_cost_usd": 3.0, "n_llm_calls": 3, "wall_ms": 155000, "cost_lower_bound": 1, "tok_total": 360, "note": "QRY-11: 1.00 + null + 2.00; each call 100 in + 20 out"},
     "szero": {"incl_cost_usd": null, "n_llm_calls": 0, "wall_ms": 120000, "note": "case 4: turns only; cost is null, not 0 (QRY-11)"}
@@ -31,9 +31,9 @@
       "n_human_asks": 2,
       "display_ix": [1, 2],
       "stretches": [
-        {"state": "none", "start": "2026-10-06T17:01:00Z", "end": "2026-10-06T18:59:55Z", "turn": "main#0", "next_turn_kind": "human"}
+        {"state": "you", "substate": "reply", "start": "2026-10-06T17:01:00Z", "end": "2026-10-06T18:59:55Z", "turn": "main#0"}
       ],
-      "note": "DM-42, DM-41: call 1 starts 17:00Z = 22:30 IST on 6 Oct; call 2 starts 19:00Z = 00:30 IST on 7 Oct. Both are 6 Oct in UTC, so a UTC bucket would give one day row of 8.00. Day start 7 Oct IST = 2026-10-06T18:30Z. Hours are IST hours: 22:00 IST = 16:30Z, 00:00 IST = 18:30Z. Stretch: nothing runs 17:01:00 to 18:59:55 (the human ask of 7 Oct starts at 18:59:55); the 5 s before each call is under 60 s and gets no row."
+      "note": "DM-42, DM-41: call 1 starts 17:00Z = 22:30 IST on 6 Oct; call 2 starts 19:00Z = 00:30 IST on 7 Oct. Both are 6 Oct in UTC, so a UTC bucket would give one day row of 8.00. Day start 7 Oct IST = 2026-10-06T18:30Z. Hours are IST hours: 22:00 IST = 16:30Z, 00:00 IST = 18:30Z. Stretch: nothing runs 17:01:00 to 18:59:55 and the human ask of 7 Oct starts at 18:59:55, so the run is you/reply (DM-50 rule 5); the 5 s before each call is under 60 s and gets no row."
     }
   },
   "case_2_sauto": {
@@ -113,24 +113,24 @@
       "note": "DM-36 / D38 M12. Engagement walls: ra#0 09:01:00-09:05:30, rn#0 09:04:30-09:05:30, rb#0 09:02:30-09:12:30 (10 min), rb#1 10:02:30-10:07:30 (5 min, exactly one hour after rb#0), ra#1 10:00:00-10:01:15. The spawn call toolu_spawnB caused both rb engagements, so one row: runs 2, run_ms 15 min."
     },
     "b3_time": {
-      "session_split_ms": {"model": 30000, "tool": 4000, "agents": 1065000, "none": 2961000},
+      "session_split_ms": {"model": 30000, "tool": 4000, "agents": 1065000, "you/reply": 2250000, "none/none": 711000},
       "window_split_ms": {
-        "main#0": {"model": 10000, "tool": 2000, "agents": 690000, "none": 2298000},
-        "main#1": {"model": 20000, "tool": 2000, "agents": 375000, "none": 663000}
+        "main#0": {"model": 10000, "tool": 2000, "agents": 690000, "you/reply": 2250000, "none/none": 48000},
+        "main#1": {"model": 20000, "tool": 2000, "agents": 375000, "none/none": 663000}
       },
       "span_ms": {
-        "main#0": {"wall": 17000, "model": 10000, "tool": 2000, "agents": 0, "none": 5000},
-        "main#1": {"wall": 1060000, "model": 20000, "tool": 2000, "agents": 375000, "none": 663000}
+        "main#0": {"wall": 17000, "model": 10000, "tool": 2000, "none/none": 5000},
+        "main#1": {"wall": 1060000, "model": 20000, "tool": 2000, "agents": 375000, "none/none": 663000}
       },
       "stretches": [
-        {"state": "agents", "start": "2026-10-08T09:01:00Z", "end": "2026-10-08T09:12:30Z", "turn": "main#0", "next_turn_kind": null},
-        {"state": "none", "start": "2026-10-08T09:12:30Z", "end": "2026-10-08T09:50:00Z", "turn": "main#0", "next_turn_kind": "human"},
-        {"state": "none", "start": "2026-10-08T09:50:17Z", "end": "2026-10-08T10:00:00Z", "turn": "main#1", "next_turn_kind": null},
-        {"state": "agents", "start": "2026-10-08T10:00:00Z", "end": "2026-10-08T10:01:15Z", "turn": "main#1", "next_turn_kind": null},
-        {"state": "none", "start": "2026-10-08T10:01:15Z", "end": "2026-10-08T10:02:30Z", "turn": "main#1", "next_turn_kind": null},
-        {"state": "agents", "start": "2026-10-08T10:02:30Z", "end": "2026-10-08T10:07:30Z", "turn": "main#1", "next_turn_kind": null}
+        {"state": "agents", "substate": null, "start": "2026-10-08T09:01:00Z", "end": "2026-10-08T09:12:30Z", "turn": "main#0"},
+        {"state": "you", "substate": "reply", "start": "2026-10-08T09:12:30Z", "end": "2026-10-08T09:50:00Z", "turn": "main#0"},
+        {"state": "none", "substate": "none", "start": "2026-10-08T09:50:17Z", "end": "2026-10-08T10:00:00Z", "turn": "main#1"},
+        {"state": "agents", "substate": null, "start": "2026-10-08T10:00:00Z", "end": "2026-10-08T10:01:15Z", "turn": "main#1"},
+        {"state": "none", "substate": "none", "start": "2026-10-08T10:01:15Z", "end": "2026-10-08T10:02:30Z", "turn": "main#1"},
+        {"state": "agents", "substate": null, "start": "2026-10-08T10:02:30Z", "end": "2026-10-08T10:07:30Z", "turn": "main#1"}
       ],
-      "note": "DM-50 to DM-53. Main-thread work: c1 09:00:05-09:00:15 and its two spawn tools to 09:00:17; c2 09:50:05-09:50:15, SendMessage to 09:50:17, c2b 10:07:30-10:07:40. Agent work covers 09:01:00-09:12:30 (union of A#0, nested, B#0, C#0), then A#1 10:00:00-10:01:15 and B#1 10:02:30-10:07:30. Session 4060 s = 30 + 4 + 1065 + 2961. The none gap 09:00:17-09:01:00 is 43 s (no row); the 5 s starts of each turn get no row. T1 stored span is 09:00:00-09:00:17 (H1: agents that end later do not widen it). T1 window 09:00:00-09:50:00 = 3000 s = 10 + 2 + 690 + 2298; T2 window = span = 1060 s."
+      "note": "DM-50 to DM-53. Main-thread work: c1 09:00:05-09:00:15 and its two spawn tools to 09:00:17; c2 09:50:05-09:50:15, SendMessage to 09:50:17, c2b 10:07:30-10:07:40. Agent work covers 09:01:00-09:12:30 (union of A#0, nested, B#0, C#0), then A#1 10:00:00-10:01:15 and B#1 10:02:30-10:07:30. Session 4060 s = 30 model + 4 tool + 1065 agents + 2250 you/reply + 711 none/none. The idle run 09:12:30-09:50:00 ends where the human ask main#1 starts, so it is you/reply (2250 s); every other idle run ends at a call or the session end: none/none (5 + 43 in window main#0, 5 + 583 + 75 in window main#1). The 43 s gap 09:00:17-09:01:00 gets no stretch row, nor do the 5 s starts of each turn. T1 stored span is 09:00:00-09:00:17 (H1: agents that end later do not widen it): 10 + 2 + 5 none/none. T1 window 09:00:00-09:50:00 = 3000 s = 10 + 2 + 690 + 2250 + 48; T2 window = span = 1060 s."
     }
   },
   "case_7_sharness": {
@@ -146,26 +146,28 @@
       "display_ix": [1, null, 2, null, null, 3],
       "n_human_asks": 3,
       "stretches": [
-        {"state": "none", "start": "2026-10-08T12:01:00Z", "end": "2026-10-08T12:03:00Z", "turn": 1, "next_turn_kind": "human"},
-        {"state": "none", "start": "2026-10-08T12:03:35Z", "end": "2026-10-08T12:05:00Z", "turn": 2, "next_turn_kind": "harness"},
-        {"state": "none", "start": "2026-10-08T12:05:00Z", "end": "2026-10-08T12:06:30Z", "turn": 3, "next_turn_kind": "harness"},
-        {"state": "none", "start": "2026-10-08T12:06:30Z", "end": "2026-10-08T12:08:00Z", "turn": 4, "next_turn_kind": "human"}
+        {"state": "you", "substate": "reply", "start": "2026-10-08T12:01:00Z", "end": "2026-10-08T12:03:00Z", "turn": 1},
+        {"state": "none", "substate": "none", "start": "2026-10-08T12:03:35Z", "end": "2026-10-08T12:05:00Z", "turn": 2},
+        {"state": "none", "substate": "none", "start": "2026-10-08T12:05:00Z", "end": "2026-10-08T12:06:30Z", "turn": 3},
+        {"state": "you", "substate": "reply", "start": "2026-10-08T12:06:30Z", "end": "2026-10-08T12:08:00Z", "turn": 4}
       ],
-      "note": "DM-24: numbering skips harness turns. DM-52: stretches attach to the turn whose window holds them, harness turns included (`turn` is the index in the turn list above). The 25 s after the first call (12:00:35-12:01:00) and each 5 s before a call are under 60 s. Session 515 s = 90 model + 425 none."
+      "note": "DM-24: numbering skips harness turns. DM-52: stretches attach to the turn whose window holds them, harness turns included (`turn` is the index in the turn list above). The 25 s after the first call (12:00:35-12:01:00) and each 5 s before a call are under 60 s. Session 515 s = 90 model + 425 idle. A stretch that ends where a human turn starts is you/reply; one that ends at a harness turn is none/none (DM-50 rule 5)."
     }
   },
   "case_8_sstretch": {
     "b3": {
       "stretches": [
-        {"state": "none", "start": "2026-10-10T02:01:00Z", "end": "2026-10-10T02:26:00Z", "turn": "main#0", "next_turn_kind": "human", "label": "you"},
-        {"state": "none", "start": "2026-10-10T02:26:00Z", "end": "2026-10-10T02:48:00Z", "turn": "main#1", "next_turn_kind": null, "label": "none"},
-        {"state": "none", "start": "2026-10-10T02:49:00Z", "end": "2026-10-10T03:51:00Z", "turn": "main#1", "next_turn_kind": "human", "label": "limit"},
-        {"state": "none", "start": "2026-10-10T03:52:05Z", "end": "2026-10-10T04:04:00Z", "turn": "main#2", "next_turn_kind": "message", "label": "agentmsg"},
-        {"state": "agents", "start": "2026-10-10T04:07:35Z", "end": "2026-10-10T04:47:35Z", "turn": "main#4", "next_turn_kind": null, "label": "agents"}
+        {"state": "you", "substate": "reply", "start": "2026-10-10T02:01:00Z", "end": "2026-10-10T02:26:00Z", "turn": "main#0"},
+        {"state": "none", "substate": "none", "start": "2026-10-10T02:26:00Z", "end": "2026-10-10T02:48:00Z", "turn": "main#1"},
+        {"state": "limit", "substate": null, "start": "2026-10-10T02:49:00Z", "end": "2026-10-10T03:51:00Z", "turn": "main#1"},
+        {"state": "agentmsg", "substate": null, "start": "2026-10-10T03:52:05Z", "end": "2026-10-10T04:04:00Z", "turn": "main#2"},
+        {"state": "agents", "substate": null, "start": "2026-10-10T04:07:35Z", "end": "2026-10-10T04:20:00Z", "turn": "main#4"},
+        {"state": "you", "substate": "permission", "start": "2026-10-10T04:20:00Z", "end": "2026-10-10T04:24:00Z", "turn": "main#4"},
+        {"state": "agents", "substate": null, "start": "2026-10-10T04:24:00Z", "end": "2026-10-10T04:47:35Z", "turn": "main#4"}
       ],
-      "durations_ms": [1500000, 1320000, 3720000, 715000, 2400000],
-      "session_split_ms": {"model": 325000, "tool": 2000, "agents": 2400000, "none": 7358000},
-      "note": "DM-52, SES-17, QRY-41. Nothing runs 02:01:00-02:48:00, and the human ask T2 starts at 02:26:00 (the call starts at 02:48:00): two rows, 25 min (next_turn_kind human) and 22 min (NULL). Then 62 min of none (02:49:00-03:51:00) before T3 whose label starts 'I hit my usage limit' (label limit). Then 11 min 55 s before the peer message T4 (label agentmsg, next_turn_kind message). The forecast agent runs alone 04:07:35-04:47:35 = 40 min (agents). Gaps under 60 s (5 s starts, 55 s before T5, 28 s before the agent) get no row. Session 10085 s = 325 model + 2 tool + 2400 agents + 7358 none (5+1500+1320+3720+5+715+5+55+5+28)."
+      "durations_ms": [1500000, 1320000, 3720000, 715000, 745000, 240000, 1415000],
+      "session_split_ms": {"model": 325000, "tool": 2000, "agents": 2160000, "you/permission": 240000, "you/reply": 1555000, "agentmsg": 715000, "limit": 3720000, "none/none": 1368000},
+      "note": "DM-50, DM-52, SES-17, QRY-41, D54. Nothing runs 02:01:00-02:48:00, and the human ask T2 starts at 02:26:00 (the call starts at 02:48:00): two rows, 25 min ending at the human ask (you/reply) and 22 min ending at a call (none/none). Then 62 min (02:49:00-03:51:00) before T3 whose label starts 'I hit my usage limit' (limit). Then 11 min 55 s before the peer message T4 (agentmsg). The forecast agent runs 04:07:35-04:47:35 in two calls, 04:07:35-04:20:00 (12 min 25 s) and 04:24:00-04:47:35 (23 min 35 s); between them its Bash call toolu_agperm waits for a permission 04:20:00-04:24:00 (user_wait permission, 4 min, you/permission, an agent's call so it makes a stretch row). The 55 s before T5 (human) is you/reply in the totals and has no row; the 5 s starts and the 28 s before the agent are none/none with no row. Session 10085 s = 325 model + 2 tool + 2160 agents + 240 you/permission + 1555 you/reply (1500 + 55) + 715 agentmsg + 3720 limit + 1368 none/none (5+1320+5+5+5+28)."
     },
     "turns": [
       {"turn_kind": "human", "turn_origin": "typed"},
@@ -201,8 +203,8 @@
     "slash_label": "/mad:bootstrap ARGS"
   },
   "case_11_sslow1": {
-    "bash": {"tool": "toolu_slowbash", "dur_ms": 2400000, "time_prov": "derived", "command_key": "make bench", "waits_on_user": null},
-    "ask": {"tool": "toolu_ask1", "dur_ms": 900000, "waits_on_user": 1, "tool_name": "AskUserQuestion"},
+    "bash": {"tool": "toolu_slowbash", "dur_ms": 2400000, "time_prov": "derived", "command_key": "make bench", "user_wait": null},
+    "ask": {"tool": "toolu_ask1", "dur_ms": 900000, "user_wait": "ask", "tool_name": "AskUserQuestion"},
     "b3": {
       "max_silence_ms": {"toolu_slowbash": 1800000},
       "note": "DM-40: the call runs 04:02:00-04:42:00. Timestamped records in the bundle: the assistant record that holds the tool_use (04:02:00), a queue-operation record (04:12:00) and the tool_result (04:42:00). Gaps 10 min and 30 min, so the longest silence is 30 min."
@@ -249,12 +251,12 @@
     "project": "/u/h/slowproj/app",
     "wall_ms_total": 5400000,
     "b3": {
-      "time_split_ms": {"model": 585000, "tool": 3300000, "agents": 0, "none": 1515000},
+      "time_split_ms": {"model": 585000, "tool": 2400000, "you/ask": 900000, "you/reply": 1500000, "none/none": 15000},
       "stretches": [
-        {"session": "sslow2", "state": "none", "start": "2026-10-07T06:02:00Z", "end": "2026-10-07T06:27:00Z", "next_turn_kind": "human", "dur_ms": 1500000}
+        {"session": "sslow2", "state": "you", "substate": "reply", "start": "2026-10-07T06:02:00Z", "end": "2026-10-07T06:27:00Z", "dur_ms": 1500000}
       ],
       "slowest_tool": {"tool": "toolu_slowbash", "dur_ms": 2400000, "max_silence_ms": 1800000},
-      "note": "CLI-20 scenario: 60 min + 30 min = 5,400,000 ms. sslow1: model 295 s (L1 115 s + L2 180 s), tool 3300 s (bash 2400 s + ask 900 s), none 5 s. sslow2: model 290 s (115 + 175), none 1510 s (5 + 1500 + 5). Sum 585 + 3300 + 1515 = 5400 s. The 25-min stretch ends where the human ask T2 starts, so `none_split.you` is 1,500,000. The ask call is waits_on_user, so the slowest tool is the bash call."
+      "note": "CLI-20 scenario: 60 min + 30 min = 5,400,000 ms. sslow1: model 295 s (L1 115 s + L2 180 s), tool 2400 s (bash), you/ask 900 s (the AskUserQuestion call, D54), none/none 5 s. sslow2: model 290 s (115 + 175), you/reply 1500 s, none/none 10 s (5 + 5). Sum 585 + 2400 + 900 + 1500 + 15 = 5400 s. The 25-min idle run ends where the human ask T2 starts, so it is a you/reply part of 1,500,000. The ask call has user_wait ask, so the slowest tool is the bash call."
     }
   }
 }

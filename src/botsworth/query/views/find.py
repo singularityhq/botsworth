@@ -11,9 +11,10 @@ GUARANTEES:
   `per_turn` maps a turn op_id to its hit count.
 - `biggest`: depth-0 rows with a `measure` value above 0, by value descending (ties keep session order).
   `cost` and `tokens` cover call and agent rows; `time` covers call (`dur_ms`), tool (`dur_ms`), agent
-  (`run_ms`) and gap rows, and leaves out tools with `waits_on_user` or `max_silence_ms >= 300000`.
+  (`run_ms`) and gap rows, and leaves out tools with `user_wait` set or `max_silence_ms >= 300000`.
   `value` is that figure.
-- `waits`: gap rows of every state and label with `dur_ms >= 120000`; `value` is `dur_ms`.
+- `waits`: gap rows of every state with `dur_ms >= 120000`, and depth-0 (main-thread) tool rows with
+  `user_wait` set and `dur_ms >= 120000` (D54); `value` is `dur_ms`.
 - `failures`: tool rows with `failed` (QRY-37), any depth. `skills`: tool rows with a `skill_load`, plus the
   turn of a slash `skill_invocation` event when the turn has no step with a `skill_load`. `agents`: agent
   rows, any depth. `value` is null for these three.
@@ -24,8 +25,9 @@ GUARANTEES:
   from a source file.
 - `label` is the row name (TRN-31 to TRN-33): a call's first line of said or answer text, else of thinking,
   else `Tool request: <tool names>`, else `Thinking only`; a tool's skill name, step summary or tool name; an
-  agent's names joined by `, `; a gap's label (`you`, `limit`, `none`, `agents`, ...); a slash turn's label.
-EXPECTS: schema v7 filled by B3a/B3b; a connection with `row_factory = sqlite3.Row`.
+  agent's names joined by `, `; a gap's label (its state, or `before_first`, `ask`, `permission` for those
+  substates); a slash turn's label.
+EXPECTS: schema v10 filled by B3a/B3b; a connection with `row_factory = sqlite3.Row`.
 FAILURE BEHAVIOR: unknown session -> NotFound; ambiguous or short session key -> QueryError (QRY-6); a `kind`
   or `measure` outside the lists, `limit` outside 1-10000, or `search` with no term -> QueryError.
 DOES NOT: read source files, write, or build SQL in `http/` or `cli/`.
@@ -115,7 +117,14 @@ def _name(item: _Item) -> str:
         return row.skill_load or row.summary or row.tool_name or ""
     if isinstance(row, wire.AgentRow):
         return ", ".join(row.agent_names)
-    return row.label  # a gap row
+    return gap_label(row)  # a gap row
+
+
+def gap_label(g: wire.GapRow) -> str:
+    """The finder label of a gap: its state; the substates `before_first`, `ask` and `permission` name it."""
+    if g.substate in ("before_first", "ask", "permission"):
+        return g.substate
+    return g.state
 
 
 def _ascii_lower(text: str) -> str:
@@ -202,7 +211,7 @@ def _measure_value(row: R.AnyRow, measure: str) -> float | None:
     if measure != "time":
         return None
     if isinstance(row, wire.ToolRow):
-        if row.waits_on_user or (row.max_silence_ms is not None and row.max_silence_ms >= SILENCE_MS):
+        if row.user_wait is not None or (row.max_silence_ms is not None and row.max_silence_ms >= SILENCE_MS):
             return None  # SES-52: these would top every ranking by time
         return row.dur_ms
     return row.dur_ms  # a gap row
@@ -219,6 +228,11 @@ def _hits_built(conn: sqlite3.Connection, root: int, kind: str, measure: str) ->
                 hits.append(_hit(item, value))
         elif isinstance(row, wire.GapRow) and row.dur_ms >= WAIT_FLOOR_MS:
             hits.append(_hit(item, row.dur_ms))
+        # FALLBACK-OK: QRY-31 (a ToolRow's dur_ms is null when it never finished; it is no wait hit)
+        elif (
+            isinstance(row, wire.ToolRow) and row.user_wait is not None and (row.dur_ms or 0) >= WAIT_FLOOR_MS
+        ):
+            hits.append(_hit(item, row.dur_ms))  # D54: a main-thread tool row that waited on the user
     if kind == "biggest":
         hits.sort(key=lambda h: -h.value)  # type: ignore[operator]  # a stable sort keeps session order on ties
     return hits

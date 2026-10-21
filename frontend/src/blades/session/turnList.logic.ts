@@ -76,9 +76,9 @@ export function buildEntries(items: readonly Item[], filter: ListFilter = NO_FIL
   for (const it of ordered) {
     if (it.type === 'gap') {
       flush()
-      if (it.state !== 'none' || it.dur_ms < GAP_MIN_MS) continue
-      const reason = gapReason(it.label, { firstTurnIsHuman })
-      out.push({ type: 'gap', key: it.id, gap: it, state: gapState(it.label), reason, turnIx: it.turn === null ? null : (ixByTurn.get(it.turn) ?? null) }) // FALLBACK-OK: SES-37 (a stretch attached to no numbered turn has no turn to open)
+      if (it.state === 'agents' || it.dur_ms < GAP_MIN_MS) continue
+      const reason = gapReason(it, { firstTurnIsHuman })
+      out.push({ type: 'gap', key: it.id, gap: it, state: gapState(it), reason, turnIx: it.turn === null ? null : (ixByTurn.get(it.turn) ?? null) }) // FALLBACK-OK: SES-37 (a stretch attached to no numbered turn has no turn to open)
     } else if (isNumbered(it)) {
       flush()
       const ix = displayIx(it.display_id)

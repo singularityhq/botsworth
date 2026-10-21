@@ -31,7 +31,7 @@ export function GapRowTurn({ node, env, firstTurnIsHuman, maxMs }: { node: RowNo
         ),
         bar: (
           <span aria-hidden="true" className="flex w-[104px] justify-end">
-            <i className="block h-3 rounded-[2px]" style={{ width: `${pct}%`, ...stateFill(gapState(g.label)) }} />
+            <i className="block h-3 rounded-[2px]" style={{ width: `${pct}%`, ...stateFill(gapState(g)) }} />
           </span>
         ),
         time: <TimeCell ms={g.dur_ms} env={env} />,

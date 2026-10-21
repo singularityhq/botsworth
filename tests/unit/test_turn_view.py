@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 from qstore import qstore  # noqa: F401 (the QF fixture)
-from qstore_ids import A0, A1, B0, SAGENTS, SSKILLS, SSTRETCH, STOOLS, turn
+from qstore_ids import A0, A1, B0, SAGENTS, SSKILLS, SSTRETCH, STOOLS, parts, turn
 
 from botsworth.query import NotFound, QueryError, _conn, wire
 from botsworth.query.views import rows as R
@@ -99,10 +99,10 @@ def test_rows_are_in_start_order(qstore):
 def test_gap_rows_attached(qstore):
     got = rows_of(qstore, turn(SAGENTS, 0)).rows
     gaps = [r for r in got if r.type == "gap"]
-    # DM-52: stretches of 60 s or more attached by SES-37; both states are rows (QRY-31)
-    assert [(g.id, g.state, g.dur_ms) for g in gaps] == [
-        ("gap-1791450060000", "agents", 690_000),
-        ("gap-1791450750000", "none", 2_250_000),
+    # DM-52: stretches of 60 s or more attached by SES-37; every state is a row (QRY-31, D54)
+    assert [(g.id, g.state, g.substate, g.dur_ms) for g in gaps] == [
+        ("gap-1791450060000", "agents", None, 690_000),
+        ("gap-1791450750000", "you", "reply", 2_250_000),
     ]
     assert all(g.turn == turn(SAGENTS, 0) for g in gaps)
     # T2 starts at 1791453000000: the stretches after it belong to T2 (and "agents"/"none" both appear)
@@ -134,7 +134,14 @@ def test_range_clock_rule_figures(qstore):
     ) == (1, 2)
     assert by_row[B0].tok_total == 120
     # DM-50 over the range: model 5-15 s, tool 15-17 s, agents 60-300 s, nothing 0-5 s and 17-60 s
-    assert r.time_split == wire.TimeSplit(10_000, 2_000, 240_000, 48_000)
+    assert r.time_split == wire.TimeSplit(
+        [
+            wire.TimePart("model", None, 10_000),
+            wire.TimePart("tool", None, 2_000),
+            wire.TimePart("agents", None, 240_000),
+            wire.TimePart("none", "none", 48_000),
+        ]
+    )
     # the whole turn is untouched by the range: rows and header stay
     assert got.turn.cost_usd == pytest.approx(3.2)
     # a range after every call: no cost, but the figures exist
@@ -206,7 +213,7 @@ def test_stretch_free_turn_split_equals_span_wall(qstore):
         if h.start_ms is None or h.end_ms is None or h.wall_ms is None:
             continue
         sp = h.time_split
-        assert sp.model_ms + sp.tool_ms + sp.agents_ms + sp.none_ms == h.wall_ms, t
+        assert sum(parts(sp).values()) == h.wall_ms, t
         # the range split over the turn's own span rebuilds the stored span figures (DM-53) from the leaves
         rng = V.turn_rows(t, from_ms=h.start_ms, to_ms=h.end_ms, db=qstore).range
         assert rng.time_split == sp, t
@@ -351,23 +358,23 @@ def test_state_ms_per_bin_sums_to_bin_overlap(qstore):
     first, last = h.start_ms, 1791454060000
     for i, b in enumerate(h.bins):
         lo, hi = first + i * h.bin_ms, min(first + (i + 1) * h.bin_ms, last)
-        s = b.state_ms
-        assert s.model_ms + s.tool_ms + s.agents_ms + s.none_ms == max(hi - lo, 0), i
+        assert sum(parts(b.state_ms).values()) == max(hi - lo, 0), i
     # a brushed range clips the bins at its end
     r = histogram(qstore, "sagents", bins=4, from_ms=1791450000000, to_ms=1791450100000)
     assert r.start_ms == 1791450000000 and r.bin_ms == 25_000
-    assert [sum(vars(b.state_ms).values()) for b in r.bins] == [25_000] * 4
-    # the stored split is rebuilt: over the whole range the states equal sessions.model_ms..none_ms (DM-51)
+    assert [sum(parts(b.state_ms).values()) for b in r.bins] == [25_000] * 4
+    # the stored split is rebuilt: over the whole range the parts equal the session's time_split rows (DM-51)
     for name in ALL:
         d = session_detail(name, db=qstore).session
         h = histogram(qstore, name)
-        got = [
-            sum(getattr(b.state_ms, k) for b in h.bins)
-            for k in ("model_ms", "tool_ms", "agents_ms", "none_ms")
-        ]
-        want = [d.time_split.model_ms, d.time_split.tool_ms, d.time_split.agents_ms, d.time_split.none_ms]
-        assert got == want, name
-        assert sum(got) == d.wall_ms, name  # a resume gap (sfork) is outside the wall, so not in any state
+        got: dict[str, int] = {}
+        for b in h.bins:
+            for key, value in parts(b.state_ms).items():
+                got[key] = got.get(key, 0) + value
+        assert got == parts(d.time_split), name
+        assert sum(got.values()) == d.wall_ms, (
+            name
+        )  # a resume gap (sfork) is outside the wall, so not in any state
 
 
 def test_marks_turn_starts_and_skill_loads(qstore):
@@ -399,10 +406,10 @@ def test_marks_turn_starts_and_skill_loads(qstore):
 
 def test_histogram_stretches_in_range(qstore):
     h = histogram(qstore, "sagents")
-    assert [(s.state, s.dur_ms) for s in h.stretches][:2] == [("agents", 690_000), ("none", 2_250_000)]
+    assert [(s.state, s.dur_ms) for s in h.stretches][:2] == [("agents", 690_000), ("you", 2_250_000)]
     narrow = histogram(qstore, "sagents", from_ms=1791450800000, to_ms=1791452000000)
     assert [(s.state, s.start_ms) for s in narrow.stretches] == [
-        ("none", 1791450750000)
+        ("you", 1791450750000)
     ]  # overlaps, not clipped
 
 

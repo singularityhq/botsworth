@@ -234,7 +234,7 @@ def test_skill_read_parsed_cmd_read_loads(tmp_path, pricer):
 
 
 # ---- DM-40 --------------------------------------------------------------------------------------
-def test_request_user_input_waits_on_user(tmp_path, pricer):
+def test_request_user_input_is_user_wait_ask(tmp_path, pricer):
     lines = [
         meta(SID),
         L(1, {"type": "task_started", "turn_id": "t"}),
@@ -244,8 +244,8 @@ def test_request_user_input_waits_on_user(tmp_path, pricer):
         L(5, {"type": "task_complete", "turn_id": "t"}),
     ]
     ops = by_id(one(tmp_path, pricer, lines))
-    assert ops[f"codex/{SID}/tool_call/q"].waits_on_user is True
-    assert ops[f"codex/{SID}/tool_call/r"].waits_on_user is None
+    assert ops[f"codex/{SID}/tool_call/q"].user_wait == "ask"
+    assert ops[f"codex/{SID}/tool_call/r"].user_wait is None
 
 
 def test_ts_list_sorted(tmp_path, pricer):

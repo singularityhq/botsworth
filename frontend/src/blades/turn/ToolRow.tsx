@@ -1,6 +1,7 @@
 import type { ToolRow as ToolWire } from '../../api/types'
 import { ErrorFlag, Glyph, LedgerFrame, QuietFlag, TimeCell, When, type RowEnv } from './rowKit'
-import { failureText, silenceText, toolName, WAITS_TEXT } from './rowName'
+import { failureText, silenceText, toolName } from './rowName'
+import { USER_WAIT_FLAG } from '../shared/states'
 import type { RowNode } from './rowList.logic'
 
 /**
@@ -16,7 +17,7 @@ export function ToolRowView({ node, env }: { node: RowNode; env: RowEnv }) {
   const textFlags = (
     <>
       {silence ? <QuietFlag text={silence} /> : null}
-      {r.waits_on_user ? <QuietFlag text={WAITS_TEXT} /> : null}
+      {r.user_wait !== null ? <QuietFlag text={USER_WAIT_FLAG[r.user_wait]} /> : null}
       {failure && !wide ? <ErrorFlag text={failure} /> : null}
     </>
   )

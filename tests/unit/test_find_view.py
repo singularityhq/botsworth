@@ -26,10 +26,11 @@ from qstore_ids import (
     STOOLS,
     TOOL_ERROR,
     TOOL_INTERRUPTED,
+    turn,
 )
 
 from botsworth.query import NotFound, QueryError, _conn, wire
-from botsworth.query.views.find import find
+from botsworth.query.views.find import find, gap_label
 from botsworth.query.views.session import session_turns
 from botsworth.query.views.turn import agent_rows, turn_rows
 
@@ -84,7 +85,7 @@ def value_of(row, measure: str):
     if measure != "time":
         return None
     if isinstance(row, wire.ToolRow):
-        if row.waits_on_user or (row.max_silence_ms or 0) >= 300_000:
+        if row.user_wait is not None or (row.max_silence_ms or 0) >= 300_000:
             return None
         return row.dur_ms
     return row.dur_ms
@@ -129,7 +130,7 @@ def test_biggest_time_excludes_waits_and_silence(qstore):
     turn_rows_ = [r for _, r in depth0(qstore, SSLOW1)]
     slow = next(r for r in turn_rows_ if r.id == SLOW_BASH)
     ask = next(r for r in turn_rows_ if r.id == ASK_USER)
-    assert (slow.max_silence_ms or 0) >= 300_000 and ask.waits_on_user  # both would top the ranking
+    assert (slow.max_silence_ms or 0) >= 300_000 and ask.user_wait == "ask"  # both would top the ranking
     got = ids(find(key(SSLOW1), "biggest", "time", db=qstore))
     assert SLOW_BASH not in got and ASK_USER not in got
     calls = [r.id for r in turn_rows_ if isinstance(r, wire.CallRow)]
@@ -146,17 +147,26 @@ def test_waits_floor_2min_all_labels(qstore):
     labels: set[str] = set()
     below = 0
     for session in ALL:
-        gaps = [(t, r) for t, r in depth0(qstore, session) if isinstance(r, wire.GapRow)]
-        want = [(t, r) for t, r in gaps if r.dur_ms >= 120_000]
-        below += len(gaps) - len(want)
+        # D54: gap rows of every state, plus main-thread tool rows that waited on the user, from 2 min
+        rows = [(t, r) for t, r in depth0(qstore, session) if isinstance(r, wire.GapRow | wire.ToolRow)]
+        waits = [(t, r) for t, r in rows if isinstance(r, wire.GapRow) or r.user_wait is not None]
+        want = [(t, r) for t, r in waits if (r.dur_ms or 0) >= 120_000]
+        below += len(waits) - len(want)
         got = find(key(session), "waits", db=qstore)
         assert [h.row.id for h in got.hits] == [r.id for _, r in want], session
         assert [h.value for h in got.hits] == [r.dur_ms for _, r in want]
-        assert [h.label for h in got.hits] == [r.label for _, r in want]
-        assert all(h.row.type == "gap" and h.depth == 0 for h in got.hits)
-        labels |= {r.label for _, r in want}
+        assert [h.row.type for h in got.hits] == [r.type for _, r in want]
+        assert all(h.depth == 0 for h in got.hits)
+        labels |= {gap_label(r) for _, r in want if isinstance(r, wire.GapRow)}
     assert below >= 1  # a stretch under 2 min exists and is left out
-    assert {"you", "agents"} <= labels and len(labels) >= 3  # every state and label counts, not only "you"
+    assert {"you", "agents"} <= labels and len(labels) >= 3  # every state counts, not only "you"
+    assert {"permission", "limit", "agentmsg"} <= labels  # the substate `permission` names its hit
+
+
+def test_waits_include_main_thread_user_wait_tool_rows(qstore):
+    got = find(key(SSLOW1), "waits", db=qstore)
+    assert [(h.row.type, h.row.id, h.value) for h in got.hits] == [("tool", ASK_USER, 900_000)]
+    assert got.total == 1 and got.per_turn == {turn(SSLOW1, 0): 1}
 
 
 # ── failures ─────────────────────────────────────────────────────────────────
@@ -351,4 +361,4 @@ def test_errors(qstore):
     with pytest.raises(NotFound):
         find("claude_code/nosuch/session/-", "biggest", db=qstore)
     got = find(STOOLS.split("/")[1], "biggest", db=qstore)  # a bare session id works (QRY-6)
-    assert got.freshness.schema_version == 9
+    assert got.freshness.schema_version == 10

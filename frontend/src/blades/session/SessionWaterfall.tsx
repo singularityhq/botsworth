@@ -6,7 +6,7 @@ import { Icon } from '../../ui/Icon'
 import { Segmented } from '../../ui/Segmented'
 import { Skeleton } from '../../ui/Skeleton'
 import { makeAxis } from '../shared/histogram.logic'
-import { GAP_GLYPH, GAP_LABEL, kindOf, stateFill } from '../shared/states'
+import { GAP_GLYPH, GAP_LABEL, gapKind, kindOf, stateFill } from '../shared/states'
 import { AxisHead, Bar, Track } from '../shared/Waterfall'
 import { useElementWidth } from '../shared/useElementWidth'
 import {
@@ -207,22 +207,22 @@ function WfGapRow({ entry, prevStartMs, onOpen, tz, singleDay, template, axis }:
       data-gap-key={entry.key}
       role="button"
       tabIndex={-1}
-      title={`${fmt.dur(g.dur_ms)} ${GAP_LABEL[g.label]}, ${entry.reason}`}
+      title={`${fmt.dur(g.dur_ms)} ${GAP_LABEL[gapKind(g)]}, ${entry.reason}`}
       onClick={onOpen}
       className={`${ROW_CLASS} bg-l2`}
       style={{ gridTemplateColumns: template, columnGap: GRID_GAP, padding: GRID_PAD, height: ROW_H }}
     >
       <WhenStack startMs={g.start_ms} prevStartMs={prevStartMs} tz={tz} singleDay={singleDay} />
-      <Icon name={GAP_GLYPH[g.label]} tone="quiet" />
+      <Icon name={GAP_GLYPH[gapKind(g)]} tone="quiet" />
       <span className="flex min-w-0 items-baseline gap-2 whitespace-nowrap">
         <b className="fig font-medium text-ink1">{fmt.dur(g.dur_ms)}</b>
-        <span className="truncate text-ink2">{GAP_LABEL[g.label]}</span>
+        <span className="truncate text-ink2">{GAP_LABEL[gapKind(g)]}</span>
       </span>
       <span />
       <span className="flex justify-end">
         <Duration ms={g.dur_ms} />
       </span>
-      <Track>{axis ? <Bar box={barBox(axis, g.start_ms, g.end_ms)} height={BAR_H} style={stateFill(gapBarState(g))} title={GAP_LABEL[g.label]} /> : null}</Track>
+      <Track>{axis ? <Bar box={barBox(axis, g.start_ms, g.end_ms)} height={BAR_H} style={stateFill(gapBarState(g))} title={GAP_LABEL[gapKind(g)]} /> : null}</Track>
       <span />
     </div>
   )

@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 from qstore import STREAMS, expected, qstore  # noqa: F401 (the QF fixture)
-from qstore_ids import SAGENTS, SHARNESS, SSKILLS, SSLOW1, SSTRETCH, turn
+from qstore_ids import SAGENTS, SHARNESS, SSKILLS, SSLOW1, SSTRETCH, parts, turn
 from stream_load import load_streams
 
 import botsworth
@@ -159,27 +159,23 @@ def test_time_split_sums_to_wall(qstore):
     for key, name in ((SAGENTS, "case_6_sagents"), (SSTRETCH, "case_8_sstretch")):
         d = detail(qstore, key)
         split = ex[name]["b3_time" if name == "case_6_sagents" else "b3"]["session_split_ms"]
-        got = d.time_split
-        assert (got.model_ms, got.tool_ms, got.agents_ms, got.none_ms) == tuple(
-            split[k] for k in ("model", "tool", "agents", "none")
-        )
+        assert parts(d.time_split) == split
         assert d.wall_ms == ex["sessions"][sid(key)]["wall_ms"]
     for name in ALL:
         d = detail(qstore, f"x/{name}")
-        t = d.time_split
-        assert t.model_ms + t.tool_ms + t.agents_ms + t.none_ms == d.wall_ms, name  # DM-51
+        assert sum(parts(d.time_split).values()) == d.wall_ms, name  # DM-51
 
 
-def test_none_split_labels_sum_to_none_ms(qstore):
+def test_time_split_parts_come_in_ses15_order_with_substates(qstore):
     d = detail(qstore, SSTRETCH)
-    stretches = expected()["case_8_sstretch"]["b3"]
-    dur = dict(zip(("you", "none", "limit", "agentmsg", "agents"), stretches["durations_ms"], strict=True))
-    s = d.none_split
-    assert (s.you, s.limit, s.agentmsg) == (dur["you"], dur["limit"], dur["agentmsg"])
-    assert (
-        s.you + s.agentmsg + s.limit + s.none == d.time_split.none_ms == stretches["session_split_ms"]["none"]
-    )
-    assert s.none == 7358000 - 1500000 - 3720000 - 715000  # the rest, the 22 min wait among them (SES-16)
+    want = expected()["case_8_sstretch"]["b3"]["session_split_ms"]
+    got = parts(d.time_split)
+    assert list(got) == [
+        "model", "tool", "agents", "you/permission", "you/reply", "agentmsg", "limit", "none/none"
+    ]  # fmt: skip
+    assert got == want
+    assert all(p.ms > 0 for p in d.time_split.parts)  # parts above 0 ms only
+    assert "none_split" not in {f.name for f in wire.SessionInfo.__dataclass_fields__.values()}
 
 
 def test_longest_two_minute_floor(qstore):
@@ -190,7 +186,7 @@ def test_longest_two_minute_floor(qstore):
         dur[0],
         dur[2],
         dur[3],
-        dur[4],
+        dur[6],  # the longer of the two agents stretches around the permission wait
     )
     assert L.none.dur_ms == dur[1]  # the 22 min wait is the longest `none` stretch
     for t in (L.you, L.limit, L.agentmsg, L.agents, L.none):
@@ -210,19 +206,25 @@ def test_longest_two_minute_floor(qstore):
     assert (slow.tool.dur_ms, slow.tool.row.type) == (2400000, "tool")
     assert slow.tool.row.id == "claude_code/sslow1/tool_call/toolu_slowbash"
     assert slow.tool.turn == turn(SSLOW1, 0)
+    # D54: the 15-min AskUserQuestion is `you`, reached through its tool row; `tool` skips it
+    assert (slow.you.dur_ms, slow.you.row.type) == (900000, "tool")
+    assert slow.you.row.id == "claude_code/sslow1/tool_call/toolu_ask1"
+    assert slow.you.turn == turn(SSLOW1, 0)
 
 
 def test_before_first_counts_under_none_not_you(before_first_store):
     d = V.session_detail("sbefore", db=before_first_store).session
-    # 12:01:00-12:03:00 lies before the first numbered turn (T1 starts at 12:03:00): SES-18, D41 M11
-    assert d.none_split.you == 90000  # only 12:06:30-12:08:00, which ends at the human turn T3
-    assert d.none_split.none == 425000 - 90000
+    # 12:00:00-12:00:05 and 12:00:35-12:03:00 lie before the first numbered turn (T1 starts at 12:03:00)
+    got = parts(d.time_split)
+    assert got["you/reply"] == 90000  # only 12:06:30-12:08:00, which ends at the human turn T3
+    assert got["none/before_first"] == 150000  # 5 s + 145 s, never folded into `you` (SES-18, D41 M11)
+    assert sum(got.values()) == d.wall_ms and "you/ask" not in got
     assert d.longest.none.dur_ms == 120000  # the before-first stretch is the `none` jump target
     assert d.longest.you is None  # 90 s is under 2 min
     first = d.longest.none
     items = turns(before_first_store, "x/sbefore")
     gaps = only(items, "gap")
-    assert [g.label for g in gaps] == ["before_first"]
+    assert [(g.state, g.substate) for g in gaps] == [("none", "before_first")]
     assert first.row.id == gaps[0].id
     # SES-37: the gap belongs to the first numbered turn, and sits directly above it in the list
     t1 = next(i for i in items if i.type == "turn" and i.display_id == "T1")
@@ -320,10 +322,10 @@ def test_turn_span_figures(qstore):
     for t, key in ((t1, "main#0"), (t2, "main#1")):
         s = span[key]
         assert t.wall_ms == s["wall"]
-        assert (t.time_split.model_ms, t.time_split.tool_ms) == (s["model"], s["tool"])
-        assert (t.time_split.agents_ms, t.time_split.none_ms) == (s["agents"], s["none"])
-        assert t.waiting_ms == s["agents"] + s["none"]  # D38 L2
-        assert t.time_split.model_ms + t.time_split.tool_ms + t.waiting_ms == t.wall_ms
+        got = parts(t.time_split)
+        assert got == {k: v for k, v in s.items() if k != "wall"}
+        assert t.waiting_ms == t.wall_ms - s["model"] - s["tool"]  # D38 L2, D54
+        assert sum(got.values()) == t.wall_ms
     assert (t1.start_ms, t1.end_ms) == (
         ms("2026-10-08T09:00:00Z"),
         ms("2026-10-08T09:00:17Z"),
@@ -357,16 +359,20 @@ def test_gap_rows_threshold_and_position(qstore):
     dur = expected()["case_8_sstretch"]["b3"]["durations_ms"]
     items = turns(qstore, SSTRETCH)
     gaps = only(items, "gap")
-    # default 2 min: you, limit and agentmsg end where a turn starts; the 22 min wait ends mid-turn and the
-    # 40 min agents stretch is never a gap row here
-    assert [(g.label, g.dur_ms) for g in gaps] == [("you", dur[0]), ("limit", dur[2]), ("agentmsg", dur[3])]
-    assert all(g.state == "none" and g.id == f"gap-{g.start_ms}" for g in gaps)
+    # default 2 min: you, limit and agentmsg end where a turn starts; the 22 min wait ends mid-turn, the
+    # agent's 4 min permission wait ends mid-turn, and the agents stretches are never gap rows here
+    assert [(g.state, g.substate, g.dur_ms) for g in gaps] == [
+        ("you", "reply", dur[0]),
+        ("limit", None, dur[2]),
+        ("agentmsg", None, dur[3]),
+    ]
+    assert all(g.id == f"gap-{g.start_ms}" for g in gaps)
     for g in gaps:
         after = items[items.index(g) + 1]
         assert after.type == "turn" and after.start_ms == g.end_ms  # the gap sits directly above its turn
     assert [i.turn for i in items if i.type == "turn"] == [turn(SSTRETCH, n) for n in range(5)]
-    assert [g.label for g in only(turns(qstore, SSTRETCH, 3_000_000), "gap")] == ["limit"]
-    assert [g.label for g in only(turns(qstore, SSTRETCH, 60000), "gap")] == ["you", "limit", "agentmsg"]
+    assert [g.state for g in only(turns(qstore, SSTRETCH, 3_000_000), "gap")] == ["limit"]
+    assert [g.state for g in only(turns(qstore, SSTRETCH, 60000), "gap")] == ["you", "limit", "agentmsg"]
     # sharness: 90 s and 85 s stretches before harness turns show at the 60 s floor, not at 2 min
     assert len(only(turns(qstore, SHARNESS), "gap")) == 1
     low = only(turns(qstore, SHARNESS, 60000), "gap")
@@ -380,7 +386,7 @@ def test_gap_rows_threshold_and_position(qstore):
 
 def test_limit_gap_next_turn_label(qstore):
     items = turns(qstore, SSTRETCH)
-    (limit,) = [g for g in only(items, "gap") if g.label == "limit"]
+    (limit,) = [g for g in only(items, "gap") if g.state == "limit"]
     assert limit.dur_ms == 62 * 60 * 1000  # the 1h02m gap of the SES-17 scenario
     prefix = expected()["case_8_sstretch"]["limit_label_prefix"]
     assert limit.next_turn.label.startswith(prefix)

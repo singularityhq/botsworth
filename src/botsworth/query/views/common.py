@@ -17,7 +17,10 @@ GUARANTEES:
   `bucket_start_ms >= lo AND bucket_start_ms < hi`.
 - `money(cost, lower_bound, n_unpriced)` (QRY-11) builds `wire.Money`. Callers pass None for `cost` only
   when the item has no owned llm_call.
-EXPECTS: a connection from `botsworth.query._conn` (schema v7) with `row_factory = sqlite3.Row`.
+- `wire_split(acc)` builds a `wire.TimeSplit` from `{(state, substate): ms}`: the parts above 0 ms in
+  SES-15 order (`timesplit.ordered`). `stored_split(conn, root_rowid, scope)` reads the root's `time_split`
+  rows of one scope (DM-51, DM-53) as `{op_rowid: {(state, substate): ms}}`; an op with no row is absent.
+EXPECTS: a connection from `botsworth.query._conn` (schema v10) with `row_factory = sqlite3.Row`.
 FAILURE BEHAVIOR: as above. A session with no `projects` row, or a null `project_name`, is an ingest
   bug (DM-60 names every project): `session_name` and `project_ref` assert.
 DOES NOT: build wire views, paginate, or filter by scope.
@@ -27,10 +30,12 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from collections.abc import Sequence
+from collections import defaultdict
+from collections.abc import Mapping, Sequence
 from datetime import date, timedelta
 
 from botsworth.query import NotFound, QueryError, wire, zone
+from botsworth.store import timesplit
 
 MIN_PREFIX = 8
 COLOR_SLOTS = 6
@@ -113,3 +118,19 @@ def project_ref(conn: sqlite3.Connection, project: str, tz: str) -> wire.Project
 
 def money(cost: float | None, lower_bound: bool, n_unpriced: int) -> wire.Money:
     return wire.Money(cost, bool(lower_bound), int(n_unpriced))
+
+
+def wire_split(acc: Mapping[timesplit.Part, int]) -> wire.TimeSplit:
+    return wire.TimeSplit([wire.TimePart(s, sub, ms) for s, sub, ms in timesplit.ordered(acc)])
+
+
+def stored_split(
+    conn: sqlite3.Connection, root_rowid: int, scope: str
+) -> dict[int, dict[timesplit.Part, int]]:
+    out: dict[int, dict[timesplit.Part, int]] = defaultdict(dict)
+    for r in conn.execute(
+        "SELECT op_rowid, state, substate, ms FROM time_split WHERE root_rowid = ? AND scope = ?",
+        (root_rowid, scope),
+    ):
+        out[r["op_rowid"]][r["state"], r["substate"]] = r["ms"]
+    return dict(out)

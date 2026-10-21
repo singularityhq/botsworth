@@ -7,7 +7,6 @@ import { Skeleton } from '../../ui/Skeleton'
 import { Tooltip } from '../../ui/Tooltip'
 import { Answers, type AnswersCost } from '../shared/Answers'
 import { costFromRow, ZOOM_COST_NOTE } from './turn.logic'
-import { stateTotals } from '../shared/answers.logic'
 import { ModelTable } from '../shared/ModelTable'
 import { kindOf, type StateKey } from '../shared/states'
 
@@ -140,7 +139,7 @@ export function TurnHeader(p: TurnHeaderProps) {
           causal={!p.zoom}
           costNote={p.zoom ? ZOOM_COST_NOTE : undefined}
           wallMs={wall}
-          totals={split ? stateTotals(split) : undefined}
+          split={split}
           onJump={p.onJump}
           className="[grid-template-columns:minmax(180px,1fr)_minmax(0,2fr)]! gap-x-8!"
         />

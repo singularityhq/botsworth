@@ -21,9 +21,9 @@ const turns: TurnList = {
   freshness: fixtures.sessionTurns.freshness as TurnList['freshness'],
   items: [
     turn(1, { start_ms: T0, end_ms: T0 + 5 * MIN, wall_ms: 5 * MIN, cost_usd: 1, tok_total: 100, turn: T(1), label: 'first ask' }),
-    gap(T0 + 5 * MIN, 60 * MIN, { turn: T(2), state: 'none', label: 'none' }),
+    gap(T0 + 5 * MIN, 60 * MIN, { turn: T(2), state: 'none', substate: 'none' }),
     turn(2, { start_ms: T0 + 65 * MIN, end_ms: T0 + 66 * MIN, wall_ms: 1 * MIN, cost_usd: 9, tok_total: 50, turn: T(2), label: 'second ask' }),
-    gap(T0 + 66 * MIN, 5 * MIN, { turn: T(3), state: 'none', label: 'you' }),
+    gap(T0 + 66 * MIN, 5 * MIN, { turn: T(3), state: 'you', substate: 'reply' }),
     turn(3, { start_ms: T0 + 71 * MIN, end_ms: T0 + 100 * MIN, wall_ms: 29 * MIN, cost_usd: 4, tok_total: 900, turn: T(3), label: 'third ask' }),
   ],
 }

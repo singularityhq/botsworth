@@ -195,12 +195,12 @@ def test_skill_prompt_without_step_null(tmp_path):
 # -- DM-40 ----------------------------------------------------------------------------------
 
 
-def test_ask_waits_on_user(tmp_path):
+def test_ask_is_user_wait_ask(tmp_path):
     calls = [("q", "ask", {"questions": []}), ("r", "read", {"path": "/proj/a"})]
     rows = [user(T), assistant(T + 1, T + 5, calls=calls, id="a")]
     rows += [result(T + 9, "q", "ask"), result(T + 10, "r", "read")]
     b = build(tmp_path, rows)
-    assert {o.tool_name: o.waits_on_user for o in kind(b, "tool_call")} == {"ask": True, "read": None}
+    assert {o.tool_name: o.user_wait for o in kind(b, "tool_call")} == {"ask": "ask", "read": None}
 
 
 def test_ts_list_sorted(tmp_path):

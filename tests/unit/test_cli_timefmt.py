@@ -42,7 +42,7 @@ def test_every_ms_field_is_classified(name):
 
 
 def test_lists_have_no_dead_entry():
-    used = set(MS_FIELDS)
+    used = set(MS_FIELDS) | {"ms"}  # `ms` is the duration of a `TimePart` (D54); it has no `_ms` suffix
     assert (timefmt.ISO_FIELDS | timefmt.DURATION_FIELDS | timefmt.NESTED_FIELDS) <= used
 
 
@@ -56,11 +56,10 @@ def test_no_wire_type_has_a_sibling_name_or_tz():
             assert f"{n}_h" not in names, (c.__name__, n)
 
 
-def test_none_split_values_sit_under_a_none_split_key():
-    for c in WIRE_TYPES:
-        for f in dataclasses.fields(c):
-            if "NoneSplit" in str(f.type):
-                assert f.name == timefmt.NONE_SPLIT, (c.__name__, f.name)
+def test_time_part_duration_is_classified():
+    assert [f.name for f in dataclasses.fields(wire.TimePart)] == ["state", "substate", "ms"]
+    assert "ms" in timefmt.DURATION_FIELDS
+    assert not any(hasattr(wire, n) for n in ("NoneSplit",))  # D54: no separate none split
 
 
 # ── ISO ──────────────────────────────────────────────────────────────────────
@@ -127,9 +126,13 @@ def test_render_walks_depth_keeps_raw_values_and_nulls():
         "wall_ms": 725_000,
         "freshness": {"last_ingest_ms": None},
         "rows": [{"end_ms": T, "dur_ms": None, "name": "x"}],
-        "time_split": {"model_ms": 1000, "tool_ms": 0, "agents_ms": 0, "none_ms": 61_000},
-        "none_split": {"you": 3_600_000, "agentmsg": 0, "limit": 0, "none": 5000},
-        "state_ms": {"model_ms": 2000},
+        "time_split": {
+            "parts": [
+                {"state": "you", "substate": "ask", "ms": 3_600_000},
+                {"state": "none", "substate": "none", "ms": 61_000},
+            ]
+        },
+        "state_ms": {"parts": [{"state": "model", "substate": None, "ms": 2000}]},
         "n": 5,
     }
     out = timefmt.render(data, "UTC")
@@ -143,9 +146,14 @@ def test_render_walks_depth_keeps_raw_values_and_nulls():
         "dur_ms_h": None,
         "name": "x",
     }
-    assert out["time_split"]["none_ms_h"] == "1m 01s"
-    assert out["none_split"]["you_h"] == "1h 0m" and out["none_split"]["none_h"] == "5s"
-    assert out["state_ms"] == {"model_ms": 2000, "model_ms_h": "2s"}
+    assert [p["ms_h"] for p in out["time_split"]["parts"]] == ["1h 0m", "1m 01s"]
+    assert out["time_split"]["parts"][0] == {
+        "state": "you",
+        "substate": "ask",
+        "ms": 3_600_000,
+        "ms_h": "1h 0m",
+    }
+    assert out["state_ms"]["parts"] == [{"state": "model", "substate": None, "ms": 2000, "ms_h": "2s"}]
     assert out["n"] == 5 and "n_h" not in out
     assert data["wall_ms"] == 725_000 and "wall_ms_h" not in data  # the input is not changed
 
@@ -229,8 +237,9 @@ def test_status_and_slow_carry_tz_iso_and_readable_durations(qstore, capsys, tz)
     first = body["sessions"][0]
     assert first["start"] == timefmt.iso(first["start_ms"], tz)
     assert first["wall_ms_h"] == timefmt.human(first["wall_ms"])
-    assert first["time_split"]["model_ms_h"] == timefmt.human(first["time_split"]["model_ms"])
-    assert body["current"]["none_split"]["you_h"] == timefmt.human(body["current"]["none_split"]["you"])
+    for part in first["time_split"]["parts"] + body["current"]["time_split"]["parts"]:
+        assert part["ms_h"] == timefmt.human(part["ms"])
+    assert "none_split" not in body["current"]
 
 
 def test_default_zone_is_the_machine_zone(qstore, capsys, monkeypatch):  # noqa: F811
@@ -282,3 +291,21 @@ def test_epilog_mentions_the_siblings_in_one_line(cmd, capsys):
     text = capsys.readouterr().out
     assert len([ln for ln in text.splitlines() if "_ms_h" in ln]) == 1
     assert "tz" in text
+
+
+def test_table_shows_split_parts_with_substates_and_readable_durations(qstore, capsys):  # noqa: F811
+    code, out, err = run(capsys, "--db", str(qstore), *SLOW_DAY, "--table")
+    assert (code, err) == (0, "")
+    line = next(x for x in out.splitlines() if x.startswith("current:"))
+    # D54: state/substate with the readable duration; the raw `ms` is not shown beside it
+    assert "time_split=[" in line and "you/ask=15m 00s" in line and "you/reply=25m 00s" in line
+    assert " none=15s" in line  # none/none is shown as `none`
+    assert "ms=" not in line.split("time_split=[")[1].split("]")[0]
+    assert "user_waits:" in out
+
+
+def test_json_user_waits_have_readable_durations(qstore, capsys):  # noqa: F811
+    code, out, _ = run(capsys, "--db", str(qstore), *SLOW_DAY)
+    body = json.loads(out)
+    assert body["user_waits"]["ask"] == {"n": 1, "dur_ms": 900_000, "dur_ms_h": "15m 00s"}
+    assert body["user_waits"]["permission"]["n"] == 0

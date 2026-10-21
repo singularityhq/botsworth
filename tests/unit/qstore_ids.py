@@ -80,9 +80,15 @@ SKILL_ONE_TURN = turn(SSKILLS, 2)  # loads demo:alpha
 
 # case 11 and 16
 SLOW_BASH = op("sslow1", "tool_call", "toolu_slowbash")  # 40 min derived, 30 min silence
-ASK_USER = op("sslow1", "tool_call", "toolu_ask1")  # 15 min, waits_on_user
+ASK_USER = op("sslow1", "tool_call", "toolu_ask1")  # 15 min, user_wait ask
+AGENT_PERMISSION = op("sstretch", "tool_call", "toolu_agperm")  # an agent's Bash, 4 min, user_wait permission
 SLOW_PROJECT = "/u/h/slowproj/app"
 
 # case 14
 OMP_CALLS = (op("somp", "llm_call", "resp_o1", "omp"), op("somp", "llm_call", "resp_o2", "omp"))
 CODEX_CALL = op("scodex", "llm_call", "resp_cx1", "codex")
+
+
+def parts(split) -> dict[str, int]:
+    """A wire `TimeSplit` as `{"state" or "state/substate": ms}`, in wire order (D54)."""
+    return {p.state + (f"/{p.substate}" if p.substate else ""): p.ms for p in split.parts}

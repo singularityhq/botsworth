@@ -401,7 +401,9 @@ def test_group_period_activity_strip(xstore):
     )
     all_time = ex.list_sessions(Scope(), db=xstore, group="project")  # extent 6-10 Oct: five days, hour rows
     assert len(all_time.groups[0].period_activity.tok) == 5 * 24
-    assert sum(sum(g.period_activity.tok) for g in all_time.groups) == 9900  # all in-scope tokens
+    assert (
+        sum(sum(g.period_activity.tok) for g in all_time.groups) == 10020
+    )  # all in-scope tokens (sstretch: eight calls of 120 tokens since D54)
 
 
 def test_group_key_pages_one_group(xstore):
@@ -496,7 +498,7 @@ def test_week_bucket_clips_partial_edge_weeks(xstore):
     ]  # fmt: skip
     assert clipped[0].cost_usd == pytest.approx(22.25 - 6.0)  # the 6 Oct share (3.00 + 3.00) is outside
     assert clipped[0].n_sessions == 11 and clipped[0].cost_lower_bound is False  # sunpriced is outside
-    assert clipped[0].tok_total == 9900 - 1560
+    assert clipped[0].tok_total == 10020 - 1560
     # a window inside one week
     inner = ex.day_series(Scope(), "2026-10-06", "2026-10-08", bucket="week", db=xstore).days
     assert [(b.from_day, b.to_day) for b in inner] == [("2026-10-06", "2026-10-08")]

@@ -1,12 +1,13 @@
 """CONTRACT: the SQLite schema of the store (design §4.2 store tables, §4.7, §4.11; data-model.md §2.2, §2.3).
 
 GUARANTEES:
-- `DDL` creates every store table, index and view (schema v7): ops, steps, events, sessions,
+- `DDL` creates every store table, index and view (schema v10): ops, steps, events, sessions,
   source_files, src_files, names, accounts, price_table, model_aliases, rollup_time,
-  stretches, projects, meta; views `ops_v`, `steps_v`, `events_v`. Column names equal the canonical
-  record field names (`botsworth.model`) except where DM-8/DM-14 compact them: a content reference is
-  (`src_file`, `src_loc`, `src_h`); `cwd`, `account`, `path_sig` are `names` ids; `parent`/`caused_by`
-  are rowids; `session_id`, `bundle`, `project` are read through `sessions`; `occ_key` is `occ_hash`.
+  stretches, time_split, projects, meta; views `ops_v`, `steps_v`, `events_v`. Column names equal the
+  canonical record field names (`botsworth.model`) except where DM-8/DM-14 compact them: a content
+  reference is (`src_file`, `src_loc`, `src_h`); `cwd`, `account`, `path_sig` are `names` ids;
+  `parent`/`caused_by` are rowids; `session_id`, `bundle`, `project` are read through `sessions`;
+  `occ_key` is `occ_hash`.
   JSON-valued fields (`events.fields`, `steps.sub_items`, `ops.segments`, `sessions.activity_tok`) are
   TEXT holding JSON. `source_files` is the store's only change manifest (D52): one row per provider
   file, `reject_reason` set on every file of a bundle the store refused to load.
@@ -41,7 +42,7 @@ import sqlite3
 
 from botsworth.store import refs
 
-SCHEMA_VERSION = 9
+SCHEMA_VERSION = 10
 
 # design §4.2 op record (canonical names), then store-only and derived columns (data-model.md §2.2).
 # Dropped from v6 (DM-8, DM-13, DM-14): parent, caused_by, session_id, bundle, project, cwd, account,
@@ -82,9 +83,7 @@ _OP_COLUMNS = """
   turn_kind TEXT, turn_origin TEXT, display_ix INTEGER,
   attr_turn_rowid INTEGER, attr_cost_usd REAL, attr_tok_total INTEGER, attr_n_llm_calls INTEGER,
   attr_cost_lower_bound INTEGER,
-  model_ms INTEGER, tool_ms INTEGER, agents_ms INTEGER, none_ms INTEGER,
-  span_wall_ms INTEGER, span_model_ms INTEGER, span_tool_ms INTEGER, span_agents_ms INTEGER,
-  span_none_ms INTEGER, max_silence_ms INTEGER, waits_on_user INTEGER
+  span_wall_ms INTEGER, max_silence_ms INTEGER, user_wait TEXT
 """
 
 _STEP_COLUMNS = """
@@ -215,8 +214,7 @@ CREATE TABLE sessions(
   max_parallel INTEGER, n_llm_calls INTEGER, n_tool_calls INTEGER, n_engagements INTEGER,
   n_errors INTEGER, n_steps INTEGER, incl_tok_prov TEXT, incl_time_prov TEXT, cost_lower_bound INTEGER,
   title_source TEXT, display_title TEXT, n_human_asks INTEGER, is_automated INTEGER,
-  activity_bin_ms INTEGER, activity_tok TEXT,
-  model_ms INTEGER, tool_ms INTEGER, agents_ms INTEGER, none_ms INTEGER);
+  activity_bin_ms INTEGER, activity_tok TEXT);
 CREATE UNIQUE INDEX sessions_key ON sessions(provider, session_id);
 CREATE UNIQUE INDEX sessions_op ON sessions(op_rowid);
 CREATE INDEX sessions_project_time ON sessions(project, first_ms);
@@ -256,11 +254,21 @@ CREATE INDEX rollup_root ON rollup_time(root_rowid);
 
 CREATE TABLE stretches(
   root_rowid INTEGER NOT NULL, turn_rowid INTEGER,
-  state TEXT NOT NULL CHECK (state IN ('none', 'agents')),
-  start_ms INTEGER NOT NULL, end_ms INTEGER NOT NULL,
-  next_turn_kind TEXT);
+  state TEXT NOT NULL CHECK (state IN ('agents', 'you', 'agentmsg', 'limit', 'none')),
+  substate TEXT,
+  start_ms INTEGER NOT NULL, end_ms INTEGER NOT NULL);
 CREATE INDEX stretches_root ON stretches(root_rowid, start_ms);
 CREATE INDEX stretches_len ON stretches(state, (end_ms - start_ms) DESC);
+
+CREATE TABLE time_split(
+  root_rowid INTEGER NOT NULL,
+  op_rowid INTEGER NOT NULL,
+  scope TEXT NOT NULL CHECK (scope IN ('session', 'window', 'span')),
+  state TEXT NOT NULL CHECK (state IN ('model', 'tool', 'agents', 'you', 'agentmsg', 'limit', 'none')),
+  substate TEXT,
+  ms INTEGER NOT NULL);
+CREATE INDEX time_split_op ON time_split(op_rowid, scope);
+CREATE INDEX time_split_root ON time_split(root_rowid, scope);
 
 CREATE TABLE projects(
   project TEXT PRIMARY KEY, name TEXT NOT NULL,
@@ -286,6 +294,7 @@ TABLES = (
     "model_aliases",
     "rollup_time",
     "stretches",
+    "time_split",
     "projects",
     "meta",
 )

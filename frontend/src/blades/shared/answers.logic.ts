@@ -1,27 +1,25 @@
 import type { RowRef, SessionDetail, TimeSplit } from '../../api/types'
 import { fmt } from '../../lib/format'
-import { GAP_MIN_MS, LEGEND_MAX, LEGEND_MIN_MS, STATE_KEYS, STATES, type StateKey } from './states'
+import { GAP_MIN_MS, LEGEND_MAX, LEGEND_MIN_MS, STATE_KEYS, STATES, YOU_SUBSTATES, type StateKey, type YouSubstate } from './states'
 import type { Rich } from './toastText'
 
 /** The two answers (SES-26; R3 top 5 #1): where the money went, where the time went. Pure rules, shared with the turn header. */
 
 export type StateTotals = Record<StateKey, number>
-export type NoneSplit = SessionDetail['session']['none_split']
 
-/**
- * Seven state totals from the stored fields. `none_split` splits `none_ms` by the stored label of the next turn
- * (SES-16); `before_first` is part of its `none` (D41 M11). A turn has no `none_split`: all of its `none_ms` is "nothing running".
- */
-export function stateTotals(split: TimeSplit, none?: NoneSplit): StateTotals {
-  return {
-    model: split.model_ms,
-    tool: split.tool_ms,
-    agents: split.agents_ms,
-    you: none ? none.you : 0,
-    agentmsg: none ? none.agentmsg : 0,
-    limit: none ? none.limit : 0,
-    none: none ? none.none : split.none_ms,
-  }
+/** Seven state totals: each state's parts summed over its substates (SES-15: the legend shows one `you` item). */
+export function stateTotals(split: TimeSplit): StateTotals {
+  const t: StateTotals = { model: 0, tool: 0, agents: 0, you: 0, agentmsg: 0, limit: 0, none: 0 }
+  for (const p of split.parts) t[p.state] += p.ms
+  return t
+}
+
+/** The `you` time per substate, for the legend tooltip (SES-15). Substates with no time are left out. */
+export function youBreakdown(split: TimeSplit): { substate: YouSubstate; ms: number }[] {
+  return YOU_SUBSTATES.map((substate) => ({
+    substate,
+    ms: split.parts.filter((p) => p.state === 'you' && p.substate === substate).reduce((a, p) => a + p.ms, 0),
+  })).filter((r) => r.ms > 0)
 }
 
 export function totalsSum(t: StateTotals): number {

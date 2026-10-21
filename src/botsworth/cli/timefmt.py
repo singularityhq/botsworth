@@ -3,9 +3,9 @@
 GUARANTEES:
 - `render(data, tz)` returns a copy of the output dict (`asdict` of a wire type) with, at every depth:
   each timestamp field `<x>_ms` in `ISO_FIELDS` followed by a sibling `<x>` = ISO-8601 with the offset of
-  `tz`, second precision (`2026-10-07T01:02:29+05:30`); each duration field in `DURATION_FIELDS` (and each
-  value of a `none_split` object) followed by `<field>_h` = `human(ms)`. A null stays null. The raw
-  `*_ms` values are kept. The top level gains `"tz": tz` as its first key.
+  `tz`, second precision (`2026-10-07T01:02:29+05:30`); each duration field in `DURATION_FIELDS`
+  (including `ms`, the duration of a `time_split` part) followed by `<field>_h` = `human(ms)`. A null
+  stays null. The raw `*_ms` values are kept. The top level gains `"tz": tz` as its first key.
 - `human(ms)`: `0s` under 1 s; `45s`; `12m 05s`; `2h 15m`; `3d 4h`. It truncates to the shown units; only
   the seconds of `12m 05s` are zero padded.
 - The three sets are explicit lists, not a guess by name suffix: a test walks every `*_ms` field of
@@ -27,12 +27,11 @@ ISO_FIELDS = frozenset(
 )
 DURATION_FIELDS = frozenset(
     (
-        "model_ms", "tool_ms", "agents_ms", "none_ms", "wall_ms", "active_ms", "dur_ms", "waiting_ms",
+        "model_ms", "ms", "wall_ms", "active_ms", "dur_ms", "waiting_ms",
         "run_ms", "ttft_ms", "ttft_ms_mean", "max_silence_ms", "p50_ms", "p90_ms", "max_ms", "bin_ms",
     )
 )  # fmt: skip
-NESTED_FIELDS = frozenset(("state_ms",))  # an object of duration fields, not a number
-NONE_SPLIT = "none_split"  # the values of this object are durations; their keys carry no `_ms`
+NESTED_FIELDS = frozenset(("state_ms",))  # a `TimeSplit` object, not a number
 
 
 def human(ms: float) -> str:
@@ -53,18 +52,18 @@ def iso(ms: int, tz: str) -> str:
     return datetime.fromtimestamp(ms // 1000, ZoneInfo(tz)).isoformat(timespec="seconds")
 
 
-def _node(obj: Any, tz: str, in_none_split: bool = False) -> Any:
+def _node(obj: Any, tz: str) -> Any:
     if isinstance(obj, list):
         return [_node(x, tz) for x in obj]
     if not isinstance(obj, dict):
         return obj
     result: dict[str, Any] = {}
     for k, raw in obj.items():
-        v = result[k] = _node(raw, tz, k == NONE_SPLIT)
+        v = result[k] = _node(raw, tz)
         is_number = isinstance(v, int | float) and not isinstance(v, bool)
         if k in ISO_FIELDS and (v is None or is_number):
             _add(result, obj, k[: -len("_ms")], None if v is None else iso(v, tz))
-        elif (k in DURATION_FIELDS or in_none_split) and (v is None or is_number):
+        elif k in DURATION_FIELDS and (v is None or is_number):
             _add(result, obj, f"{k}_h", None if v is None else human(v))
     return result
 

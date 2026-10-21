@@ -7,7 +7,7 @@ import { ProjectDot } from '../../ui/ProjectDot'
 import { Skeleton } from '../../ui/Skeleton'
 import { Tooltip } from '../../ui/Tooltip'
 import { Answers, type AnswersCost } from '../shared/Answers'
-import { showUnattributed, stateTotals } from '../shared/answers.logic'
+import { showUnattributed } from '../shared/answers.logic'
 import { ModelTable } from '../shared/ModelTable'
 import type { StateKey } from '../shared/states'
 
@@ -100,7 +100,7 @@ export function SessionHeader({ session: s, tz, over, info, range, onToggleOver,
         cost={rangeCost === undefined ? (s ? { ...s.cost } : undefined) : (rangeCost ?? undefined)} // FALLBACK-OK: SES-13 (null = the range figures are loading; the answer shows its skeleton)
         causal={rangeCost === undefined}
         wallMs={s?.wall_ms}
-        totals={s ? stateTotals(s.time_split, s.none_split) : undefined}
+        split={s?.time_split}
         onJump={onJump}
       />
     </div>

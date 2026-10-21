@@ -20,7 +20,7 @@ export function tool(id: string, o: Partial<ToolRow> & { sec?: number } = {}): T
   return {
     type: 'tool', id: `${S}/tool/${id}`, depth: 0, step_id: null, tool_name: 'Bash', verb: 'run', summary: 'npm test', target: 'npm test',
     command: 'npm test', command_src: null, file_path: null, start_ms: at(sec), end_ms: at(sec + 2), dur_ms: 2000, time_prov: 'present',
-    status: 'ok', failed: false, exit_code: 0, is_error: false, interrupted: false, skill_load: null, skill_via: null, waits_on_user: false,
+    status: 'ok', failed: false, exit_code: 0, is_error: false, interrupted: false, skill_load: null, skill_via: null, user_wait: null,
     max_silence_ms: null, result_bytes: null, src: 'src://x', ...rest,
   }
 }
@@ -37,7 +37,7 @@ export function agent(id: string, o: Partial<AgentRow> & { sec?: number } = {}):
 
 export function gap(sec: number, durSec: number, o: Partial<GapRow> = {}): GapRow {
   return {
-    type: 'gap', id: `gap-${at(sec)}`, start_ms: at(sec), end_ms: at(sec + durSec), dur_ms: durSec * 1000, state: 'none', label: 'none',
+    type: 'gap', id: `gap-${at(sec)}`, start_ms: at(sec), end_ms: at(sec + durSec), dur_ms: durSec * 1000, state: 'none', substate: 'none',
     turn: `${S}/turn/1`, next_turn: null, running: [], ...o,
   }
 }

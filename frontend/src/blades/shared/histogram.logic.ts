@@ -2,7 +2,7 @@ import type { Histogram, Stretch } from '../../api/types'
 import { fmt } from '../../lib/format'
 import { modelFamily, type ModelFamily } from '../../lib/model'
 import type { Bars, MsRange } from '../../state/url'
-import { gapState, type StateKey } from './states'
+import { gapState, STATE_KEYS, type StateKey } from './states'
 
 /**
  * The time axis and the geometry of the Over time histogram (SES-29, SES-30, TRN-21). Pure: wire data in, pixel numbers out.
@@ -40,10 +40,10 @@ export interface Axis {
   inv(px: number): number
 }
 
-/** Waits (stretches with state `none`) of at least `minMs`, clipped to [a, b], in time order. Agents-only stretches are never folded: something ran. */
+/** Waits (stretches of any state but `agents`) of at least `minMs`, clipped to [a, b], in time order. Agents-only stretches are never folded: something ran. */
 export function waitFolds(stretches: readonly Stretch[], a: number, b: number, minMs: number): Fold[] {
   return stretches
-    .filter((s) => s.state === 'none' && s.dur_ms >= minMs && s.end_ms > a && s.start_ms < b)
+    .filter((s) => s.state !== 'agents' && s.dur_ms >= minMs && s.end_ms > a && s.start_ms < b)
     .map((s) => ({ a: Math.max(a, s.start_ms), b: Math.min(b, s.end_ms) }))
     .filter((f) => f.b > f.a)
     .sort((p, q) => p.a - q.a)
@@ -193,21 +193,16 @@ export interface LaneSegment {
   x1: number
 }
 
-const BIN_STATES: readonly [keyof Histogram['bins'][number]['state_ms'], StateKey][] = [
-  ['model_ms', 'model'],
-  ['tool_ms', 'tool'],
-  ['agents_ms', 'agents'],
-  ['none_ms', 'none'],
-]
-
-/** The state of a bin: the one with the most time; ties go in the order model, tool, agents, none. A bin with no state time has none. */
+/** The state of a bin: the one with the most time, its substates summed; ties go in SES-15 order. A bin with no state time has none. */
 export function dominantState(s: Histogram['bins'][number]['state_ms']): StateKey | null {
+  const ms: Record<StateKey, number> = { model: 0, tool: 0, agents: 0, you: 0, agentmsg: 0, limit: 0, none: 0 }
+  for (const p of s.parts) ms[p.state] += p.ms
   let best: StateKey | null = null
   let bestMs = 0
-  for (const [field, state] of BIN_STATES) {
-    if (s[field] > bestMs) {
+  for (const state of STATE_KEYS) {
+    if (ms[state] > bestMs) {
       best = state
-      bestMs = s[field]
+      bestMs = ms[state]
     }
   }
   return best
@@ -243,7 +238,7 @@ export function laneSegments(h: Histogram, axis: Axis): LaneSegment[] {
     const t0 = Math.max(axis.a, s.start_ms)
     const t1 = Math.min(axis.b, s.end_ms)
     if (t1 <= t0) continue
-    out.push({ state: s.state === 'agents' ? 'agents' : gapState(s.label), x0: axis.x(t0), x1: axis.x(t1) })
+    out.push({ state: gapState(s), x0: axis.x(t0), x1: axis.x(t1) })
   }
   return out
 }

@@ -42,7 +42,7 @@ function rowsBody(n: number, zoom?: { from_ms: number; to_ms: number }): TurnRow
     turn: { ...(base as unknown as TurnRows['turn']), ...row, cost: { cost_usd: row.cost_usd, cost_lower_bound: false, n_unpriced: 0, main: 1, agents: 0 }, models_full: [], text_src: 'src://x', text_bytes: 120, n_turns_in_session: 4 },
     rows: ROWS[n],
     range: zoom
-      ? { ...zoom, cost: { cost_usd: 0.5, cost_lower_bound: false, n_unpriced: 0 }, cost_main: 0.4, cost_agents: 0.1, time_split: { model_ms: 5000, tool_ms: 4000, agents_ms: 0, none_ms: 1000 }, agents: [] }
+      ? { ...zoom, cost: { cost_usd: 0.5, cost_lower_bound: false, n_unpriced: 0 }, cost_main: 0.4, cost_agents: 0.1, time_split: { parts: [{ state: 'model', substate: null, ms: 5000 }, { state: 'tool', substate: null, ms: 4000 }, { state: 'none', substate: 'none', ms: 1000 }] }, agents: [] }
       : null,
   }
 }

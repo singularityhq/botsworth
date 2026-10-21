@@ -35,7 +35,7 @@ const T1 = tool('t1', { sec: 10, summary: 'npm test', tool_name: 'Bash', verb: '
 const RD = tool('rd', { sec: 12, tool_name: 'Read', verb: 'read', summary: 'Read the module', target: 'src/a.ts', command: null, command_src: null, file_path: 'src/a.ts', result_bytes: 0 })
 const AG = agent('ag', { sec: 20, cost_usd: 3.28, agent_names: ['auth-readiness'], n_rows: 2, run_ms: 780_000 })
 const TURNS_LABEL2 = 'I hit my usage limit earlier, please continue from where you left off'
-const GAPL = gap(100, 300, { label: 'limit', state: 'none', turn: T(1), next_turn: { turn: T(2), kind: 'human', origin: 'typed', label: TURNS_LABEL2, display_id: 'T2' }, running: [{ row: AG.id, agent_name: 'auth-readiness', start_ms: at(110), end_ms: at(380), cost_usd: 3.28 }] }) as GapRow
+const GAPL = gap(100, 300, { state: 'limit', substate: null, turn: T(1), next_turn: { turn: T(2), kind: 'human', origin: 'typed', label: TURNS_LABEL2, display_id: 'T2' }, running: [{ row: AG.id, agent_name: 'auth-readiness', start_ms: at(110), end_ms: at(380), cost_usd: 3.28 }] }) as GapRow
 const C2 = call('c2', { sec: 420, cost_usd: null, model: 'mystery-1', steps: [] })
 const ROWS1: AnyRow[] = [C1, T1, RD, AG, GAPL, C2]
 const ROWS2: AnyRow[] = [call('d1', { sec: 900, steps: [{ step_id: 'x', verb: 'answer', summary: 'All done', snippet: '' }], is_final: true })]
@@ -343,11 +343,18 @@ describe('tool (DET-20 to DET-24, DET-65, DET-66)', () => {
   })
 
   it('a silent or waiting tool says so under the hero', async () => {
-    const d = tool('t5', { sec: 3, max_silence_ms: 420_000, waits_on_user: true, result_bytes: 0 })
+    const d = tool('t5', { sec: 3, max_silence_ms: 420_000, user_wait: 'ask', result_bytes: 0 })
     serve({ details: { [d.id]: toolDetail(d) }, extra: [d] })
     mount(`t=1&step=${encodeURIComponent(d.id)}`)
     expect(await ui.findByText('No records for 7m inside this call. Its duration includes that time.')).toBeTruthy()
     expect(ui.getByText('This tool waits for your answer. Its duration includes your reply.')).toBeTruthy()
+  })
+
+  it('a call that waited for approval says so under the hero (DET-21, D54)', async () => {
+    const d = tool('t5p', { sec: 3, user_wait: 'permission', result_bytes: 0 })
+    serve({ details: { [d.id]: toolDetail(d) }, extra: [d] })
+    mount(`t=1&step=${encodeURIComponent(d.id)}`)
+    expect(await ui.findByText('This call waited for your approval. Its duration includes the wait and the run after it.')).toBeTruthy()
   })
 })
 

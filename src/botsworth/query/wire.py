@@ -46,11 +46,17 @@ class Money:
 
 
 @dataclass(frozen=True)
+class TimePart:
+    state: str
+    substate: str | None
+    ms: int
+
+
+@dataclass(frozen=True)
 class TimeSplit:
-    model_ms: int
-    tool_ms: int
-    agents_ms: int
-    none_ms: int
+    """DM-51, DM-53 [D54]: the parts above 0 ms in SES-15 order, then substate order."""
+
+    parts: list[TimePart]
 
 
 @dataclass(frozen=True)
@@ -370,18 +376,10 @@ class Stretch:
     end_ms: int
     dur_ms: int
     state: str
-    label: str
+    substate: str | None
     turn: str | None
     next_turn: NextTurn | None
     running: list[RunningEngagement]
-
-
-@dataclass(frozen=True)
-class NoneSplit:
-    you: int
-    agentmsg: int
-    limit: int
-    none: int
 
 
 @dataclass(frozen=True)
@@ -438,7 +436,6 @@ class SessionInfo:
     wall_ms: int
     active_ms: int
     time_split: TimeSplit
-    none_split: NoneSplit
     longest: Longest
     n_agents: int
     n_skill_loads: int
@@ -501,7 +498,7 @@ class GapRow:
     end_ms: int
     dur_ms: int
     state: str
-    label: str
+    substate: str | None
     turn: str | None
     next_turn: NextTurn | None
     running: list[RunningEngagement]
@@ -670,7 +667,7 @@ class ToolRow:
     interrupted: bool
     skill_load: str | None
     skill_via: str | None
-    waits_on_user: bool
+    user_wait: str | None
     max_silence_ms: int | None
     result_bytes: int | None
     src: str
@@ -883,7 +880,7 @@ class ToolDetail:
     interrupted: bool
     skill_load: str | None
     skill_via: str | None
-    waits_on_user: bool
+    user_wait: str | None
     max_silence_ms: int | None
     result_bytes: int | None
     src: str
@@ -975,7 +972,6 @@ class SlowBlock:
     wall_ms: int
     active_ms: int
     time_split: TimeSplit
-    none_split: NoneSplit
     n_llm_calls: int
     n_tool_calls: int
     tok_total: int | None
@@ -1026,9 +1022,17 @@ class SlowestTool:
 
 
 @dataclass(frozen=True)
-class WaitsOnUser:
+class UserWaitCount:
     n: int
     dur_ms: int
+
+
+@dataclass(frozen=True)
+class UserWaits:
+    """CLI-20 `user_waits` (D54): calls with that `user_wait`."""
+
+    ask: UserWaitCount
+    permission: UserWaitCount
 
 
 @dataclass(frozen=True)
@@ -1039,7 +1043,7 @@ class SessionWait:
     end_ms: int
     dur_ms: int
     state: str
-    label: str
+    substate: str | None
     turn: str | None
     next_turn: NextTurn | None
     running: list[RunningEngagement]
@@ -1055,7 +1059,7 @@ class SlowReport:
     sessions: list[SlowSession]
     tools: list[ToolGroup]
     slowest_tools: list[SlowestTool]
-    waits_on_user: WaitsOnUser
+    user_waits: UserWaits
     waits: list[SessionWait]
     models: list[ModelLine]
 
@@ -1074,7 +1078,6 @@ class BreakdownSession:
     cost: Money
     tok_total: int | None
     time_split: TimeSplit
-    none_split: NoneSplit
 
 
 @dataclass(frozen=True)

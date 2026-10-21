@@ -19,10 +19,10 @@ describe('SES-15 states', () => {
 
 describe('gap kinds (SES-36, D41 M11)', () => {
   it('before_first counts under none; every other label is its own state', () => {
-    expect(gapState('before_first')).toBe('none')
-    expect(gapState('you')).toBe('you')
-    expect(gapState('limit')).toBe('limit')
-    expect(gapState('agents')).toBe('agents')
+    expect(gapState({ state: 'none', substate: 'before_first' })).toBe('none')
+    expect(gapState({ state: 'you', substate: 'reply' })).toBe('you')
+    expect(gapState({ state: 'limit', substate: null })).toBe('limit')
+    expect(gapState({ state: 'agents', substate: null })).toBe('agents')
   })
 
   it('uses hourglass for you, none and before_first, timer-off for the limit and ear for an agent message (D38 L4)', () => {
@@ -40,22 +40,33 @@ describe('gap kinds (SES-36, D41 M11)', () => {
 
   it('gives each label its reason', () => {
     const c = { firstTurnIsHuman: true }
-    expect(gapReason('you', c)).toBe('the next turn is your message')
-    expect(gapReason('limit', c)).toBe('the next turn resumes after a usage limit')
-    expect(gapReason('agentmsg', c)).toBe("the next turn is an agent's message")
-    expect(gapReason('none', c)).toBe('no model call, tool or agent was running')
+    expect(gapReason({ state: 'you', substate: 'reply' }, c)).toBe('the next turn is your message')
+    expect(gapReason({ state: 'limit', substate: null }, c)).toBe('the next turn resumes after a usage limit')
+    expect(gapReason({ state: 'agentmsg', substate: null }, c)).toBe("the next turn is an agent's message")
+    expect(gapReason({ state: 'none', substate: 'none' }, c)).toBe('no model call, tool or agent was running')
+  })
+
+  it('gives each substate of you its reason (SES-15, TRN-34)', () => {
+    const c = { firstTurnIsHuman: true }
+    expect(gapReason({ state: 'you', substate: 'ask' }, c)).toBe('an agent asked you a question')
+    expect(gapReason({ state: 'you', substate: 'permission' }, c)).toBe('an agent waited for your approval')
+    expect(gapReason({ state: 'you', substate: 'reply' }, c)).toBe('the next turn is your message')
+  })
+
+  it('a you stretch with no substate is a contract violation (DM-50)', () => {
+    expect(() => gapReason({ state: 'you', substate: null }, { firstTurnIsHuman: true })).toThrow()
   })
 
   it('before the first message says "your" only when the first turn is a human turn', () => {
-    expect(gapReason('before_first', { firstTurnIsHuman: true })).toBe('the session was open before your first message')
-    expect(gapReason('before_first', { firstTurnIsHuman: false })).toBe('the session was open before its first message')
+    expect(gapReason({ state: 'none', substate: 'before_first' }, { firstTurnIsHuman: true })).toBe('the session was open before your first message')
+    expect(gapReason({ state: 'none', substate: 'before_first' }, { firstTurnIsHuman: false })).toBe('the session was open before its first message')
   })
 
   it('agents-only names up to three engagements and counts the rest', () => {
     const c = { firstTurnIsHuman: true }
-    expect(gapReason('agents', { ...c, running: ['a', 'b'] })).toBe('2 agents running: a, b')
-    expect(gapReason('agents', { ...c, running: ['a'] })).toBe('1 agent running: a')
-    expect(gapReason('agents', { ...c, running: ['a', 'b', 'c', 'd', 'e'] })).toBe('5 agents running: a, b, c +2')
+    expect(gapReason({ state: 'agents', substate: null }, { ...c, running: ['a', 'b'] })).toBe('2 agents running: a, b')
+    expect(gapReason({ state: 'agents', substate: null }, { ...c, running: ['a'] })).toBe('1 agent running: a')
+    expect(gapReason({ state: 'agents', substate: null }, { ...c, running: ['a', 'b', 'c', 'd', 'e'] })).toBe('5 agents running: a, b, c +2')
   })
 })
 

@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { fixtures } from '../../api/__fixtures__'
+import type { TimeSplit } from '../../api/types'
 import {
-  costCaption, gapStartMs, jumpToast, legendStates, planJump, runningSplit, segmentWidths, stateTotals, totalsSum,
+  costCaption, gapStartMs, jumpToast, legendStates, planJump, runningSplit, segmentWidths, stateTotals, totalsSum, youBreakdown,
   type Longest,
 } from './answers.logic'
 import { STATE_KEYS } from './states'
@@ -10,19 +11,31 @@ const S = fixtures.sessionDetail.session
 
 describe('stateTotals (SES-15, SES-16)', () => {
   it('the seven segments sum to the wall (fixture session)', () => {
-    const t = stateTotals(S.time_split, S.none_split)
+    const t = stateTotals(S.time_split as TimeSplit)
     expect(totalsSum(t)).toBe(S.wall_ms)
     expect(t).toEqual({ model: 120000, tool: 45000, agents: 300000, you: 30000, agentmsg: 0, limit: 30000, none: 0 })
   })
 
-  it('a turn has no none_split: its none_ms is all "nothing running"', () => {
-    const t = stateTotals({ model_ms: 10, tool_ms: 20, agents_ms: 30, none_ms: 40 })
-    expect(t.none).toBe(40)
-    expect([t.you, t.agentmsg, t.limit]).toEqual([0, 0, 0])
+  it('the legend `you` sums its substates (SES-15, D54)', () => {
+    const t = stateTotals({
+      parts: [
+        { state: 'you', substate: 'ask', ms: 100 }, { state: 'you', substate: 'permission', ms: 20 }, { state: 'you', substate: 'reply', ms: 3 },
+        { state: 'none', substate: 'before_first', ms: 40 }, { state: 'none', substate: 'none', ms: 5 },
+      ],
+    })
+    expect(t.you).toBe(123)
+    expect(t.none).toBe(45)
+  })
+
+  it('lists the substates of you for the legend tooltip, in SES-15 order, leaving out empty ones', () => {
+    expect(youBreakdown({ parts: [{ state: 'you', substate: 'reply', ms: 3 }, { state: 'you', substate: 'ask', ms: 100 }, { state: 'model', substate: null, ms: 9 }] })).toEqual([
+      { substate: 'ask', ms: 100 },
+      { substate: 'reply', ms: 3 },
+    ])
   })
 
   it('splits running from nothing running against the wall', () => {
-    const t = stateTotals(S.time_split, S.none_split)
+    const t = stateTotals(S.time_split as TimeSplit)
     expect(runningSplit(t, S.wall_ms)).toEqual({ running: 465000, nothing: 60000 })
   })
 })
@@ -45,8 +58,7 @@ describe('legendStates (SES-26)', () => {
   })
 
   it('before_first sits inside none: a session whose only wait is before the first message lists "nothing running" (D41 M11)', () => {
-    // The server has no before_first key in none_split; that stretch is part of `none`.
-    const t = stateTotals({ model_ms: 100000, tool_ms: 0, agents_ms: 0, none_ms: 1860000 }, { you: 0, agentmsg: 0, limit: 0, none: 1860000 })
+    const t = stateTotals({ parts: [{ state: 'model', substate: null, ms: 100000 }, { state: 'none', substate: 'before_first', ms: 1860000 }] })
     expect(legendStates(t)).toEqual(['none', 'model'])
   })
 

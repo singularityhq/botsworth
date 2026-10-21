@@ -36,8 +36,8 @@ GUARANTEES:
   `session_id`, `bundle`, `project` are not stored on ops (read through `sessions`). `ops.command` and
   `ops.file_path` and `steps.target` are clipped to 160 characters (`refs.clip_preview`), `args_json` is not
   stored; the stream keeps the full values.
-- `ops.turn_kind`, `turn_origin`, `waits_on_user` and `sessions.entrypoint`, `originator` are written from
-  the stream.
+- `ops.turn_kind`, `turn_origin`, `user_wait` (DM-40, D54) and `sessions.entrypoint`, `originator` are
+  written from the stream.
 - B3a derived columns (data-model.md §4): `ops.display_ix` (DM-24: main human/message turns numbered by
   `(start_ms, seq)`); `ops.attr_turn_rowid` on owned leaves and `attr_cost_usd`, `attr_tok_total`,
   `attr_n_llm_calls`, `attr_cost_lower_bound` on main turns (DM-45, `store.derive.attr_walk`; a revisited
@@ -49,13 +49,13 @@ GUARANTEES:
   `refold` recomputes display_ix, attribution, bins, bounds and rollup_time; it keeps titles, human-ask
   counts and `skill_load` (they do not depend on ownership).
 - B3b columns (`store.timesplit`), written by the same code on load and on refold (DM-43), so a load and a
-  later refold of the same rows give the same figures: `sessions.model_ms`..`none_ms` (DM-51; the wall is
-  the session's `wall_ms` parts); on main turns (`agent_id` NULL, both bounds set) `model_ms`..`none_ms`
-  (window) and `span_wall_ms`, `span_model_ms`..`span_none_ms` over the turn's own `[start_ms, end_ms]`
-  (DM-53); `stretches` of the root deleted and inserted (DM-52). Main llm/tool states come from owned
-  leaves with `agent_id` NULL, `agents` from owned leaves with an `agent_id`; inverted leaves are left out.
-  A container with no `segments` adds its widened `[start_ms, end_ms]` to the wall (taken after widening, so
-  load and refold agree). `ops.max_silence_ms` (DM-40) is written at load only, for derived-duration
+  later refold of the same rows give the same figures: the root's `time_split` rows are deleted and
+  inserted: scope `session` on the session op (DM-51), scope `window` on each main turn that holds a window
+  and scope `span` on each main turn with both bounds (DM-53), one row per (state, substate) above 0 ms;
+  `ops.span_wall_ms` on those turns; `stretches` of the root (DM-52, with `state` and `substate`). The
+  inputs come from `timesplit.collect` over the folded rows, the function the query layer calls on the
+  stored rows. A turn with a start but no label (human) or no `display_ix` (non-harness) raises
+  AssertionError. `ops.max_silence_ms` (DM-40) is written at load only, for derived-duration
   tool_calls, from the sorted union of the bundle's `source_files.ts_list` (the ops' start and end times
   when no file has one); a refold keeps it.
 - `fold(rows, steps_per_turn)` returns `(root, order)`; `order` is the pre-order rows, each carrying
@@ -376,8 +376,6 @@ def fold(rows: list[dict], steps_per_turn: dict[str, int]) -> tuple[dict, list[d
             or any(k["cost_lower_bound"] for k in kids)
         )
         r["owned"] = owned
-    root_mine, root_segs = acc[root["op_id"]]
-    root["_wall"] = [*root_segs, *((a, b) for a, b, _ in root_mine)]  # DM-50: the session wall's parts
     _display_ix(order)
     _attribute(order)
     return root, order
@@ -480,7 +478,7 @@ _ROLLUP_INSERT = (
 
 def _op_row(op: Op) -> dict:
     d = {name: getattr(op, name) for name in OP_FIELDS}
-    for flag in ("is_fork", "is_async", "cut_off", "is_error", "interrupted", "waits_on_user"):
+    for flag in ("is_fork", "is_async", "cut_off", "is_error", "interrupted"):
         if d[flag] is not None:
             d[flag] = int(d[flag])
     return d
@@ -494,7 +492,7 @@ def _root_rowid(conn: sqlite3.Connection, bundle: str) -> int | None:
 def _delete(conn: sqlite3.Connection, bundle: str) -> None:
     root = _root_rowid(conn, bundle)
     if root is not None:  # every child table is deleted through its indexed root, not a scan
-        for table in ("rollup_time", "stretches", "steps", "events", "ops"):
+        for table in ("rollup_time", "stretches", "time_split", "steps", "events", "ops"):
             conn.execute(f"DELETE FROM {table} WHERE root_rowid=?", (root,))
     conn.execute("DELETE FROM sessions WHERE bundle=?", (bundle,))
     conn.execute("DELETE FROM source_files WHERE bundle_id=?", (bundle,))
@@ -640,72 +638,34 @@ def _write_session(conn: sqlite3.Connection, row: tuple) -> None:
     conn.execute(sql, row)
 
 
-def _time_split(root: dict, order: list[dict]) -> timesplit.Split:
-    """DM-50..DM-53: split the session wall by state from the folded rows (owned, non-inverted leaves)."""
-
-    def ivs(kind: str, main: bool) -> list[tuple[int, int]]:
-        return [
-            (r["start_ms"], r["end_ms"])
-            for r in order
-            if r["kind"] == kind
-            and r["owned"]
-            and not r["n_inverted"]
-            and (r["agent_id"] is None) == main
-            and r["start_ms"] is not None
-            and r["end_ms"] is not None
-        ]
-
-    turns = sorted(
-        (r["start_ms"], r["rowid"], r["end_ms"], r["turn_kind"])
-        for r in order
-        if r["kind"] == "turn"
-        and r["agent_id"] is None
-        and r["start_ms"] is not None
-        and r["end_ms"] is not None
-    )
-    return timesplit.split(
-        root["_wall"],
-        ivs("llm_call", True),
-        ivs("tool_call", True),
-        ivs("llm_call", False) + ivs("tool_call", False),
-        [(rowid, start, end, kind) for start, rowid, end, kind in turns],
-    )
-
-
-_SPLIT = ("model_ms", "tool_ms", "agents_ms", "none_ms")
-_SPAN = ("span_wall_ms", "span_model_ms", "span_tool_ms", "span_agents_ms", "span_none_ms")
-
-
 def _write_time(conn: sqlite3.Connection, root: dict, order: list[dict]) -> None:
-    """Write the DM-51 session and window figures, the DM-53 span figures on main turns and the DM-52
-    stretches of one root, replacing the previous values (load and refold, DM-43)."""
-    sp = _time_split(root, order)
-    conn.execute(
-        "UPDATE sessions SET model_ms=?, tool_ms=?, agents_ms=?, none_ms=? WHERE rowid=?",
-        (sp.model_ms, sp.tool_ms, sp.agents_ms, sp.none_ms, root["rowid"]),
-    )
-    conn.execute(
-        "UPDATE ops SET "
-        + ",".join(f"{c}=NULL" for c in (*_SPLIT, *_SPAN))
-        + " WHERE root_rowid=? AND kind='turn'",
-        (root["rowid"],),
-    )
+    """Write the DM-51 session and window rows, the DM-53 span rows and `span_wall_ms` on main turns, and the
+    DM-52 stretches of one root, replacing the previous values (load and refold, DM-43)."""
+    inp = timesplit.collect(order)
+    sp = timesplit.split(inp.wall, inp.main_llm, inp.main_tool, inp.agent_leaf, inp.waits, inp.turns)
+    rowid = root["rowid"]
+    conn.execute("UPDATE ops SET span_wall_ms=NULL WHERE root_rowid=? AND kind='turn'", (rowid,))
     conn.executemany(
-        "UPDATE ops SET " + ",".join(f"{c}=?" for c in (*_SPLIT, *_SPAN)) + " WHERE rowid=?",
+        "UPDATE ops SET span_wall_ms=? WHERE rowid=?",
+        [(t.end_ms - t.start_ms, t.rowid) for t in inp.turns if t.end_ms is not None],
+    )
+    conn.execute("DELETE FROM time_split WHERE root_rowid=?", (rowid,))
+    scoped = [("session", rowid, sp.session)]
+    scoped += [("window", turn, acc) for turn, acc in sp.windows.items()]
+    scoped += [("span", turn, acc) for turn, acc in sp.spans.items()]
+    conn.executemany(
+        "INSERT INTO time_split(root_rowid, op_rowid, scope, state, substate, ms) VALUES (?,?,?,?,?,?)",
         [
-            (
-                *(getattr(f.window, c) for c in _SPLIT),
-                *(getattr(f, c) for c in _SPAN),
-                rowid,
-            )
-            for rowid, f in sp.turns.items()
+            (rowid, op, scope, state, sub, ms)
+            for scope, op, acc in scoped
+            for state, sub, ms in timesplit.ordered(acc)
         ],
     )
-    conn.execute("DELETE FROM stretches WHERE root_rowid=?", (root["rowid"],))
+    conn.execute("DELETE FROM stretches WHERE root_rowid=?", (rowid,))
     conn.executemany(
-        "INSERT INTO stretches(root_rowid, turn_rowid, state, start_ms, end_ms, next_turn_kind)"
+        "INSERT INTO stretches(root_rowid, turn_rowid, state, substate, start_ms, end_ms)"
         " VALUES (?,?,?,?,?,?)",
-        [(root["rowid"], *st) for st in sp.stretches],
+        [(rowid, *st) for st in sp.stretches],
     )
 
 

@@ -239,9 +239,13 @@ def test_help_epilogs_define_the_unclear_terms(capsys):
         with pytest.raises(SystemExit):
             cli.main([cmd, "--help"], api=Q)
         texts[cmd] = capsys.readouterr().out
-    for term in ("model_ms", "tool_ms", "agents_ms", "none_ms", "you", "agentmsg", "limit", "before_first"):
+    for term in ("model", "tool", "agents", "you/ask", "you/permission", "you/reply", "agentmsg", "limit"):
         assert term in texts["slow"]
-    assert "derived" in texts["slow"] and "waits_on_user" in texts["slow"]
+    for term in ("none/before_first", "none/none", "substate"):
+        assert term in texts["slow"]
+    assert (
+        "derived" in texts["slow"] and "user_waits" in texts["slow"] and "waits_on_user" not in texts["slow"]
+    )
     for basis in ("issuing_call_split", "turn_split", "nearest_engagement", "turn_attr"):
         assert basis in texts["tasks"]
     assert "unassigned" in texts["tasks"] and "fractional" in texts["tasks"]

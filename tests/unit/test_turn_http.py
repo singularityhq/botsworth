@@ -24,8 +24,8 @@ from botsworth.http.server import make_server
 
 FRESHNESS = {"last_ingest_ms", "parser_version", "price_fingerprint", "schema_version", "api_version"}
 MONEY = {"cost_usd", "cost_lower_bound", "n_unpriced"}
-SPLIT = {"model_ms", "tool_ms", "agents_ms", "none_ms"}
-STRETCH = {"start_ms", "end_ms", "dur_ms", "state", "label", "turn", "next_turn", "running"}
+SPLIT = {"parts"}
+STRETCH = {"start_ms", "end_ms", "dur_ms", "state", "substate", "turn", "next_turn", "running"}
 CALL = MONEY | {
     "type", "id", "depth", "start_ms", "end_ms", "dur_ms", "time_prov", "model", "tok", "ttft_ms",
     "stop_reason", "error_kind", "is_final", "steps",
@@ -33,7 +33,7 @@ CALL = MONEY | {
 TOOL = {
     "type", "id", "depth", "step_id", "tool_name", "verb", "summary", "target", "command", "command_src",
     "file_path", "start_ms", "end_ms", "dur_ms", "time_prov", "status", "failed", "exit_code", "is_error",
-    "interrupted", "skill_load", "skill_via", "waits_on_user", "max_silence_ms", "result_bytes", "src",
+    "interrupted", "skill_load", "skill_via", "user_wait", "max_silence_ms", "result_bytes", "src",
 }  # fmt: skip
 AGENT = MONEY | {
     "type", "id", "depth", "caused_by", "mode", "description", "agent_names", "agent_type", "tok_total",

@@ -1,7 +1,7 @@
 """TST-1: the QF fixture store holds every case the M2 tests need, and the hand-derived numbers hold.
 
 Each `test_case_<n>_*` asserts what the loader stores. Facts that come from the B3 fold (display_ix,
-attr_*, span_*, stretches, projects, local rollup_time, max_silence_ms, skill_load) are in the matching
+attr_*, time_split, stretches, projects, local rollup_time, max_silence_ms, skill_load) are in the matching
 `*_b3` test. The expected values are in tests/fixtures/qstore/expected.json and were
 derived by hand from tests/fixtures/qstore/make.py; a failing B3 test is a report, not an edit.
 """
@@ -79,20 +79,28 @@ def stretch_rows(db, key: str) -> list[dict]:
 def check_stretches(db, key: str, want: list[dict]) -> None:
     turns = {t["op_id"]: i for i, t in enumerate(main_turns(db, key))}
     got = [
-        (r["state"], r["start_ms"], r["end_ms"], turns.get(r["turn_op"]), r["next_turn_kind"])
+        (r["state"], r["substate"], r["start_ms"], r["end_ms"], turns.get(r["turn_op"]))
         for r in stretch_rows(db, key)
     ]
     exp = []
     for w in want:
         t = w["turn"]
         idx = int(t.removeprefix("main#")) if isinstance(t, str) else t
-        exp.append((w["state"], ms(w["start"]), ms(w["end"]), idx, w["next_turn_kind"]))
+        exp.append((w["state"], w["substate"], ms(w["start"]), ms(w["end"]), idx))
     assert got == exp
 
 
-def test_schema_v9_and_no_store_zone(db):
+def parts(db, op_rowid: int, scope: str) -> dict[str, int]:
+    """The stored `time_split` rows of one op and scope, keyed `state` or `state/substate`."""
+    rows = db.execute(
+        "SELECT state, substate, ms FROM time_split WHERE op_rowid=? AND scope=?", (op_rowid, scope)
+    )
+    return {r["state"] + (f"/{r['substate']}" if r["substate"] else ""): r["ms"] for r in rows}
+
+
+def test_schema_v10_and_no_store_zone(db):
     meta = dict(db.execute("SELECT key, value FROM meta").fetchall())
-    assert meta["schema_version"] == "9"
+    assert meta["schema_version"] == "10"
     assert "tz" not in meta  # D50: the zone is a request parameter, not a stored value
     assert sorted(r["bundle"] for r in db.execute("SELECT bundle FROM sessions")) == sorted(q.SESSIONS)
 
@@ -340,13 +348,15 @@ def test_case_6_attribution_b3(db):
 def test_case_6_time_split_b3(db):
     want = EXP["case_6_sagents"]["b3_time"]
     s = session(db, q.SAGENTS)
-    assert {k: s[f"{k}_ms"] for k in ("model", "tool", "agents", "none")} == want["session_split_ms"]
+    assert parts(db, s["root"], "session") == want["session_split_ms"]
     for tkey, w in want["window_split_ms"].items():
         t = op(db, f"claude_code/sagents/turn/{tkey}")
-        assert {k: t[f"{k}_ms"] for k in ("model", "tool", "agents", "none")} == w, tkey
+        assert parts(db, t["rowid"], "window") == w, tkey
     for tkey, w in want["span_ms"].items():
         t = op(db, f"claude_code/sagents/turn/{tkey}")
-        assert {k: t[f"span_{k}_ms"] for k in ("wall", "model", "tool", "agents", "none")} == w, tkey
+        w = dict(w)
+        assert t["span_wall_ms"] == w.pop("wall"), tkey
+        assert parts(db, t["rowid"], "span") == w, tkey
     check_stretches(db, q.SAGENTS, want["stretches"])
 
 
@@ -393,8 +403,7 @@ def test_case_8_idle_stretches_b3(db):
     want = EXP["case_8_sstretch"]["b3"]
     check_stretches(db, q.SSTRETCH, want["stretches"])
     assert [r["end_ms"] - r["start_ms"] for r in stretch_rows(db, q.SSTRETCH)] == want["durations_ms"]
-    s = session(db, q.SSTRETCH)
-    assert {k: s[f"{k}_ms"] for k in ("model", "tool", "agents", "none")} == want["session_split_ms"]
+    assert parts(db, session(db, q.SSTRETCH)["root"], "session") == want["session_split_ms"]
 
 
 def test_case_9_failed_interrupted_and_error_tools(db):
@@ -465,9 +474,12 @@ def test_case_11_derived_duration_and_user_wait(db):
         "derived",
         "make bench",
     )
-    assert bash["waits_on_user"] is None
+    assert bash["user_wait"] is None
     ask = op(db, q.ASK_USER)
-    assert (ask["tool_name"], ask["dur_ms"], ask["waits_on_user"]) == ("AskUserQuestion", 900_000, 1)
+    assert (ask["tool_name"], ask["dur_ms"], ask["user_wait"]) == ("AskUserQuestion", 900_000, "ask")
+    perm = op(db, q.AGENT_PERMISSION)
+    assert (perm["tool_name"], perm["dur_ms"], perm["user_wait"]) == ("Bash", 240_000, "permission")
+    assert perm["agent_id"] is not None
 
 
 def test_case_11_max_silence_b3(db):
@@ -584,13 +596,13 @@ def test_case_16_slow_scenario_b3(db):
     want = EXP["case_16_slow"]["b3"]
     total = defaultdict(int)
     for k in (q.SSLOW1, q.SSLOW2):
-        s = session(db, k)
-        for state in ("model", "tool", "agents", "none"):
-            total[state] += s[f"{state}_ms"]
+        for part, value in parts(db, session(db, k)["root"], "session").items():
+            total[part] += value
     assert dict(total) == want["time_split_ms"]
     assert sum(total.values()) == EXP["case_16_slow"]["wall_ms_total"]
     st = want["stretches"][0]
     check_stretches(db, q.SSLOW2, [{**st, "turn": 0}])
+    assert stretch_rows(db, q.SSLOW1) == []  # the 15-min ask is a main-thread call: a tool row, no stretch
     assert op(db, q.SLOW_BASH)["max_silence_ms"] == want["slowest_tool"]["max_silence_ms"]
 
 

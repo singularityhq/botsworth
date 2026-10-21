@@ -290,7 +290,7 @@ class Sess:
         interrupted: bool = False,
         outcome: str = "ok",
         result: str = "ok",
-        waits: bool | None = None,
+        user_wait: str | None = None,
         time_prov: str = "derived",
         is_async: bool | None = None,
         dup_of: str | None = None,
@@ -331,7 +331,7 @@ class Sess:
             is_error=is_error,
             interrupted=interrupted,
             result_bytes=len(result.encode()),
-            waits_on_user=waits,
+            user_wait=user_wait,
             time_prov=time_prov,
             dur_ms=end - start,
             is_async=is_async,
@@ -916,7 +916,7 @@ def slow() -> None:
         at(7, 5),
         "ask-user",
         target="which build to keep",
-        waits=True,
+        user_wait="ask",
         result="the first build",
     )
     s.finish(at(7, 5))
@@ -929,7 +929,8 @@ def slow() -> None:
 
 
 def sstretch() -> None:
-    """Case 8: none stretches across a human ask, before a limit turn and a peer turn; an agents stretch."""
+    """Case 8: idle stretches across a human ask, before a limit turn and a peer turn; agents stretches
+    around an agent call that waits for a permission (D54)."""
     s = Sess("sstretch", "claude_code", "/u/i/idleproj", at(10, 2))
     t1 = s.turn("draft the capacity plan for the next quarter", at(10, 2), at(10, 2, 1), "human", "typed")
     s.llm(t1, "req_i1", at(10, 2, 0, 5), at(10, 2, 1), 0.10)
@@ -984,7 +985,23 @@ def sstretch() -> None:
         agent_type="forecaster",
         arrival="forecast every region",
     )
-    s.llm(td, "req_rd0", at(10, 4, 7, 35), at(10, 4, 47, 35), 0.80)
+    # D54: the agent asks for a permission at 04:20:00; the user answers 4 min later and the agent goes on
+    ld = s.llm(td, "req_rd0", at(10, 4, 7, 35), at(10, 4, 20), 0.40, text=None, stop="tool_use")
+    s.tool(
+        ld,
+        "toolu_agperm",
+        "Bash",
+        at(10, 4, 20),
+        at(10, 4, 24),
+        "run",
+        target="make forecast",
+        command="make forecast",
+        command_key="make forecast",
+        exit_code=0,
+        user_wait="permission",
+        result="forecast done",
+    )
+    s.llm(td, "req_rd1", at(10, 4, 24), at(10, 4, 47, 35), 0.40)
     s.llm(t5, "req_i6", at(10, 4, 47, 35), at(10, 4, 48, 5), 0.10)
     s.finish(at(10, 4, 48, 5))
 

@@ -40,6 +40,8 @@ class B:
         return op.op_id
 
     def turn(self, key, parent=None, start=0, end=100, agent=None, **kw) -> str:
+        if kw.get("turn_kind") == "human":
+            kw.setdefault("label", key)  # DM-50 rule 5 reads the label of a human turn
         return self._op("turn", key, parent or self.session, start, end, agent_id=agent, **kw)
 
     def engagement(self, key, parent, agent, start=0, end=100, **kw) -> str:
@@ -145,3 +147,11 @@ def owners_ok(conn) -> None:
         " THEN coalesce(p.cost_usd,0) ELSE 0 END)) > 1e-9"
     ).fetchall()
     assert bad == []
+
+
+def split_rows(conn: sqlite3.Connection, op_rowid: int, scope: str) -> dict[tuple[str, str | None], int]:
+    """The stored `time_split` rows of one op and scope as `{(state, substate): ms}`."""
+    return {
+        (r["state"], r["substate"]): r["ms"]
+        for r in conn.execute("SELECT * FROM time_split WHERE op_rowid=? AND scope=?", (op_rowid, scope))
+    }

@@ -5,6 +5,13 @@ speed-up (QRY-38, API-25).
 `tests/unit/data/find_parity.json` was captured from base commit 62b7cb7 (the code before FIND-PERF) with
 `FIND_PARITY_WRITE=1 uv run pytest tests/unit/test_find_parity.py`. Do not regenerate it from changed code.
 `freshness` is left out: it describes the store build, not the hits.
+
+D54 recapture (2026-10-21), the only time: the fixture gained an agent permission call in `sstretch` and
+`sslow1`'s AskUserQuestion became a `waits` hit. 11 of the 345 entries changed, all explained by that:
+`sslow1` `waits` 0 -> 1 (the 15 min ask tool row); `sstretch` `waits` 5 -> 7 and `biggest|time` 12 -> 14 (the
+40 min agents stretch is now agents, you/permission, agents), `biggest|tokens` same count with the agent
+row's 240 tokens, `search` for `a` 8 -> 10, `agent` 4 -> 6, `bash` 0 -> 2, `tool request` 1 -> 2 (the new
+Bash tool row and its call).
 """
 
 from __future__ import annotations

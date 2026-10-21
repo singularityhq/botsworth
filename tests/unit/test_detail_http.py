@@ -38,7 +38,7 @@ CALL_ROW = MONEY | {
 TOOL_ROW = {
     "id", "depth", "step_id", "tool_name", "verb", "summary", "target", "command", "command_src", "file_path",
     "start_ms", "end_ms", "dur_ms", "time_prov", "status", "failed", "exit_code", "is_error", "interrupted",
-    "skill_load", "skill_via", "waits_on_user", "max_silence_ms", "result_bytes", "src",
+    "skill_load", "skill_via", "user_wait", "max_silence_ms", "result_bytes", "src",
 }  # fmt: skip
 AGENT_ROW = MONEY | {
     "id", "depth", "caused_by", "mode", "description", "agent_names", "agent_type", "tok_total",

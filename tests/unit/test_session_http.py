@@ -21,13 +21,13 @@ from botsworth.http.server import make_server
 TZ = "Asia/Kolkata"
 FRESHNESS = {"last_ingest_ms", "parser_version", "price_fingerprint", "schema_version", "api_version"}
 MONEY = {"cost_usd", "cost_lower_bound", "n_unpriced"}
-STRETCH = {"start_ms", "end_ms", "dur_ms", "state", "label", "turn", "next_turn", "running"}
+STRETCH = {"start_ms", "end_ms", "dur_ms", "state", "substate", "turn", "next_turn", "running"}
 SESSION_KEYS = {
     "project", "project_name", "color_slot", "session", "session_id", "provider", "name", "title_source",
     "cwd", "git_branch", "harness_version", "entrypoint", "originator", "start_ms", "end_ms",
     "ends_after_days",
     "is_automated", "n_turns", "n_harness_turns", "cost", "tok_total", "wall_ms", "active_ms", "time_split",
-    "none_split", "longest", "n_agents", "n_skill_loads", "n_failed", "n_llm_calls", "models",
+    "longest", "n_agents", "n_skill_loads", "n_failed", "n_llm_calls", "models",
 }  # fmt: skip
 TURN_KEYS = MONEY | {
     "type", "turn", "display_id", "kind", "origin", "label", "start_ms", "end_ms", "wall_ms", "time_split",
@@ -92,8 +92,9 @@ def test_session_shape(base):
     s = body["session"]
     assert set(s) == SESSION_KEYS
     assert set(s["cost"]) == MONEY | {"main", "agents", "unattributed"}
-    assert set(s["time_split"]) == {"model_ms", "tool_ms", "agents_ms", "none_ms"}
-    assert set(s["none_split"]) == {"you", "agentmsg", "limit", "none"}
+    assert set(s["time_split"]) == {"parts"}
+    assert all(set(p) == {"state", "substate", "ms"} for p in s["time_split"]["parts"])
+    assert "none_split" not in s
     assert set(s["longest"]) == {"model", "tool", "agents", "you", "agentmsg", "limit", "none"}
     assert set(s["longest"]["you"]) == {"row", "turn", "dur_ms"} and set(s["longest"]["you"]["row"]) == {
         "type",
@@ -123,15 +124,15 @@ def test_turns_shape(base):
     for item in body["items"]:
         if item["type"] == "turn":
             assert set(item) == TURN_KEYS
-            assert set(item["time_split"]) == {"model_ms", "tool_ms", "agents_ms", "none_ms"}
+            assert set(item["time_split"]) == {"parts"}
         else:
             assert set(item) == STRETCH | {"type", "id"} and item["id"] == f"gap-{item['start_ms']}"
-            assert item["state"] == "none" and item["running"] == []
-    limit = next(i for i in body["items"] if i["type"] == "gap" and i["label"] == "limit")
+            assert item["state"] in ("you", "limit", "agentmsg") and item["running"] == []
+    limit = next(i for i in body["items"] if i["type"] == "gap" and i["state"] == "limit")
     assert set(limit["next_turn"]) == {"turn", "kind", "origin", "label", "display_id"}
     # min_gap_ms is applied
     status, wide = get(base, "/api/sessions/sstretch/turns?min_gap_ms=3000000")
-    assert [i["label"] for i in wide["items"] if i["type"] == "gap"] == ["limit"]
+    assert [i["state"] for i in wide["items"] if i["type"] == "gap"] == ["limit"]
     harness = get(base, "/api/sessions/sharness/turns")[1]["items"]
     assert [i["display_id"] for i in harness if i["type"] == "turn"] == ["T1", None, "T2", None, None, "T3"]
 

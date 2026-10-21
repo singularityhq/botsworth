@@ -4201,16 +4201,46 @@
 "total": 0
 },
 "qf|claude_code/sslow1/session/-|waits|cost||2000": {
-"hits": [],
+"hits": [
+{
+"depth": 0,
+"display_id": "T1",
+"label": "AskUserQuestion which build to keep",
+"row": {
+"id": "claude_code/sslow1/tool_call/toolu_ask1",
+"type": "tool"
+},
+"start_ms": 1791348300000,
+"turn": "claude_code/sslow1/turn/main#0",
+"value": 900000
+}
+],
 "kind": "waits",
-"per_turn": {},
-"total": 0
+"per_turn": {
+"claude_code/sslow1/turn/main#0": 1
+},
+"total": 1
 },
 "qf|claude_code/sslow1/session/-|waits|cost||3": {
-"hits": [],
+"hits": [
+{
+"depth": 0,
+"display_id": "T1",
+"label": "AskUserQuestion which build to keep",
+"row": {
+"id": "claude_code/sslow1/tool_call/toolu_ask1",
+"type": "tool"
+},
+"start_ms": 1791348300000,
+"turn": "claude_code/sslow1/turn/main#0",
+"value": 900000
+}
+],
 "kind": "waits",
-"per_turn": {},
-"total": 0
+"per_turn": {
+"claude_code/sslow1/turn/main#0": 1
+},
+"total": 1
 },
 "qf|claude_code/sslow2/session/-|agents|cost||2000": {
 "hits": [],
@@ -4776,18 +4806,6 @@
 },
 {
 "depth": 0,
-"display_id": "T5",
-"label": "agents",
-"row": {
-"id": "gap-1791605255000",
-"type": "gap"
-},
-"start_ms": 1791605255000,
-"turn": "claude_code/sstretch/turn/main#4",
-"value": 2400000
-},
-{
-"depth": 0,
 "display_id": "T1",
 "label": "you",
 "row": {
@@ -4797,6 +4815,18 @@
 "start_ms": 1791597660000,
 "turn": "claude_code/sstretch/turn/main#0",
 "value": 1500000
+},
+{
+"depth": 0,
+"display_id": "T5",
+"label": "agents",
+"row": {
+"id": "gap-1791606240000",
+"type": "gap"
+},
+"start_ms": 1791606240000,
+"turn": "claude_code/sstretch/turn/main#4",
+"value": 1415000
 },
 {
 "depth": 0,
@@ -4812,6 +4842,18 @@
 },
 {
 "depth": 0,
+"display_id": "T5",
+"label": "agents",
+"row": {
+"id": "gap-1791605255000",
+"type": "gap"
+},
+"start_ms": 1791605255000,
+"turn": "claude_code/sstretch/turn/main#4",
+"value": 745000
+},
+{
+"depth": 0,
 "display_id": "T3",
 "label": "agentmsg",
 "row": {
@@ -4821,6 +4863,18 @@
 "start_ms": 1791604325000,
 "turn": "claude_code/sstretch/turn/main#2",
 "value": 715000
+},
+{
+"depth": 0,
+"display_id": "T5",
+"label": "permission",
+"row": {
+"id": "gap-1791606000000",
+"type": "gap"
+},
+"start_ms": 1791606000000,
+"turn": "claude_code/sstretch/turn/main#4",
+"value": 240000
 },
 {
 "depth": 0,
@@ -4901,12 +4955,24 @@
 "claude_code/sstretch/turn/main#1": 3,
 "claude_code/sstretch/turn/main#2": 2,
 "claude_code/sstretch/turn/main#3": 1,
-"claude_code/sstretch/turn/main#4": 4
+"claude_code/sstretch/turn/main#4": 6
 },
-"total": 12
+"total": 14
 },
 "qf|claude_code/sstretch/session/-|biggest|tokens||2000": {
 "hits": [
+{
+"depth": 0,
+"display_id": "T5",
+"label": "rd",
+"row": {
+"id": "claude_code/sstretch/engagement/rd#0",
+"type": "agent"
+},
+"start_ms": 1791605255000,
+"turn": "claude_code/sstretch/turn/main#4",
+"value": 240
+},
 {
 "depth": 0,
 "display_id": "T1",
@@ -4964,18 +5030,6 @@
 "type": "call"
 },
 "start_ms": 1791605165000,
-"turn": "claude_code/sstretch/turn/main#4",
-"value": 120
-},
-{
-"depth": 0,
-"display_id": "T5",
-"label": "rd",
-"row": {
-"id": "claude_code/sstretch/engagement/rd#0",
-"type": "agent"
-},
-"start_ms": 1791605255000,
 "turn": "claude_code/sstretch/turn/main#4",
 "value": 120
 },
@@ -5049,12 +5103,36 @@
 {
 "depth": 1,
 "display_id": "T5",
-"label": "synthetic reply",
+"label": "Tool request: Bash",
 "row": {
 "id": "claude_code/sstretch/llm_call/req_rd0",
 "type": "call"
 },
 "start_ms": 1791605255000,
+"turn": "claude_code/sstretch/turn/main#4",
+"value": null
+},
+{
+"depth": 1,
+"display_id": "T5",
+"label": "Bash make forecast",
+"row": {
+"id": "claude_code/sstretch/tool_call/toolu_agperm",
+"type": "tool"
+},
+"start_ms": 1791606000000,
+"turn": "claude_code/sstretch/turn/main#4",
+"value": null
+},
+{
+"depth": 1,
+"display_id": "T5",
+"label": "synthetic reply",
+"row": {
+"id": "claude_code/sstretch/llm_call/req_rd1",
+"type": "call"
+},
+"start_ms": 1791606240000,
 "turn": "claude_code/sstretch/turn/main#4",
 "value": null
 },
@@ -5073,9 +5151,9 @@
 ],
 "kind": "search",
 "per_turn": {
-"claude_code/sstretch/turn/main#4": 4
+"claude_code/sstretch/turn/main#4": 6
 },
-"total": 4
+"total": 6
 },
 "qf|claude_code/sstretch/session/-|search|cost|a|2000": {
 "hits": [
@@ -5154,12 +5232,36 @@
 {
 "depth": 1,
 "display_id": "T5",
-"label": "synthetic reply",
+"label": "Tool request: Bash",
 "row": {
 "id": "claude_code/sstretch/llm_call/req_rd0",
 "type": "call"
 },
 "start_ms": 1791605255000,
+"turn": "claude_code/sstretch/turn/main#4",
+"value": null
+},
+{
+"depth": 1,
+"display_id": "T5",
+"label": "Bash make forecast",
+"row": {
+"id": "claude_code/sstretch/tool_call/toolu_agperm",
+"type": "tool"
+},
+"start_ms": 1791606000000,
+"turn": "claude_code/sstretch/turn/main#4",
+"value": null
+},
+{
+"depth": 1,
+"display_id": "T5",
+"label": "synthetic reply",
+"row": {
+"id": "claude_code/sstretch/llm_call/req_rd1",
+"type": "call"
+},
+"start_ms": 1791606240000,
 "turn": "claude_code/sstretch/turn/main#4",
 "value": null
 },
@@ -5182,9 +5284,9 @@
 "claude_code/sstretch/turn/main#1": 1,
 "claude_code/sstretch/turn/main#2": 1,
 "claude_code/sstretch/turn/main#3": 1,
-"claude_code/sstretch/turn/main#4": 4
+"claude_code/sstretch/turn/main#4": 6
 },
-"total": 8
+"total": 10
 },
 "qf|claude_code/sstretch/session/-|search|cost|a|3": {
 "hits": [
@@ -5231,15 +5333,42 @@
 "claude_code/sstretch/turn/main#1": 1,
 "claude_code/sstretch/turn/main#2": 1,
 "claude_code/sstretch/turn/main#3": 1,
-"claude_code/sstretch/turn/main#4": 4
+"claude_code/sstretch/turn/main#4": 6
 },
-"total": 8
+"total": 10
 },
 "qf|claude_code/sstretch/session/-|search|cost|bash|2000": {
-"hits": [],
+"hits": [
+{
+"depth": 1,
+"display_id": "T5",
+"label": "Tool request: Bash",
+"row": {
+"id": "claude_code/sstretch/llm_call/req_rd0",
+"type": "call"
+},
+"start_ms": 1791605255000,
+"turn": "claude_code/sstretch/turn/main#4",
+"value": null
+},
+{
+"depth": 1,
+"display_id": "T5",
+"label": "Bash make forecast",
+"row": {
+"id": "claude_code/sstretch/tool_call/toolu_agperm",
+"type": "tool"
+},
+"start_ms": 1791606000000,
+"turn": "claude_code/sstretch/turn/main#4",
+"value": null
+}
+],
 "kind": "search",
-"per_turn": {},
-"total": 0
+"per_turn": {
+"claude_code/sstretch/turn/main#4": 2
+},
+"total": 2
 },
 "qf|claude_code/sstretch/session/-|search|cost|pytest|2000": {
 "hits": [],
@@ -5284,13 +5413,25 @@
 "start_ms": 1791605165000,
 "turn": "claude_code/sstretch/turn/main#4",
 "value": null
+},
+{
+"depth": 1,
+"display_id": "T5",
+"label": "Tool request: Bash",
+"row": {
+"id": "claude_code/sstretch/llm_call/req_rd0",
+"type": "call"
+},
+"start_ms": 1791605255000,
+"turn": "claude_code/sstretch/turn/main#4",
+"value": null
 }
 ],
 "kind": "search",
 "per_turn": {
-"claude_code/sstretch/turn/main#4": 1
+"claude_code/sstretch/turn/main#4": 2
 },
-"total": 1
+"total": 2
 },
 "qf|claude_code/sstretch/session/-|skills|cost||2000": {
 "hits": [],
@@ -5364,7 +5505,31 @@
 },
 "start_ms": 1791605255000,
 "turn": "claude_code/sstretch/turn/main#4",
-"value": 2400000
+"value": 745000
+},
+{
+"depth": 0,
+"display_id": "T5",
+"label": "permission",
+"row": {
+"id": "gap-1791606000000",
+"type": "gap"
+},
+"start_ms": 1791606000000,
+"turn": "claude_code/sstretch/turn/main#4",
+"value": 240000
+},
+{
+"depth": 0,
+"display_id": "T5",
+"label": "agents",
+"row": {
+"id": "gap-1791606240000",
+"type": "gap"
+},
+"start_ms": 1791606240000,
+"turn": "claude_code/sstretch/turn/main#4",
+"value": 1415000
 }
 ],
 "kind": "waits",
@@ -5372,9 +5537,9 @@
 "claude_code/sstretch/turn/main#0": 1,
 "claude_code/sstretch/turn/main#1": 2,
 "claude_code/sstretch/turn/main#2": 1,
-"claude_code/sstretch/turn/main#4": 1
+"claude_code/sstretch/turn/main#4": 3
 },
-"total": 5
+"total": 7
 },
 "qf|claude_code/sstretch/session/-|waits|cost||3": {
 "hits": [
@@ -5420,9 +5585,9 @@
 "claude_code/sstretch/turn/main#0": 1,
 "claude_code/sstretch/turn/main#1": 2,
 "claude_code/sstretch/turn/main#2": 1,
-"claude_code/sstretch/turn/main#4": 1
+"claude_code/sstretch/turn/main#4": 3
 },
-"total": 5
+"total": 7
 },
 "qf|claude_code/stools/session/-|agents|cost||2000": {
 "hits": [],

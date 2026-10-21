@@ -155,7 +155,7 @@ export function sessionEdgeToast(dir: 1 | -1): Rich {
 
 type Longest = SessionDetail['session']['longest']
 
-/** The longest main-thread call, tool and gap of each state in this turn: what a legend click in the turn blade goes to (R3-proto `jumpState(k, "t")`). */
+/** The longest main-thread call, tool and gap of each state (`you` also counts tool rows that waited on the user) in this turn: what a legend click in the turn blade goes to (R3-proto `jumpState(k, "t")`). */
 export function longestInTurn(rows: readonly AnyRow[], turn: string): Longest {
   const none: Longest = { model: null, tool: null, agents: null, you: null, agentmsg: null, limit: null, none: null }
   const out = { ...none }
@@ -165,8 +165,9 @@ export function longestInTurn(rows: readonly AnyRow[], turn: string): Longest {
   }
   for (const r of rows) {
     if (r.type === 'call' && r.depth === 0) take('model', { type: 'call', id: r.id }, r.dur_ms)
+    else if (r.type === 'tool' && r.depth === 0 && r.user_wait !== null) take('you', { type: 'tool', id: r.id }, r.dur_ms) // QRY-29: a main-thread call that waited on the user is a `you` target (D54)
     else if (r.type === 'tool' && r.depth === 0 && !excludedFromTimeRanking(r)) take('tool', { type: 'tool', id: r.id }, r.dur_ms)
-    else if (r.type === 'gap' && r.dur_ms >= GAP_MIN_MS) take(gapState(r.label), { type: 'gap', id: r.id }, r.dur_ms)
+    else if (r.type === 'gap' && r.dur_ms >= GAP_MIN_MS) take(gapState(r), { type: 'gap', id: r.id }, r.dur_ms)
   }
   return out
 }

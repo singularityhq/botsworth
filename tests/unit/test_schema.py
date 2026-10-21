@@ -78,3 +78,20 @@ def test_session_metadata_columns_on_ops_and_sessions(tmp_path):
     schema.ensure(conn)
     meta = {"title", "git_branch", "harness_version"}
     assert meta | {"first_line_ms"} <= columns(conn, "ops") and meta | {"status"} <= columns(conn, "sessions")
+
+
+def test_time_split_and_stretches_reject_states_outside_the_spec(tmp_path):
+    # DM-51, DM-52 [D54]: the tables carry the state lists of SES-15 as CHECK constraints
+    conn = sqlite3.connect(tmp_path / "s.db")
+    schema.ensure(conn)
+    ok = "INSERT INTO time_split VALUES (1, 1, ?, ?, NULL, 5)"
+    conn.execute(ok, ("session", "you"))
+    for scope, state in (("turn", "you"), ("session", "waiting")):
+        with pytest.raises(sqlite3.IntegrityError):
+            conn.execute(ok, (scope, state))
+    stretch = "INSERT INTO stretches VALUES (1, 1, ?, NULL, 0, 9)"
+    for state in ("agents", "you", "agentmsg", "limit", "none"):
+        conn.execute(stretch, (state,))
+    for state in ("model", "tool"):  # a main-thread call is never a stretch
+        with pytest.raises(sqlite3.IntegrityError):
+            conn.execute(stretch, (state,))

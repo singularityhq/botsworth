@@ -1,5 +1,5 @@
 import type { CSSProperties } from 'react'
-import type { StretchLabel, TurnKind } from '../../api/types'
+import type { Stretch, Substate, TurnKind } from '../../api/types'
 import { GLYPH, type IconName } from '../../ui/glyphs'
 
 /**
@@ -47,15 +47,21 @@ export function stateFill(k: StateKey): CSSProperties {
 
 // ---- gaps -----------------------------------------------------------------
 
-/**
- * The state a gap's label counts under. `before_first` is its own label and counts under `none`
- * (SES-18, D41 M11); every other label is its state.
- */
-export function gapState(label: StretchLabel): StateKey {
-  return label === 'before_first' ? 'none' : label
+/** What a gap shows as: its state, except that the `none`/`before_first` stretch is its own kind (SES-18). */
+export type GapKind = 'you' | 'agentmsg' | 'limit' | 'before_first' | 'none' | 'agents'
+
+type GapLike = Pick<Stretch, 'state' | 'substate'>
+
+export function gapKind(g: GapLike): GapKind {
+  return g.state === 'none' && g.substate === 'before_first' ? 'before_first' : g.state
 }
 
-export const GAP_LABEL: Record<StretchLabel, string> = {
+/** The state a gap counts under. `before_first` counts under `none` (SES-18, D41 M11). */
+export function gapState(g: GapLike): StateKey {
+  return g.state
+}
+
+export const GAP_LABEL: Record<GapKind, string> = {
   you: STATES.you.label,
   agentmsg: STATES.agentmsg.label,
   limit: STATES.limit.label,
@@ -65,13 +71,36 @@ export const GAP_LABEL: Record<StretchLabel, string> = {
 }
 
 /** SES-36 / D38 L4 glyphs; "Only agents running" uses `bot` (TRN-34). */
-export const GAP_GLYPH: Record<StretchLabel, IconName> = {
+export const GAP_GLYPH: Record<GapKind, IconName> = {
   you: GLYPH.gapWaiting,
   agentmsg: GLYPH.gapAgentMessage,
   limit: GLYPH.gapUsageLimit,
   before_first: GLYPH.gapWaiting,
   none: GLYPH.gapWaiting,
   agents: GLYPH.subAgent,
+}
+
+/** SES-15 substate wording, used by the legend tooltip, gap reasons and the detail blade. */
+export const SUBSTATE_WORDING = {
+  ask: 'asked you a question',
+  permission: 'waited for your approval',
+  reply: 'the next turn is your message',
+} as const
+
+/** The substates of `you`, in SES-15 order. */
+export const YOU_SUBSTATES = ['ask', 'permission', 'reply'] as const
+export type YouSubstate = (typeof YOU_SUBSTATES)[number]
+
+/** TRN-32: the flag on a tool row that waited on the user. */
+export const USER_WAIT_FLAG: Record<'ask' | 'permission', string> = {
+  ask: 'asked you',
+  permission: SUBSTATE_WORDING.permission,
+}
+
+/** DET-21: the info line under a tool's duration. */
+export const USER_WAIT_NOTE: Record<'ask' | 'permission', string> = {
+  ask: 'This tool waits for your answer. Its duration includes your reply.',
+  permission: 'This call waited for your approval. Its duration includes the wait and the run after it.',
 }
 
 export interface GapContext {
@@ -81,11 +110,11 @@ export interface GapContext {
   running?: readonly (string | null)[]
 }
 
-/** SES-36 reasons, with TRN-34's reason for agents-only stretches. */
-export function gapReason(label: StretchLabel, ctx: GapContext): string {
-  switch (label) {
+/** SES-36 reasons, with TRN-34's reason for agents-only stretches and for waits on a call. */
+export function gapReason(g: GapLike, ctx: GapContext): string {
+  switch (gapKind(g)) {
     case 'you':
-      return 'the next turn is your message'
+      return youReason(g.substate)
     case 'limit':
       return 'the next turn resumes after a usage limit'
     case 'agentmsg':
@@ -100,6 +129,19 @@ export function gapReason(label: StretchLabel, ctx: GapContext): string {
       const more = names.length > 3 ? ` +${names.length - 3}` : ''
       return `${plural(names.length, 'agent')} running${names.length > 0 ? `: ${shown}${more}` : ''}`
     }
+  }
+}
+
+function youReason(substate: Substate): string {
+  switch (substate) {
+    case 'ask':
+      return `an agent ${SUBSTATE_WORDING.ask}`
+    case 'permission':
+      return `an agent ${SUBSTATE_WORDING.permission}`
+    case 'reply':
+      return SUBSTATE_WORDING.reply
+    default:
+      throw new Error(`a you stretch has substate ask, permission or reply (DM-50), got ${String(substate)}`)
   }
 }
 

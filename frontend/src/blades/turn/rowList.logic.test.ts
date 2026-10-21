@@ -149,7 +149,7 @@ describe('visibleRows: Cost and Duration orders (TRN-14)', () => {
     expect(ids(flatRows(view(rows, { order: 'duration' })).map((n) => n.row))).toEqual([`gap-${at(300)}`, 'tool/t1', 'engagement/ag', 'llm/c3', 'llm/c1', 'llm/c2'])
   })
   it('sorts tools that wait on the user or sat silent last in Duration', () => {
-    const wait = tool('w', { dur_ms: 3_000_000, waits_on_user: true })
+    const wait = tool('w', { dur_ms: 3_000_000, user_wait: 'ask' })
     const silent = tool('s', { dur_ms: 2_000_000, max_silence_ms: 400_000, sec: 5 })
     const out = sortedByOrder(buildNodes([wait, silent, call('c', { dur_ms: 10 })]), 'duration')
     expect(ids(out.map((n) => n.row))).toEqual(['llm/c', 'tool/w', 'tool/s'])

@@ -30,9 +30,9 @@ GUARANTEES:
   `session_only_field` (title/git_branch/harness_version/first_line_ms off the session op),
   `ordinal_gap` (step ordinals per turn not 0..n-1), `over_length`
   (label/summary > 120, snippet > 160, target > 200), `bad_enum` (a closed
-  value outside its enumeration, including `turn_kind`, `title_source` and a
+  value outside its enumeration, including `turn_kind`, `user_wait`, `title_source` and a
   `source_file.ts_list` that is not a sorted int list), `kind_field`
-  (`turn_kind`/`turn_origin` off a turn op, `waits_on_user` off a tool_call).
+  (`turn_kind`/`turn_origin` off a turn op, `user_wait` off a tool_call).
   `title_source`, `entrypoint` and `originator` are session-only fields.
 - `write_bundle(bundle, out_dir)` writes `<bundle_id>.jsonl` via temp file +
   rename, records ordered source_file, op, step, event, None fields omitted.
@@ -87,6 +87,7 @@ from botsworth.model import (
     Step,
     SubItem,
     TurnKind,
+    UserWait,
     Verb,
     is_link_basis,
     is_outcome,
@@ -346,8 +347,9 @@ def defects(bundle: Bundle) -> list[Defect]:
             for name in ("turn_kind", "turn_origin"):
                 if getattr(o, name) is not None:
                     out.append(Defect("kind_field", o.op_id, f"{name} set on {o.kind}"))
-        if o.waits_on_user is not None and o.kind != Kind.TOOL_CALL:
-            out.append(Defect("kind_field", o.op_id, f"waits_on_user set on {o.kind}"))
+        _enum(out, o.op_id, "user_wait", o.user_wait, UserWait.__members__.values())
+        if o.user_wait is not None and o.kind != Kind.TOOL_CALL:
+            out.append(Defect("kind_field", o.op_id, f"user_wait set on {o.kind}"))
         if o.caused_by_basis is not None and not is_link_basis(o.caused_by_basis):
             out.append(Defect("bad_enum", o.op_id, f"caused_by_basis={o.caused_by_basis!r}"))
         _long(out, o.op_id, "label", o.label, LABEL_MAX)

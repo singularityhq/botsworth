@@ -20,7 +20,8 @@ SPEC_KEYS: dict[str, list[str]] = {
         "api_version",
     ],
     "Money": ["cost_usd", "cost_lower_bound", "n_unpriced"],
-    "TimeSplit": ["model_ms", "tool_ms", "agents_ms", "none_ms"],
+    "TimePart": ["state", "substate", "ms"],
+    "TimeSplit": ["parts"],
     "ModelLine": [
         "cost_usd",
         "cost_lower_bound",
@@ -89,7 +90,7 @@ SPEC_KEYS: dict[str, list[str]] = {
     "PaletteResult": ["freshness", "filter_values", "projects", "sessions"],
     "IngestStatus": ["store_exists", "store_state", "freshness", "ingest", "sources", "last_run"],
     "NextTurn": ["turn", "kind", "origin", "label", "display_id"],
-    "Stretch": ["start_ms", "end_ms", "dur_ms", "state", "label", "turn", "next_turn", "running"],
+    "Stretch": ["start_ms", "end_ms", "dur_ms", "state", "substate", "turn", "next_turn", "running"],
     "SessionDetail": ["freshness", "session"],
     "TurnRow": [
         "cost_usd",
@@ -120,7 +121,7 @@ SPEC_KEYS: dict[str, list[str]] = {
         "end_ms",
         "dur_ms",
         "state",
-        "label",
+        "substate",
         "turn",
         "next_turn",
         "running",
@@ -173,7 +174,7 @@ SPEC_KEYS: dict[str, list[str]] = {
         "interrupted",
         "skill_load",
         "skill_via",
-        "waits_on_user",
+        "user_wait",
         "max_silence_ms",
         "result_bytes",
         "src",
@@ -281,7 +282,6 @@ NESTED_KEYS: dict[str, list[str]] = {
     "IngestSource": ["provider", "root", "files", "bundles", "live", "last_ingest_ms", "rejected"],
     "LastRun": ["started_ms", "ended_ms", "bundles_changed", "rejected"],
     "RunningEngagement": ["row", "agent_name", "start_ms", "end_ms", "cost_usd"],
-    "NoneSplit": ["you", "agentmsg", "limit", "none"],
     "LongestTarget": ["row", "turn", "dur_ms"],
     "Longest": ["model", "tool", "agents", "you", "agentmsg", "limit", "none"],
     "SessionCost": ["cost_usd", "cost_lower_bound", "n_unpriced", "main", "agents", "unattributed"],
@@ -310,7 +310,6 @@ NESTED_KEYS: dict[str, list[str]] = {
         "wall_ms",
         "active_ms",
         "time_split",
-        "none_split",
         "longest",
         "n_agents",
         "n_skill_loads",
@@ -370,7 +369,6 @@ NESTED_KEYS: dict[str, list[str]] = {
         "wall_ms",
         "active_ms",
         "time_split",
-        "none_split",
         "n_llm_calls",
         "n_tool_calls",
         "tok_total",
@@ -413,13 +411,14 @@ NESTED_KEYS: dict[str, list[str]] = {
         "time_prov",
         "max_silence_ms",
     ],
-    "WaitsOnUser": ["n", "dur_ms"],
+    "UserWaitCount": ["n", "dur_ms"],
+    "UserWaits": ["ask", "permission"],
     "SessionWait": [
         "start_ms",
         "end_ms",
         "dur_ms",
         "state",
-        "label",
+        "substate",
         "turn",
         "next_turn",
         "running",
@@ -433,7 +432,7 @@ NESTED_KEYS: dict[str, list[str]] = {
         "sessions",
         "tools",
         "slowest_tools",
-        "waits_on_user",
+        "user_waits",
         "waits",
         "models",
     ],
@@ -450,7 +449,6 @@ NESTED_KEYS: dict[str, list[str]] = {
         "cost",
         "tok_total",
         "time_split",
-        "none_split",
     ],
     "BreakdownAgent": [
         "row",
@@ -584,22 +582,23 @@ def _tool() -> wire.ToolRow:
         id="t", depth=0, step_id=None, tool_name="Bash", verb="run", summary="s", target="x",
         command="ls", command_src=None, file_path=None, start_ms=1, end_ms=2, dur_ms=1, time_prov="present",
         status="ok", failed=False, exit_code=0, is_error=False, interrupted=False, skill_load=None,
-        skill_via=None, waits_on_user=False, max_silence_ms=None, result_bytes=None, src="blob://x",
+        skill_via=None, user_wait=None, max_silence_ms=None, result_bytes=None, src="blob://x",
     )  # fmt: skip
 
 
 def test_money_is_flat():
     row = wire.TurnRow(
         cost_usd=1.5, cost_lower_bound=True, n_unpriced=2, turn="t", display_id="T1", kind="human",
-        origin="user", label="hi", start_ms=1, end_ms=2, wall_ms=1, time_split=wire.TimeSplit(1, 0, 0, 0),
-        waiting_ms=0, cost_main=1.5, tok_total=10, n_llm_calls=1, models=[], n_agents=0, n_skill_loads=0,
+        origin="user", label="hi", start_ms=1, end_ms=2, wall_ms=1,
+        time_split=wire.TimeSplit([wire.TimePart("model", None, 1)]), waiting_ms=0, cost_main=1.5,
+        tok_total=10, n_llm_calls=1, models=[], n_agents=0, n_skill_loads=0,
         n_failed=0, agent_runs=[],
     )  # fmt: skip
     body = json.loads(wire.to_json(row))
     assert "money" not in body
     assert list(body)[:4] == ["cost_usd", "cost_lower_bound", "n_unpriced", "type"]
     # a field named `cost: Money` holds the three keys as an object
-    rng = wire.TurnRange(1, 2, wire.Money(1.0, False, 0), None, None, wire.TimeSplit(0, 0, 0, 0), [])
+    rng = wire.TurnRange(1, 2, wire.Money(1.0, False, 0), None, None, wire.TimeSplit([]), [])
     assert list(json.loads(wire.to_json(rng))["cost"]) == ["cost_usd", "cost_lower_bound", "n_unpriced"]
 
 
