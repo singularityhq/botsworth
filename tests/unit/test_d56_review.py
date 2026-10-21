@@ -521,3 +521,15 @@ def test_longest_test_of_a_main_background_run_without_a_stretch_is_the_tool_row
     # 30 s of background run, then a 3 min foreground pytest: the longest is the foreground call
     (f,) = [f for f in R.session_review("bgn", db=c).findings if f.cause == "tests"]
     assert f.longest.row == wire.RowRef("tool", "claude_code/bgn/tool_call/long")
+
+
+def test_evidence_name_equals_the_sessions_name_in_a_scope_review(tmp_path):
+    c = store(tmp_path)
+    load(c, dm56_session("first"), dm56_session("second"))
+    r = R.scope_review(Scope(), db=c)
+    for f in r.findings:  # stalled and you (stretches), tests and polling (tool calls)
+        assert f.longest is not None
+        listed = {s.session: s.name for s in f.sessions}
+        assert f.longest.name == listed[f.longest.session]
+        assert f.longest.name.endswith(f.longest.session_id[:8])  # DM-60 fallback name: project · id
+    assert {f.longest.session for f in r.findings} == {"claude_code/first/session/-"}  # tie: lower op_id

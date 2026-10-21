@@ -106,7 +106,11 @@ def _display(ix: int | None) -> str | None:
 
 
 def _stretch_evidence(
-    by_root: dict[int, list[wire.Stretch]], op_ids: dict[int, str], session_ids: dict[int, str], cause: str
+    by_root: dict[int, list[wire.Stretch]],
+    op_ids: dict[int, str],
+    session_ids: dict[int, str],
+    names: dict[str, str],
+    cause: str,
 ) -> tuple[int, wire.Evidence | None, dict[int, list[wire.Stretch]]]:
     """`(n, longest, the counted stretches by root)` of a stretch cause."""
     counted: dict[int, list[wire.Stretch]] = {}
@@ -131,7 +135,17 @@ def _stretch_evidence(
     gap = wire.RowRef("gap", f"gap-{s.start_ms}")
     return (
         n,
-        wire.Evidence(op_ids[root], session_ids[root], gap, s.turn, None, s.start_ms, s.end_ms, s.dur_ms),
+        wire.Evidence(
+            op_ids[root],
+            session_ids[root],
+            names[op_ids[root]],
+            gap,
+            s.turn,
+            None,
+            s.start_ms,
+            s.end_ms,
+            s.dur_ms,
+        ),
         counted,
     )
 
@@ -154,6 +168,7 @@ def build(conn: sqlite3.Connection, roots: Sequence[int], with_sessions: bool) -
     totals = {c: sum(v[c] for v in per_session.values()) for c in CAUSES}
     op_ids = {r["op_rowid"]: r["op_id"] for r in rows}
     session_ids = {r["op_rowid"]: r["session_id"] for r in rows}
+    names = {r["op_id"]: common.session_name(r)[0] for r in rows}
 
     stretches = stretches_for_roots(conn, [r["op_rowid"] for r in rows])
     findings: list[wire.Finding] = []
@@ -162,9 +177,9 @@ def build(conn: sqlite3.Connection, roots: Sequence[int], with_sessions: bool) -
             continue
         threads: list[str] = []
         if cause in _TOOL_CLASS:
-            n, longest = _call_evidence(conn, ids, _TOOL_CLASS[cause], stretches)
+            n, longest = _call_evidence(conn, ids, _TOOL_CLASS[cause], stretches, names)
         else:
-            n, longest, counted = _stretch_evidence(stretches, op_ids, session_ids, cause)
+            n, longest, counted = _stretch_evidence(stretches, op_ids, session_ids, names, cause)
             if longest is not None:
                 longest = _with_display(conn, longest)
             if cause == "stalled":
@@ -199,12 +214,16 @@ def _with_display(conn: sqlite3.Connection, ev: wire.Evidence) -> wire.Evidence:
         return ev
     ix = conn.execute("SELECT display_ix FROM ops WHERE op_id = ?", (ev.turn,)).fetchone()["display_ix"]
     return wire.Evidence(
-        ev.session, ev.session_id, ev.row, ev.turn, _display(ix), ev.start_ms, ev.end_ms, ev.dur_ms
+        ev.session, ev.session_id, ev.name, ev.row, ev.turn, _display(ix), ev.start_ms, ev.end_ms, ev.dur_ms
     )
 
 
 def _call_evidence(
-    conn: sqlite3.Connection, ids: str, klass: str, stretches: dict[int, list[wire.Stretch]]
+    conn: sqlite3.Connection,
+    ids: str,
+    klass: str,
+    stretches: dict[int, list[wire.Stretch]],
+    names: dict[str, str],
 ) -> tuple[int, wire.Evidence | None]:
     calls = conn.execute(_CALLS, (klass, ids)).fetchall()
     timed = [c for c in calls if c["candidate"] and c["run_ms"] is not None]
@@ -229,6 +248,7 @@ def _call_evidence(
     ev = wire.Evidence(
         c["session"],
         c["session_id"],
+        names[c["session"]],
         row,
         turn,
         display,

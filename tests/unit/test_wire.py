@@ -484,7 +484,17 @@ NESTED_KEYS: dict[str, list[str]] = {
         "review",
     ],
     "CausePart": ["cause", "ms"],
-    "Evidence": ["session", "session_id", "row", "turn", "display_id", "start_ms", "end_ms", "dur_ms"],
+    "Evidence": [
+        "session",
+        "session_id",
+        "name",
+        "row",
+        "turn",
+        "display_id",
+        "start_ms",
+        "end_ms",
+        "dur_ms",
+    ],  # fmt: skip
     "FindingSession": ["session", "session_id", "name", "ms"],
     "Finding": ["cause", "ms", "lost", "n", "longest", "threads", "sessions"],
     "Review": ["wall_ms", "lost_ms", "n_sessions", "n_unmeasured", "causes", "findings", "test_runs"],

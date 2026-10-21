@@ -1098,6 +1098,7 @@ class Evidence:
 
     session: str
     session_id: str
+    name: str
     row: RowRef | None
     turn: str | None
     display_id: str | None
