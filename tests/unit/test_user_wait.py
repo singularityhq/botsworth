@@ -15,8 +15,11 @@ import pytest
 from qstore import qstore  # noqa: F401 (the QF fixture)
 from qstore_ids import AGENT_PERMISSION, ASK_USER, SSLOW1, SSTRETCH, parts, turn
 
-from botsworth.query import _conn
+from botsworth.query import _conn, wire
+from botsworth.query.scope import Scope
 from botsworth.query.views import rows as R
+from botsworth.query.views import usecases as U
+from botsworth.query.views.find import find
 from botsworth.query.views.session import session_detail, session_turns
 from botsworth.query.views.turn import split_inputs, state_runs, turn_rows
 from botsworth.store import timesplit
@@ -249,3 +252,20 @@ def test_session_detail_asserts_when_stored_parts_do_not_sum_to_wall(qstore, tmp
         )
     with pytest.raises(AssertionError, match="does not sum to wall_ms"):
         session_detail(sid(SSLOW1), db=copy)
+
+
+def test_cli_waits_list_the_main_thread_ask_as_the_finder_does(qstore):
+    # CLI-20/CLI-21 (D54): a question the main thread asked is a wait in the CLI lists, as in the finder
+    ask = wire.Wait(
+        1_791_348_300_000, 1_791_349_200_000, 900_000, "you", "ask",  # 04:45-05:00 in the fixture
+        turn(SSLOW1, 0), None, [], wire.RowRef("tool", ASK_USER),
+    )  # fmt: skip
+    assert U.session_breakdown(sid(SSLOW1), db=qstore).waits[0] == ask
+    hits = find(sid(SSLOW1), "waits", db=qstore).hits
+    assert any(h.row == ask.row and h.value == ask.dur_ms for h in hits)
+    r = U.project_slow(Scope(q=sid(SSLOW1), show_automated=True), db=qstore)
+    (s,) = r.sessions
+    assert s.longest_wait == ask
+    (w,) = [w for w in r.waits if w.row == ask.row]
+    got = (w.state, w.substate, w.dur_ms, w.session, w.display_id)
+    assert got == ("you", "ask", 900_000, s.session, "T1")

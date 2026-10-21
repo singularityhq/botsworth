@@ -43,7 +43,11 @@ user_waits: calls that waited on you: ask = tools that ask the user
   (AskUserQuestion, request_user_input, ask); permission = Claude calls you
   approved or rejected (approvals before Claude Code 2.1.293, and all Codex and
   omp approvals, leave no record; a permission wait includes the run after the
-  approval). Each is {n, dur_ms}. They are left out of tools and slowest_tools."""
+  approval). Each is {n, dur_ms}. They are left out of tools and slowest_tools.
+waits: waits of 2 min or more, longest first, the same set as the waits finder:
+  stretches when no main-thread call ran (row null), and main-thread calls that
+  waited on you (row = the call, state you, substate ask or permission).
+  longest_wait is a session's longest wait that is not agents (D54)."""
 _TIME_FORMAT = """\
 time: tz is the zone used (--tz). Each <x>_ms timestamp has an ISO sibling <x>; each duration has <x>_ms_h
   (45s, 12m 05s, 2h 15m, 3d 4h)."""

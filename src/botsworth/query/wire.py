@@ -990,7 +990,7 @@ class SlowSession:
     time_split: TimeSplit
     cost: Money
     tok_total: int | None
-    longest_wait: Stretch | None
+    longest_wait: Wait | None
 
 
 @dataclass(frozen=True)
@@ -1036,8 +1036,9 @@ class UserWaits:
 
 
 @dataclass(frozen=True)
-class SessionWait:
-    """`Stretch` fields, then `session` and `display_id` of the attached turn."""
+class Wait:
+    """CLI-20 [D54]: `Stretch` fields, then `row`: the main-thread tool row that waited on the user, or null
+    for a stretch."""
 
     start_ms: int
     end_ms: int
@@ -1047,6 +1048,22 @@ class SessionWait:
     turn: str | None
     next_turn: NextTurn | None
     running: list[RunningEngagement]
+    row: RowRef | None
+
+
+@dataclass(frozen=True)
+class SessionWait:
+    """`Wait` fields, then `session` and `display_id` of the wait's turn."""
+
+    start_ms: int
+    end_ms: int
+    dur_ms: int
+    state: str
+    substate: str | None
+    turn: str | None
+    next_turn: NextTurn | None
+    running: list[RunningEngagement]
+    row: RowRef | None
     session: str
     display_id: str | None
 
@@ -1106,7 +1123,7 @@ class SessionBreakdown:
     rows_by_tokens: list[FindHit]
     tools: list[ToolGroup]
     agents: list[BreakdownAgent]
-    waits: list[Stretch]
+    waits: list[Wait]
     models: list[ModelLine]
 
 

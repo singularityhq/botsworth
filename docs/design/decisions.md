@@ -647,4 +647,6 @@ question or a prompt waiting on the user, and the turn Waiting figure left it
 out. Limits: approvals before Claude Code 2.1.293 and all Codex/omp
 approvals leave no record; a permission wait includes the run after
 approval. Evidence and design: tasks/2026-10-21-session-analysis (not in the
-repository).
+repository). The CLI `waits` lists and `longest_wait` use the same wait set as
+the `waits` finder: stretches plus main-thread user-wait calls, so a long
+question the main thread asked shows in the CLI as it does in the UI.

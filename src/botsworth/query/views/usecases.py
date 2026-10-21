@@ -11,12 +11,15 @@ GUARANTEES:
   `compare` is false or the scope is all time. `tools` / `slowest_tools` skip calls with `user_wait` set
   (DM-40, D54) and count them in `user_waits` (`ask`, `permission`: `{n, dur_ms}`). Percentiles are
   nearest-rank (rank = ceil(p * N)) over non-null `dur_ms`. `models` is Q2a's `model_lines`.
-  `longest_wait` is the session's longest stretch of state `you`, `agentmsg`, `limit` or `none` of 2 min
-  or more.
+  A wait (D54) is a stretch of 2 min or more, or a main-thread tool_call with `user_wait` set and
+  `dur_ms` of 2 min or more, as `Wait` (`row` = the call, null for a stretch): per session the hit set of
+  the `waits` finder (QRY-38). `waits` = the `n` longest across the sessions; `longest_wait` = the
+  session's longest wait of state `you`, `agentmsg`, `limit` or `none`.
 - `session_breakdown(session, n)` (CLI-21) composes: `session` copies `session_detail`; the turn lists
   are `session_turns` rows (harness turns and turns without the figure left out); `rows_by_*` are the
   first `n` hits of `find(.., 'biggest', measure)`; `agents` are the agent rows `find(.., 'agents')`
-  names, any depth, with Q2b's `RowBuilder` figures, by cost; `waits` and `models` are Q2a's.
+  names, any depth, with Q2b's `RowBuilder` figures, by cost; `waits` are the session's CLI-20 waits;
+  `models` is Q2a's.
 - `top_tasks(scope, by, measure, n)` (CLI-22): one SQL statement per `by` over owned leaves.
   `issuing_call_split`:
   a call's `tok_total` and `cost_usd` are divided evenly among its owned tool_calls (for `verb`, then among
@@ -53,7 +56,7 @@ from botsworth.query.views import rows as R
 from botsworth.query.views.explorer import _figures, in_scope_roots
 from botsworth.query.views.find import find
 from botsworth.query.views.session import model_lines, session_detail, session_turns
-from botsworth.query.views.stretches import stretches_for, stretches_for_roots
+from botsworth.query.views.stretches import stretches_for_roots
 from botsworth.store import timesplit
 
 MAX_SLOW_N = 100
@@ -99,10 +102,42 @@ WHERE s.op_rowid IN {_IDS}
 """
 
 
-def _stretches(conn: sqlite3.Connection, roots: Sequence[int]) -> dict[int, list[wire.Stretch]]:
-    out: dict[int, list[wire.Stretch]] = {}
+def _waits(conn: sqlite3.Connection, roots: Sequence[int]) -> dict[int, list[wire.Wait]]:
+    """CLI-20 waits (D54) per root, longest first: stretches of 2 min or more, and main-thread tool_calls with
+    `user_wait` set and `dur_ms` of 2 min or more (the hit set of the `waits` finder, QRY-38)."""
+    out: dict[int, list[wire.Wait]] = defaultdict(list)
     for i in range(0, len(roots), _CHUNK):
-        out.update(stretches_for_roots(conn, roots[i : i + _CHUNK]))
+        for root, sts in stretches_for_roots(conn, roots[i : i + _CHUNK]).items():
+            out[root] += [
+                wire.Wait(**{f.name: getattr(s, f.name) for f in fields(wire.Stretch)}, row=None)
+                for s in sts
+                if s.dur_ms >= WAIT_FLOOR_MS
+            ]
+    for r in conn.execute(
+        "SELECT o.root_rowid AS root, o.op_id AS op_id, o.start_ms AS start_ms, o.end_ms AS end_ms, "
+        "o.dur_ms AS dur_ms, o.user_wait AS user_wait, t.op_id AS turn "
+        "FROM ops o LEFT JOIN ops t ON t.rowid = o.attr_turn_rowid "
+        f"WHERE o.root_rowid IN {_IDS} AND o.kind = 'tool_call' AND o.agent_id IS NULL "
+        "AND o.duplicate_of IS NULL AND o.user_wait IS NOT NULL AND o.dur_ms >= :floor",
+        {"ids": _json_ids(roots), "floor": WAIT_FLOOR_MS},
+    ):
+        assert r["turn"] is not None, f"main-thread tool {r['op_id']} has no attributed turn (DM-45)"
+        assert r["end_ms"] is not None, f"tool {r['op_id']} has a duration but no end (DM-40)"
+        out[r["root"]].append(
+            wire.Wait(
+                r["start_ms"],
+                r["end_ms"],
+                r["dur_ms"],
+                "you",
+                r["user_wait"],
+                r["turn"],
+                None,
+                [],
+                wire.RowRef("tool", r["op_id"]),
+            )  # fmt: skip
+        )
+    for ws in out.values():
+        ws.sort(key=lambda w: (-w.dur_ms, w.start_ms))
     return out
 
 
@@ -251,9 +286,9 @@ def _display_ids(conn: sqlite3.Connection, turn_ids: Sequence[str]) -> dict[str,
     return {r["op_id"]: f"T{r['display_ix']}" if r["display_ix"] is not None else None for r in rows}
 
 
-def _longest_wait(stretches: Sequence[wire.Stretch]) -> wire.Stretch | None:
-    waits = [s for s in stretches if s.state != "agents" and s.dur_ms >= WAIT_FLOOR_MS]
-    return max(waits, key=lambda s: (s.dur_ms, -s.start_ms), default=None)
+def _longest_wait(waits: Sequence[wire.Wait]) -> wire.Wait | None:
+    """CLI-20: the first wait not of state `agents` (`waits` is longest first)."""
+    return next((w for w in waits if w.state != "agents"), None)
 
 
 def _previous_scope(scope: Scope) -> Scope:
@@ -272,7 +307,7 @@ def project_slow(scope: Scope, compare: bool = True, n: int = 10, db: Db = None)
     with _conn(db) as conn:
         roots = in_scope_roots(conn, scope)
         rows = conn.execute(_SESSION_ROWS, {"ids": _json_ids(roots)}).fetchall()
-        stretches = _stretches(conn, roots)
+        waits_by_root = _waits(conn, roots)
         parts = _session_parts(conn, roots)
         current = _block(rows, parts)
         previous = None
@@ -297,18 +332,18 @@ def project_slow(scope: Scope, compare: bool = True, n: int = 10, db: Db = None)
                     time_split=_split_row(r, parts),
                     cost=money,
                     tok_total=tok,
-                    longest_wait=_longest_wait(stretches[r["op_rowid"]]),
+                    longest_wait=_longest_wait(waits_by_root[r["op_rowid"]]),
                 )
             )
         op_ids = {r["op_rowid"]: r["op_id"] for r in rows}
         long = sorted(
-            ((root, st) for root, sts in stretches.items() for st in sts if st.dur_ms >= WAIT_FLOOR_MS),
+            ((root, w) for root, ws in waits_by_root.items() for w in ws),
             key=lambda p: (-p[1].dur_ms, op_ids[p[0]], p[1].start_ms),
         )[:n]
         shown = _display_ids(conn, [st.turn for _, st in long if st.turn is not None])
         waits = [
             wire.SessionWait(
-                **{f.name: getattr(st, f.name) for f in fields(wire.Stretch)},
+                **{f.name: getattr(st, f.name) for f in fields(wire.Wait)},
                 session=op_ids[root],
                 display_id=shown.get(st.turn) if st.turn is not None else None,
             )
@@ -397,10 +432,7 @@ def session_breakdown(session: str, n: int = 10, db: Db = None) -> wire.SessionB
                 )
             )
         agents.sort(key=lambda a: (a.cost_usd is None, -(a.cost_usd or 0.0), a.row.id))
-        long = sorted(
-            (s for s in stretches_for(conn, root) if s.dur_ms >= WAIT_FLOOR_MS),
-            key=lambda s: (-s.dur_ms, s.start_ms),
-        )[:n]
+        long = _waits(conn, [root])[root][:n]
         return wire.SessionBreakdown(
             freshness=detail.freshness,
             session=wire.BreakdownSession(

@@ -11,6 +11,7 @@ from __future__ import annotations
 import math
 import sqlite3
 from collections import defaultdict
+from dataclasses import fields
 
 import pytest
 from qstore import qstore  # noqa: F401 (the QF fixture)
@@ -232,8 +233,15 @@ def test_breakdown_equals_composed_views(qstore, session):
     assert b.turns_by_time == by_time and b.turns_by_tokens == by_tok
     for measure, got in (("time", b.rows_by_time), ("cost", b.rows_by_cost), ("tokens", b.rows_by_tokens)):
         assert got == find(key(session), "biggest", measure, limit=n, db=qstore).hits[:n]
+    # CLI-21 (D54): the waits are the n longest hits of the `waits` finder
+    hits = find(key(session), "waits", limit=1000, db=qstore).hits
+    assert [w.dur_ms for w in b.waits] == sorted((h.value for h in hits), reverse=True)[:n]
+    assert {(w.start_ms, w.dur_ms) for w in b.waits} <= {(h.start_ms, h.value) for h in hits}
     long = [x for x in stretches_for(_c(qstore), _root(qstore, session)) if x.dur_ms >= 120_000]
-    assert b.waits == sorted(long, key=lambda x: (-x.dur_ms, x.start_ms))[:n]
+    assert [w for w in b.waits if w.row is None] == [
+        wire.Wait(**{f.name: getattr(x, f.name) for f in fields(wire.Stretch)}, row=None)
+        for x in sorted(long, key=lambda x: (-x.dur_ms, x.start_ms))
+    ][: len([w for w in b.waits if w.row is None])]
     # the tool groups are the project-wide view over this session only
     assert b.tools == U.project_slow(only(session.split("/")[1]), n=n, db=qstore).tools
     assert b.freshness == session_detail(key(session), db=qstore).freshness
