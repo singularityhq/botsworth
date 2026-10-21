@@ -4,6 +4,7 @@ import { Duration } from '../../ui/figures'
 import { Money } from '../../ui/figures'
 import { Skeleton } from '../../ui/Skeleton'
 import { Tooltip } from '../../ui/Tooltip'
+import { LOST_MIN_MS } from './causes'
 import { costCaption, legendStates, runningSplit, stateTotals, substateBreakdown } from './answers.logic'
 import { SplitBar, type Segment } from './SplitBar'
 import { STATE_KEYS, STATES, SUBSTATE_WORDING, stateFill, type StateKey } from './states'
@@ -27,15 +28,19 @@ interface AnswersProps {
   costNote?: string
   /** Legend click (SES-27). Without it the legend buttons are inert (the data to jump with has not arrived). */
   onJump?: (state: StateKey) => void
+  /** REV-2: the session's lost time (the Review's `lost_ms`), shown after "nothing running" from 60 s. Absent until the review has loaded. */
+  lostMs?: number
+  /** REV-2: opens Review. */
+  onOpenReview?: () => void
   className?: string
 }
 
 /** SES-26 (R3 top 5 #1): where the money went, where the time went. Shared by the session header and the turn header. */
-export function Answers({ cost, wallMs, split, causal = true, costNote, onJump, className = '' }: AnswersProps) {
+export function Answers({ cost, wallMs, split, causal = true, costNote, onJump, lostMs, onOpenReview, className = '' }: AnswersProps) {
   return (
     <div className={`grid grid-cols-[minmax(220px,1fr)_minmax(0,2.2fr)] gap-x-10 ${className}`}>
       <CostAnswer cost={cost} causal={causal} note={costNote} />
-      <TimeAnswer wallMs={wallMs} split={split} onJump={onJump} />
+      <TimeAnswer wallMs={wallMs} split={split} onJump={onJump} lostMs={lostMs} onOpenReview={onOpenReview} />
     </div>
   )
 }
@@ -94,7 +99,7 @@ function CostAnswer({ cost, causal, note }: { cost: AnswersCost | undefined; cau
   )
 }
 
-function TimeAnswer({ wallMs, split, onJump }: { wallMs: number | undefined; split: TimeSplit | undefined; onJump?: (s: StateKey) => void }) {
+function TimeAnswer({ wallMs, split, onJump, lostMs, onOpenReview }: { wallMs: number | undefined; split: TimeSplit | undefined; onJump?: (s: StateKey) => void; lostMs?: number; onOpenReview?: () => void }) {
   if (wallMs === undefined || !split) {
     return (
       <div aria-busy="true">
@@ -114,6 +119,16 @@ function TimeAnswer({ wallMs, split, onJump }: { wallMs: number | undefined; spl
         <span className="text-ink3">wall</span>
         <span className="ml-2 text-ink2">
           <b className="fig font-medium">{fmt.dur(running)}</b> running · <b className="fig font-medium">{fmt.dur(nothing)}</b> nothing running
+          {lostMs !== undefined && lostMs >= LOST_MIN_MS ? (
+            <>
+              {' · '}
+              <Tooltip content="Open Review (r)">
+                <button type="button" disabled={!onOpenReview} onClick={onOpenReview} className="rounded-chip hover:underline disabled:cursor-default disabled:no-underline">
+                  <b className="fig font-medium text-error">{fmt.dur(lostMs)}</b> lost
+                </button>
+              </Tooltip>
+            </>
+          ) : null}
         </span>
       </div>
       <SplitBar segments={segments} label="Time split over seven states" />

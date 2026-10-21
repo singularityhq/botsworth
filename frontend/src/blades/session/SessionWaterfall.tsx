@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef } from 'react'
 import type { GapRow } from '../../api/types'
 import { fmt } from '../../lib/format'
+import type { SessionView } from '../../state/url'
 import { Duration, Money } from '../../ui/figures'
 import { Icon } from '../../ui/Icon'
 import { Segmented } from '../../ui/Segmented'
@@ -23,25 +24,25 @@ const BAR_H = 12
 const ROW_H = 32
 
 interface ViewToggleProps {
-  waterfall: boolean
+  view: SessionView
   real: boolean
-  onView: (waterfall: boolean) => void
+  onView: (view: SessionView) => void
   onReal: (real: boolean) => void
 }
 
-/** SES-41: the Ledger | Waterfall segment before the search field and, in Waterfall mode, the axis segment (SES-40). */
-export function ViewToggle({ waterfall, real, onView, onReal }: ViewToggleProps) {
+/** SES-41, REV-3: the Ledger | Waterfall | Review segment before the search field and, in Waterfall mode, the axis segment (SES-40). */
+export function ViewToggle({ view, real, onView, onReal }: ViewToggleProps) {
   return (
     <>
-      <span title="Ledger or Waterfall (v)">
+      <span title="Ledger, Waterfall or Review (v, r)">
         <Segmented
           label="View"
-          value={waterfall ? 'waterfall' : 'ledger'}
-          onChange={(v) => onView(v === 'waterfall')}
-          options={[{ value: 'ledger', label: 'Ledger' }, { value: 'waterfall', label: 'Waterfall' }]}
+          value={view}
+          onChange={onView}
+          options={[{ value: 'ledger', label: 'Ledger' }, { value: 'waterfall', label: 'Waterfall' }, { value: 'review', label: 'Review' }]}
         />
       </span>
-      {waterfall ? (
+      {view === 'waterfall' ? (
         <Segmented
           label="Axis"
           value={real ? 'real' : 'fold'}

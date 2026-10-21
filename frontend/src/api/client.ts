@@ -3,7 +3,7 @@ import { ApiError, NetError, isAbort } from './errors'
 import type {
   AgentRowPage, Day, Detail, DaySeries, Facets, FindKind, FindMeasure, FindResult, GroupKey, Histogram,
   IngestStatus, PaletteResult, PeriodSummary, Resolved, Scope, SessionDetail, SessionPage, SortDir, SortKey,
-  SourcePart, SourceResponse, TurnList, TurnRows,
+  ReviewReport, SourcePart, SourceResponse, TurnList, TurnRows,
 } from './types'
 
 /**
@@ -118,6 +118,7 @@ export const urls = {
     setIf(p, 'min_gap_ms', minGapMs, 120000)
     return build(`/api/sessions/${enc(session)}/turns`, p)
   },
+  sessionReview: (session: string): string => `/api/sessions/${enc(session)}/review`,
   sessionFind: (session: string, o: FindOpts): string => {
     const p = new URLSearchParams({ kind: o.kind })
     setIf(p, 'measure', o.measure, 'cost')
@@ -245,6 +246,7 @@ export const client = {
   sessionDetail: (session: string, signal?: AbortSignal) => getJson<SessionDetail>(urls.sessionDetail(session), signal),
   sessionTurns: (session: string, minGapMs: number | undefined, signal?: AbortSignal) =>
     getJson<TurnList>(urls.sessionTurns(session, minGapMs), signal),
+  sessionReview: (session: string, signal?: AbortSignal) => getJson<ReviewReport>(urls.sessionReview(session), signal),
   sessionFind: (session: string, o: FindOpts, signal?: AbortSignal) =>
     getJson<FindResult>(urls.sessionFind(session, o), signal),
   sessionHistogram: (session: string, o: HistogramOpts, signal?: AbortSignal) =>

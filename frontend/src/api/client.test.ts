@@ -108,6 +108,7 @@ describe('urls', () => {
     expect(urls.turnRows('claude_code/u/turn/2#3')).toBe('/api/turns/claude_code%2Fu%2Fturn%2F2%233/rows')
     expect(urls.opDetail('a/b#c')).toBe('/api/ops/a%2Fb%23c/detail')
     expect(urls.agentRows('a/b#c', {})).toBe('/api/ops/a%2Fb%23c/rows')
+    expect(urls.sessionReview('a/b')).toBe('/api/sessions/a%2Fb/review')
     expect(urls.sessionTurns('a/b')).toBe('/api/sessions/a%2Fb/turns')
     expect(urls.sessionHistogram('a/b')).toBe('/api/sessions/a%2Fb/histogram')
     expect(urls.turnHistogram('a#b')).toBe('/api/turns/a%23b/histogram')
@@ -168,7 +169,7 @@ describe('client requests', () => {
   it('has a method for every endpoint the UI uses', () => {
     expect(Object.keys(client).sort()).toEqual([
       'agentRows', 'explorerDays', 'explorerFacets', 'explorerSessions', 'explorerSummary', 'ingestStatus', 'opDetail',
-      'palette', 'sessionDetail', 'sessionFind', 'sessionHistogram', 'sessionResolve', 'sessionTurns', 'source',
+      'palette', 'sessionDetail', 'sessionFind', 'sessionHistogram', 'sessionResolve', 'sessionReview', 'sessionTurns', 'source',
       'turnHistogram', 'turnRows',
     ])
   })

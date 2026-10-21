@@ -38,6 +38,9 @@ interface HeaderProps {
   onClearRange: () => void
   /** SES-27; undefined until the turn list has loaded. */
   onJump: ((state: StateKey) => void) | undefined
+  /** REV-2: the Review's `lost_ms`, once the review has loaded; opens Review. */
+  lostMs?: number
+  onOpenReview?: () => void
   /** The keyboard button (SES-24): F3b fills this slot with the `?` overlay. */
   keysButton: React.ReactNode
   /** SES-13: with a range set, the cost answer under the clock rule. `null` while it loads; undefined with no range (the session's own cost). */
@@ -45,7 +48,7 @@ interface HeaderProps {
 }
 
 /** SES-23 to SES-26: meta line, title, the two answers. Padding 16 px 24 px 12 px. */
-export function SessionHeader({ session: s, tz, over, info, range, onToggleOver, onToggleInfo, onClearRange, onJump, keysButton, rangeCost }: HeaderProps) {
+export function SessionHeader({ session: s, tz, over, info, range, onToggleOver, onToggleInfo, onClearRange, onJump, lostMs, onOpenReview, keysButton, rangeCost }: HeaderProps) {
   return (
     <div className="shrink-0 px-6 pb-3 pt-4">
       <div className="flex min-h-7 items-center gap-2 text-ink3">
@@ -102,6 +105,8 @@ export function SessionHeader({ session: s, tz, over, info, range, onToggleOver,
         wallMs={s?.wall_ms}
         split={s?.time_split}
         onJump={onJump}
+        lostMs={lostMs}
+        onOpenReview={onOpenReview}
       />
     </div>
   )

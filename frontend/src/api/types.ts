@@ -517,6 +517,58 @@ export interface SourceResponse {
   block: string | null
 }
 
+// ---- Review (QRY-42, API-33) ----------------------------------------------
+
+/** CLI-20 [D55]: test runs of a span; `run_ms` counts a background run to its notice. */
+export interface TestRuns {
+  n: number
+  run_ms: number
+  n_failed: number
+  n_passed: number
+  n_no_result: number
+  n_background: number
+}
+
+/** DM-56 causes of wall time, in DM-56 order. */
+export type Cause = 'stalled' | 'tests' | 'polling' | 'you' | 'message' | 'limit' | 'working' | 'idle'
+export interface CausePart {
+  cause: Cause
+  ms: number
+}
+
+export interface Evidence {
+  session: string
+  session_id: string
+  row: RowRef | null
+  turn: string | null
+  display_id: string | null
+  start_ms: number
+  end_ms: number
+  dur_ms: number
+}
+
+export interface Finding {
+  cause: 'stalled' | 'tests' | 'polling' | 'you' | 'message'
+  ms: number
+  lost: boolean
+  n: number
+  longest: Evidence | null
+  threads: string[]
+  sessions: { session: string; session_id: string; name: string; ms: number }[]
+}
+
+/** QRY-42 `Review` over API-33 (`GET /api/sessions/{session}/review`), with the freshness. */
+export interface ReviewReport {
+  freshness: Freshness
+  wall_ms: number
+  lost_ms: number
+  n_sessions: number
+  n_unmeasured: number
+  causes: CausePart[]
+  findings: Finding[]
+  test_runs: TestRuns
+}
+
 // ---- Query argument shapes (client.ts) ----------------------------------
 
 export type SortKey = 'start' | 'cost' | 'wall' | 'active' | 'tokens'

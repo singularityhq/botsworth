@@ -14,6 +14,8 @@ import { DEFAULT_PERIOD, PRESETS, resolvePeriod, type Period, type Preset } from
 export type Measure = 'cost' | 'tokens'
 export type Bars = 'cost' | 'time' | 'tokens'
 export type ViewMode = 'ledger' | 'waterfall'
+/** SES-8 [D56]: the session blade adds `review`. */
+export type SessionView = ViewMode | 'review'
 export type TurnOrder = 'cost' | 'duration'
 export interface MsRange {
   start_ms: number
@@ -39,7 +41,7 @@ export interface UrlState {
   find: string
   range: MsRange | null
   over: boolean
-  sview: ViewMode
+  sview: SessionView
   sreal: boolean
   info: boolean
   // turn blade
@@ -159,7 +161,7 @@ export function parseUrl(search: string): UrlState {
     find: p.get('find') ?? '',
     range: parseRange(p.get('range')),
     over: p.get('over') === '1',
-    sview: p.get('sview') === 'waterfall' ? 'waterfall' : 'ledger',
+    sview: oneOf(p.get('sview'), ['waterfall', 'review'] as const) ?? 'ledger',
     sreal: p.get('sreal') === '1',
     info: p.get('info') === '1',
     t,

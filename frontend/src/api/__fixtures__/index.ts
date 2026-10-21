@@ -9,7 +9,7 @@
  */
 import type {
   AgentDetail, AgentRowPage, CallDetail, DaySeries, Facets, FindResult, Histogram, IngestStatus, MessageDetail,
-  PaletteResult, PeriodSummary, Resolved, SessionDetail, SessionPage, SourceResponse, ToolDetail, TurnList, TurnRows,
+  PaletteResult, PeriodSummary, Resolved, ReviewReport, SessionDetail, SessionPage, SourceResponse, ToolDetail, TurnList, TurnRows,
 } from '../types'
 import agentRows from './agent-rows.json' with { type: 'json' }
 import detailAgent from './detail-agent.json' with { type: 'json' }
@@ -27,6 +27,7 @@ import sessionDetail from './session-detail.json' with { type: 'json' }
 import sessionFind from './session-find.json' with { type: 'json' }
 import sessionHistogram from './session-histogram.json' with { type: 'json' }
 import sessionResolve from './session-resolve.json' with { type: 'json' }
+import sessionReview from './session-review.json' with { type: 'json' }
 import sessionTurns from './session-turns.json' with { type: 'json' }
 import source from './source.json' with { type: 'json' }
 import turnHistogram from './turn-histogram.json' with { type: 'json' }
@@ -54,6 +55,7 @@ export const fixtures = {
   sessionTurns: sessionTurns satisfies Widen<TurnList>,
   sessionFind: sessionFind satisfies Widen<FindResult>,
   sessionHistogram: sessionHistogram satisfies Widen<Histogram>,
+  sessionReview: sessionReview satisfies Widen<ReviewReport>,
   sessionResolve: sessionResolve satisfies Widen<Resolved>,
   turnHistogram: turnHistogram satisfies Widen<Histogram>,
   turnRows: turnRows satisfies Widen<TurnRows>,

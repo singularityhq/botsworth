@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { client, urls } from '../../api/client'
 import { ApiError } from '../../api/errors'
-import type { GapRow as GapRowWire, Histogram as HistogramWire, SessionDetail, TurnList as TurnListWire } from '../../api/types'
+import type { Evidence, GapRow as GapRowWire, Histogram as HistogramWire, ReviewReport, SessionDetail, TurnList as TurnListWire } from '../../api/types'
 import { useApi, useDebounced } from '../../api/useApi'
 import { useCrumb } from '../../shell/crumbs'
 import { useBladeKeys, useEscape } from '../../shell/keys'
 import { useNav, type Patch } from '../../state/nav'
-import { useUrlState } from '../../state/url'
+import { useUrlState, type SessionView } from '../../state/url'
 import { useBrowserZone } from '../../state/zone'
 import { EmptyState } from '../../ui/EmptyState'
 import { ErrorCard } from '../../ui/ErrorCard'
@@ -27,6 +27,7 @@ import { FinderLine } from './FinderLine'
 import { OverTime } from './OverTime'
 import { rangeCost } from '../shared/histogram.logic'
 import { DetailsPanel, SessionHeader } from './SessionHeader'
+import { ReviewView } from './ReviewView'
 import { SessionRail } from './SessionRail'
 import { firstKept, keptTurns, SEARCH_DEBOUNCE_MS, searchRequest } from './sessionSearch'
 import { SessionWaterfall, ViewToggle } from './SessionWaterfall'
@@ -55,6 +56,7 @@ export function SessionBlade({ width, compact }: { width: number; compact: boole
   if (session === null) throw new Error('SessionBlade rendered with no session in the URL')
   const detail = useApi<SessionDetail>(urls.sessionDetail(session), (signal) => client.sessionDetail(session, signal))
   const turns = useApi<TurnListWire>(urls.sessionTurns(session), (signal) => client.sessionTurns(session, undefined, signal))
+  const review = useApi<ReviewReport>(urls.sessionReview(session), (signal) => client.sessionReview(session, signal))
   const debounced = useDebounced(url.find, SEARCH_DEBOUNCE_MS)
   const req = searchRequest(debounced)
   const search = useApi(req ? urls.sessionFind(session, req) : null, (signal) => client.sessionFind(session, req!, signal))
@@ -64,6 +66,13 @@ export function SessionBlade({ width, compact }: { width: number; compact: boole
   const fieldRef = useRef<HTMLInputElement>(null)
   const [cursor, setCursor] = useState<string | null>(null)
   const [keysOpen, setKeysOpen] = useState(false)
+  // REV-3: `r` and Esc close Review back to the last of Ledger or Waterfall.
+  const lastList = useRef<Exclude<SessionView, 'review'>>('ledger')
+  if (url.sview !== 'review') lastList.current = url.sview
+  // REV-3: a jump from Review sets the view to Ledger first, as its own history step, so Esc from the opened turn goes back to Ledger.
+  const leaveReview = useCallback(() => {
+    if (url.sview === 'review') nav.replace({ sview: 'ledger' })
+  }, [nav, url.sview])
   const rank = useRef(-1) // SES-52: position in the `b` ranking; -1 before the first `b`
 
   const s = detail.data?.session
@@ -129,6 +138,24 @@ export function SessionBlade({ width, compact }: { width: number; compact: boole
     [entries, openTurn],
   )
 
+  // ---- Review evidence (REV-6) ----
+  // A link opens its row as a finder jump does (SES-51): the turn opens, the row is the cursor, its detail opens; the view returns to Ledger.
+  const openEvidence = useCallback(
+    (ev: Evidence) => {
+      const ix = ev.turn === null ? null : (ixByOp.get(ev.turn) ?? null) // FALLBACK-OK: QRY-42 (a stretch attached to no numbered turn has no ledger to open; the toast says why)
+      // FALLBACK-OK: QRY-42 (evidence with no row, or a row outside the numbered turns, has nothing to open)
+      if (ix === null || ev.row === null) {
+        show(['That stretch is not inside a numbered turn.'])
+        return
+      }
+      const patch: Patch = { t: ix, step: ev.row.type === 'turn' ? null : ev.row.id, detail: true, zoom: null, order: null }
+      leaveReview()
+      if (url.t === null) nav.openBlade('turn', patch)
+      else nav.replace(patch)
+    },
+    [ixByOp, nav, show, url.t, leaveReview],
+  )
+
   // ---- legend jump (SES-27) ----
   const jump = useCallback(
     (state: StateKey) => {
@@ -178,26 +205,33 @@ export function SessionBlade({ width, compact }: { width: number; compact: boole
         return
       }
       show(finderToast(kind, r.index, set.pool.length, r.hit))
+      leaveReview()
       land(r.hit, kind)
     },
-    [finders, cursor, positions, show, land, url.t, url.step],
+    [finders, cursor, positions, show, land, leaveReview, url.t, url.step],
   )
   // SES-52, session blade: `b` ranks the numbered turns the list keeps by the measure and selects the next in the ranking (cursor only).
   const biggest = useCallback(
     (dir: 1 | -1) => {
       const ranking = rankTurns(stops.map((x) => x.row), url.bars)
       if (ranking.length === 0) return
+      leaveReview()
       rank.current = rankStep(rank.current, dir, ranking.length)
       const t = ranking[rank.current]
       setCursor(t.turn)
       show(biggestTurnToast(rank.current, url.bars, turnValue(t, url.bars)!, ixByOp.get(t.turn)!)) // rankTurns keeps only turns with a value; a ranked turn is a numbered turn
     },
-    [stops, url.bars, show, ixByOp],
+    [stops, url.bars, show, ixByOp, leaveReview],
   )
 
   // ---- keys (SES-73, SES-6) ----
   const move = useCallback((delta: number) => setCursor((cur) => moveCursor(stops, cur, delta)), [stops])
   useBladeKeys('session', (e) => {
+    // REV-3: Review has no turn cursor; these keys do nothing there (the arrows are left to scroll the page).
+    if (url.sview === 'review') {
+      if (['j', 'k', 't', 'T', 'Enter'].includes(e.key)) return true
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') return false
+    }
     switch (e.key) {
       case 'j':
       case 'ArrowDown':
@@ -254,7 +288,11 @@ export function SessionBlade({ width, compact }: { width: number; compact: boole
         runFinder('agents', 1)
         return true
       case 'v':
-        nav.replace({ sview: url.sview === 'waterfall' ? 'ledger' : 'waterfall' })
+        // REV-3: from Review `v` opens the last of Ledger and Waterfall.
+        nav.replace({ sview: url.sview === 'review' ? lastList.current : url.sview === 'waterfall' ? 'ledger' : 'waterfall' })
+        return true
+      case 'r':
+        nav.replace({ sview: url.sview === 'review' ? lastList.current : 'review' })
         return true
       case '?':
         setKeysOpen((o) => !o)
@@ -270,6 +308,10 @@ export function SessionBlade({ width, compact }: { width: number; compact: boole
     }
     if (url.range) {
       nav.replace({ range: null }) // SES-6 step 7
+      return true
+    }
+    if (url.sview === 'review') {
+      nav.replace({ sview: lastList.current }) // SES-6 step 7a [D56]
       return true
     }
     return false
@@ -350,6 +392,8 @@ export function SessionBlade({ width, compact }: { width: number; compact: boole
           onToggleInfo={() => nav.replace({ info: !url.info })}
           onClearRange={() => nav.replace({ range: null })}
           onJump={turns.data ? jump : undefined}
+          lostMs={review.data?.lost_ms}
+          onOpenReview={() => nav.replace({ sview: 'review' })}
           rangeCost={
             url.range === null || !s
               ? undefined
@@ -376,19 +420,33 @@ export function SessionBlade({ width, compact }: { width: number; compact: boole
         onBars={(bars) => nav.replace({ bars })}
         onEnter={() => {
           const first = firstKept(entries)
-          if (first !== null) setCursor(first)
+          if (first === null) return
+          leaveReview() // REV-3: a search jump leaves Review
+          setCursor(first)
         }}
         viewToggle={
           <ViewToggle
-            waterfall={url.sview === 'waterfall'}
+            view={url.sview}
             real={url.sreal}
-            onView={(w) => nav.replace({ sview: w ? 'waterfall' : 'ledger' })}
+            onView={(sview) => nav.replace({ sview })}
             onReal={(real) => nav.replace({ sreal: real })}
           />
         }
         finderChips={<FinderChips sets={finders} onFind={(kind) => runFinder(kind, 1)} onBiggest={() => biggest(1)} />}
       />
-      {turns.error ? (
+      {url.sview === 'review' ? (
+        <ReviewView
+          review={review.data}
+          split={s?.time_split}
+          error={review.error ?? detail.error}
+          onRetry={() => {
+            review.retry()
+            if (detail.error) detail.retry()
+          }}
+          tz={tz}
+          onOpenEvidence={turns.data ? openEvidence : undefined}
+        />
+      ) : turns.error ? (
         <ErrorCard noun="turns" message={turns.error.message} onRetry={turns.retry} />
       ) : search.error ? (
         <ErrorCard noun="search results" message={search.error.message} onRetry={search.retry} />

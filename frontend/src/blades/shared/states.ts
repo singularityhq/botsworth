@@ -36,7 +36,7 @@ export const LEGEND_MIN_MS = 30_000
 export const LEGEND_MAX = 4
 
 /** SES-20: the hatch. `colour` is a CSS colour expression, always a token. */
-const hatch = (colour: string) => `repeating-linear-gradient(135deg, ${colour} 0 2px, transparent 2px 5px)`
+export const hatch = (colour: string) => `repeating-linear-gradient(135deg, ${colour} 0 2px, transparent 2px 5px)`
 
 /** Fill of a state's swatch, bar segment or gap bar: solid when something ran, hatched with a 1 px inset outline when nothing did (SES-20). */
 export function stateFill(k: StateKey): CSSProperties {
@@ -143,7 +143,7 @@ export function gapReason(g: GapLike, ctx: GapContext): string {
     case 'stalled':
       return 'a finished task waited for an agent that was not running'
     case 'background':
-      return g.substate === 'test' ? 'a test run ran; nothing else did' : 'a background command ran; nothing else did'
+      return g.substate === 'test' ? 'a background test run ran; nothing else did' : 'a background command ran; nothing else did'
     case 'none':
       return 'no model call, tool or agent was running'
     case 'agents': {
