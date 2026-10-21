@@ -6,6 +6,7 @@ GUARANTEES:
 - `build(conn, roots, with_sessions)` returns a `wire.Review` over the sessions `roots`. `causes` lists the
   eight DM-56 causes in order, each the sum of its DM-50 parts over the sessions' stored `time_split` rows
   of scope `session`, so they sum to `wall_ms` (asserted per session). `lost_ms` = the `stalled` part.
+  `you_parts` is the `you` cause by substate (`ask`, `permission`, `reply`), summed like `causes`.
   `test_runs` is `common.test_runs`, the CLI-20 block of the same sessions. `n_unmeasured` counts the
   sessions whose provider records no task notices (not `claude_code`, DM-41): stalls are not measured there.
 - `findings`: one per cause among `stalled`, `tests`, `polling`, `you`, `message` with at least 2 min
@@ -54,6 +55,7 @@ FINDING_MIN_MS = 120_000
 NOTICE_PROVIDERS = frozenset({"claude_code"})  # DM-41: Codex and omp record no task notices
 TOP_SESSIONS = 3
 CAUSES = ("stalled", "tests", "polling", "you", "message", "limit", "working", "idle")  # DM-56 order
+YOU_SUBSTATES = ("ask", "permission", "reply")
 LOST = frozenset({"stalled"})
 CAUSE_OF: dict[tuple[str, str | None], str] = {
     ("none", "stalled"): "stalled",
@@ -78,7 +80,7 @@ _TOOL_CLASS = {"tests": "test", "polling": "wait"}
 _FINDING_CAUSES = ("stalled", "tests", "polling", "you", "message")
 
 _SESSIONS = """
-SELECT s.op_rowid, o.op_id, s.session_id, s.provider, s.display_title, s.title_source,
+SELECT s.op_rowid, o.op_id, s.session_id, s.provider, s.first_ms, s.display_title, s.title_source,
        p.name AS project_name, s.wall_ms
 FROM sessions s JOIN ops o ON o.rowid = s.op_rowid LEFT JOIN projects p ON p.project = s.project
 WHERE s.op_rowid IN (SELECT value FROM json_each(?))
@@ -192,7 +194,11 @@ def build(conn: sqlite3.Connection, roots: Sequence[int], with_sessions: bool) -
             )[:TOP_SESSIONS]
             top = [
                 wire.FindingSession(
-                    r["op_id"], r["session_id"], common.session_name(r)[0], per_session[r["op_rowid"]][cause]
+                    r["op_id"],
+                    r["session_id"],
+                    common.session_name(r)[0],
+                    r["first_ms"],
+                    per_session[r["op_rowid"]][cause],
                 )
                 for r in ranked
             ]
@@ -202,6 +208,10 @@ def build(conn: sqlite3.Connection, roots: Sequence[int], with_sessions: bool) -
         wall_ms=sum(r["wall_ms"] for r in rows),
         lost_ms=sum(totals[c] for c in LOST),
         n_sessions=len(rows),
+        you_parts=wire.YouParts(
+            # FALLBACK-OK: DM-51 — a part with 0 ms is not stored, so an absent part is 0
+            *(sum(parts[r["op_rowid"]].get(("you", sub), 0) for r in rows) for sub in YOU_SUBSTATES)
+        ),
         n_unmeasured=sum(r["provider"] not in NOTICE_PROVIDERS for r in rows),
         causes=[wire.CausePart(c, totals[c]) for c in CAUSES],
         findings=findings,
@@ -294,5 +304,13 @@ def scope_review(scope: Scope, db: Db = None) -> wire.ReviewReport:
 def _report(conn: sqlite3.Connection, r: wire.Review) -> wire.ReviewReport:
     fresh = wire.Freshness(**shapes.freshness(conn))
     return wire.ReviewReport(
-        fresh, r.wall_ms, r.lost_ms, r.n_sessions, r.n_unmeasured, r.causes, r.findings, r.test_runs
+        fresh,
+        r.wall_ms,
+        r.lost_ms,
+        r.n_sessions,
+        r.you_parts,
+        r.n_unmeasured,
+        r.causes,
+        r.findings,
+        r.test_runs,
     )

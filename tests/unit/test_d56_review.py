@@ -263,6 +263,7 @@ def test_api33_session_review_200(base):
         "wall_ms",
         "lost_ms",
         "n_sessions",
+        "you_parts",
         "n_unmeasured",
         "causes",
         "findings",
@@ -533,3 +534,53 @@ def test_evidence_name_equals_the_sessions_name_in_a_scope_review(tmp_path):
         assert f.longest.name == listed[f.longest.session]
         assert f.longest.name.endswith(f.longest.session_id[:8])  # DM-60 fallback name: project · id
     assert {f.longest.session for f in r.findings} == {"claude_code/first/session/-"}  # tie: lower op_id
+
+
+def you_session(sid="you"):
+    """ask 10 min (main call), permission 4 min (agent call), reply 7 min (idle before a human turn)."""
+    b = B(sid, start=0, end=40 * M)
+    t = b.turn("t", start=0, end=21 * M, turn_kind="human")
+    l1 = b.llm("l1", t, 0, 2 * M, occ=f"{sid}:l1")
+    spawn = b.tool("spawn", l1, M, M + 1000, tool_name="Agent", occ=f"{sid}:sp")
+    b.tool("ask", l1, 2 * M, 12 * M, tool_name="AskUserQuestion", user_wait="ask", occ=f"{sid}:ask")
+    eng = b.engagement("e", spawn, "a", start=14 * M, end=18 * M)
+    b.tool(
+        "perm", eng, 14 * M, 18 * M, agent="a", tool_name="Bash", user_wait="permission", occ=f"{sid}:perm"
+    )
+    b.turn("t2", start=25 * M, end=40 * M, turn_kind="human")
+    return b
+
+
+def test_you_parts_split_the_you_cause_by_substate_and_sum_to_it(tmp_path):
+    c = store(tmp_path)
+    load(c, you_session("y1"), you_session("y2"))
+    for r in (R.scope_review(Scope(), db=c), R.session_review("y1", db=c)):
+        k = 2 if r.n_sessions == 2 else 1
+        assert (r.you_parts.ask, r.you_parts.permission) == (k * 10 * M, k * 4 * M)
+        assert r.you_parts.reply == k * 7 * M  # 18-25 min before the human turn
+        assert r.you_parts.ask + r.you_parts.permission + r.you_parts.reply == causes(r)["you"]
+        assert sum(causes(r).values()) == r.wall_ms
+    r = R.session_review("s56", db=load_dm56(tmp_path / "again"))
+    assert (r.you_parts.ask, r.you_parts.permission, r.you_parts.reply) == (0, 0, 5 * M)
+
+
+def load_dm56(path):
+    path.mkdir()
+    c = store(path)
+    load(c, dm56_session())
+    return c
+
+
+def test_finding_sessions_carry_the_session_start(tmp_path):
+    c = store(tmp_path)
+    load(c, dm56_session("a"), dm56_session("b"))
+    r = R.scope_review(Scope(), db=c)
+    starts = {
+        x["op_id"]: x["first_ms"]
+        for x in c.execute("SELECT o.op_id, s.first_ms FROM sessions s JOIN ops o ON o.rowid = s.op_rowid")
+    }
+    assert starts and all(v is not None for v in starts.values())
+    seen = [s for f in r.findings for s in f.sessions]
+    assert seen and all(s.start_ms == starts[s.session] for s in seen)
+    slow = U.project_slow(Scope(), compare=False, n=5, db=c)
+    assert {x.session: x.start_ms for x in slow.sessions} == {s.session: s.start_ms for s in seen}

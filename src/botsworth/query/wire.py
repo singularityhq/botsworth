@@ -1114,6 +1114,7 @@ class FindingSession:
     session: str
     session_id: str
     name: str
+    start_ms: int
     ms: int
 
 
@@ -1129,12 +1130,22 @@ class Finding:
 
 
 @dataclass(frozen=True)
+class YouParts:
+    """QRY-42 [D56]: the `you` cause by DM-50 substate; the three sum to the `you` cause."""
+
+    ask: int
+    permission: int
+    reply: int
+
+
+@dataclass(frozen=True)
 class Review:
     """QRY-42 [D56]: the DM-56 causes of a span of wall time and the findings built on them."""
 
     wall_ms: int
     lost_ms: int
     n_sessions: int
+    you_parts: YouParts
     n_unmeasured: int
     causes: list[CausePart]
     findings: list[Finding]
@@ -1149,6 +1160,7 @@ class ReviewReport:
     wall_ms: int
     lost_ms: int
     n_sessions: int
+    you_parts: YouParts
     n_unmeasured: int
     causes: list[CausePart]
     findings: list[Finding]
