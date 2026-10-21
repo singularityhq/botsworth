@@ -650,3 +650,34 @@ approval. Evidence and design: tasks/2026-10-21-session-analysis (not in the
 repository). The CLI `waits` lists and `longest_wait` use the same wait set as
 the `waits` finder: stretches plus main-thread user-wait calls, so a long
 question the main thread asked shows in the CLI as it does in the UI.
+
+## D55 — Background runs, stalls, cross-session messages and test runs (maintainer, 2026-10-21)
+Amends D34, D39 and D54. A session analysis of a 20.8 h worker session found
+four wrong or missing answers. (1) The main thread waited on its own
+background command and the time showed as `none`. (2) An agent ended its
+turn while its background tasks ran; their completion notices were queued to
+it but did not wake it. Nothing ran for 95 min, and the time showed as
+`you`/`reply` because the next turn was the user's "it seems stuck". (3) Messages
+from another session that arrive as `isMeta` records did not start a turn, so
+the time spent waiting on the other session showed as `none`. (4) The full test suite ran 151
+times (about 9 h) but was filed under the first program of each command
+(`git status`, `timeout`, `rm`). Chosen:
+- A Claude background command (`run_in_background`, result with
+  `backgroundTaskId`) runs from its call until its completion notice is queued
+  (`bg_end_ms`). A main-thread background run is state `tool`, substate
+  `background`; an agent's is `agents`.
+- A task notification queued to a thread that does not pick it up is a
+  `notice` event with `picked_ms`. Idle time inside `[queued, picked)` is `none`,
+  substate `stalled`, before the next-turn rule.
+- A Claude `isMeta` user record with `origin.kind` `peer` or `coordinator`
+  starts a main turn (message/peer|coordinator), so the time before it is `agentmsg`.
+- A Bash call has a `command_class`: `test` when any simple command in it runs
+  a test runner, else `wait` when it is a sleep or polling loop, else NULL. A
+  test run stores `tests_passed` and `tests_failed`, parsed from the runner's
+  summary line. These are counts, not text; D39 still keeps all output text out of the store.
+Why: these were the largest wrong answers in the analysis. The stall was
+blamed on the user, and 9 h of tests were filed under the wrong names. Limits:
+Claude only for background runs, notices and stalls (Codex and omp record no
+completion notices); a notice that is never picked up gives no stall; test
+counts need the summary line in the captured output (a `tail -1` that cuts it
+gives NULL); `wait` covers explicit loops and `sleep`, not a tool that blocks.

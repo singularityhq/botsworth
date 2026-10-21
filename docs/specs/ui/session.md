@@ -125,15 +125,15 @@ SES-15 — Every instant of a session's wall has exactly one of seven wall state
 | State | Label | Legend short form | Solid or hatched | When |
 |---|---|---|---|---|
 | `model` | Model working | model | solid | a main-thread model call runs |
-| `tool` | Tools running | tools | solid | no main-thread call, a main-thread tool call runs |
-| `agents` | Only agents running | agents | solid | nothing on the main thread, an agent's call or tool runs |
+| `tool` | Tools running | tools | solid | no main-thread call, a main-thread tool call runs; substate `background` [D55] when only a main-thread background command runs (and no agent), else none |
+| `agents` | Only agents running | agents | solid | nothing on the main thread, an agent's call, tool or background command runs |
 | `you` | Waiting on you | waiting on you | hatched | nothing else runs, and either a question tool (substate `ask`) or a permission prompt (substate `permission`) is open on a main-thread or agent call (DM-40), or nothing runs and the stretch ends where a `human` turn starts and SES-17 does not apply (substate `reply`) |
 | `agentmsg` | Waiting for an agent's message | waiting on agent | hatched | nothing runs, and the stretch ends where a `message` turn with origin `peer`, `coordinator`, `teammate` or `agent` starts |
 | `limit` | Usage limit (inferred) | usage limit | hatched | nothing runs, and SES-17 applies |
-| `none` | Nothing running | nothing running | hatched | nothing runs, in every other case (inside a turn, before a harness, plugin, `sdk`, `system` or `exec` turn, or at the session's end); substate `before_first` before the first numbered turn (SES-18), else `none` |
+| `none` | Nothing running | nothing running | hatched | nothing runs, in every other case (inside a turn, before a harness, plugin, `sdk`, `system` or `exec` turn, or at the session's end); substate `stalled` [D55] while a finished task's notice waits for a thread that is not running (SES-19a), `before_first` before the first numbered turn (SES-18), else `none` |
 
 Solid means something was recorded as running; hatched means nothing was, or a call was waiting on you (R3 top 5 #1; D54). A permission wait includes the approved command's run, which has no record (DM-40). The `you`, `agentmsg` and `limit` states are given only on recorded facts: a call that waited on the user (DM-40), or the kind of the next turn (D34 as amended by D54; S2 Q6), never as a cause.
-  Substate wording, used in tooltips, gap reasons and the detail blade: `you`/`ask` "asked you a question", `you`/`permission` "waited for your approval", `you`/`reply` "the next turn is your message". The legend shows one `you` item with the substates summed; its tooltip lists the substates with their durations.
+  Substate wording, used in tooltips, gap reasons and the detail blade: `you`/`ask` "asked you a question", `you`/`permission` "waited for your approval", `you`/`reply` "the next turn is your message", `tool`/`background` "a background command ran" [D55], `none`/`stalled` "a finished task waited for an agent that was not running" [D55]. The legend shows one item per state with the substates summed; for `you`, `tool` and `none` its tooltip lists the substates with their durations.
   Data: per session the `time_split` parts (DM-51); stretches with state and substate (DM-52); the next turn's origin and label for each stretch (DM-55).
 
 SES-16 — Stretch thresholds (R3 §4; R3-proto `GAP_MIN`; DM-52):
@@ -145,6 +145,8 @@ The 60 s threshold applies to stretches only: every instant counts in the totals
 SES-17 — Usage-limit inference (R3 §7 "Usage-limit time is inferred"; R3-proto `RESUME`). A `none` stretch is `limit` when the turn that starts at its end is a `human` turn whose text, trimmed, starts with one of (case-insensitive): `I hit my usage limit`, `Please continue from where you left off`, `continue from where you left off`. The label always carries "(inferred)" in full form, and the gap detail says why (DET-41). The turn that starts there has the kind "Resume after usage limit" (SES-32).
   Scenario: Given session a11ce5e5, when the session opens, then a row "1h02m Usage limit (inferred) · the next turn resumes after a usage limit" sits directly above the resume turn (R3 frame `time-A-usage-limit`), and the legend shows "usage limit 1h02m".
   Not covered: a limit that ends a session segment (a resume gap) lies outside the wall and produces no stretch (DM-52). See Open Q4.
+
+SES-19a [D55] — Stalled. A `none`/`stalled` stretch (DM-50 rule 5) is a gap of kind "Stalled" with the reason "a finished task waited for an agent that was not running". It counts under `none` in the legend. A `tool`/`background` stretch is a gap of kind "Background command" with the reason "a background command ran; nothing else did"; it counts under `tool` and in A of SES-26 (it is running time).
 
 SES-18 — Before the first message. A `none`/`before_first` stretch (DM-50 rule 5) is a gap of kind "Before the first message". It is never in the `you` total: the legend counts it under `none`, whatever the first numbered turn's kind (R3 §7 "Gap order"; D41 M11).
 

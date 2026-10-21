@@ -336,7 +336,7 @@ interface Freshness { last_ingest_ms: number | null; parser_version: string; pri
                       schema_version: number; api_version: 1 }   // D50: no tz
 interface Money { cost_usd: number | null; cost_lower_bound: boolean; n_unpriced: number }   // QRY-11
 type WallState = 'model' | 'tool' | 'agents' | 'you' | 'agentmsg' | 'limit' | 'none'
-type Substate = 'ask' | 'permission' | 'reply' | 'before_first' | 'none' | null       // DM-50 [D54]
+type Substate = 'ask' | 'permission' | 'reply' | 'background' | 'stalled' | 'before_first' | 'none' | null  // DM-50 [D54, D55]
 interface TimeSplit { parts: { state: WallState; substate: Substate; ms: number }[] } // DM-51, DM-53; SES-15 order
 interface ModelLine extends Money { model: string; n_calls: number; model_ms: number;
                       speed_tok_s: number | null; speed_basis: Provenance; ttft_ms_mean: number | null }
@@ -438,7 +438,7 @@ Shared row types (the session, turn and detail endpoints all use them):
 type RowRef = { type: 'call' | 'tool' | 'agent' | 'gap' | 'turn'; id: string }       // QRY-38a
 interface NextTurn { turn: string; kind: TurnKind; origin: string; label: string; display_id: string | null }
 interface Stretch { start_ms: number; end_ms: number; dur_ms: number;
-  state: 'agents' | 'you' | 'agentmsg' | 'limit' | 'none'; substate: Substate;           // DM-52 [D54]
+  state: 'agents' | 'tool' | 'you' | 'agentmsg' | 'limit' | 'none'; substate: Substate;  // DM-52 [D54]; `tool` only with `background` [D55]
   turn: string | null; next_turn: NextTurn | null;
   running: { row: string; agent_name: string | null; start_ms: number; end_ms: number; cost_usd: number | null }[] }  // QRY-41
 ```
@@ -698,15 +698,16 @@ Added by the M2 architect, 2026-10-12 (PLAN.md E2; APPROVAL: overnight build). T
 |---|---|---|---|
 | `slow` | scope flags (CLI-5), `--compare` / `--no-compare` (default compare), `-n` (default 10, max 100) | `project_slow(scope, compare, n)` → `SlowReport` | "Why was project X slow last week?" |
 | `breakdown` | `SESSION`, `-n` (default 10, max 100) | `session_breakdown(session, n)` → `SessionBreakdown` | "What are the slowest parts of session S? Where did the time and tokens go?" |
-| `tasks` | scope flags, `--by command_key\|tool\|verb\|skill\|agent_type\|slash` (required), `--measure tokens\|cost\|time\|count` (default tokens), `-n` (default 20, max 500) | `top_tasks(scope, by, measure, n)` → `TaskGroups` | "Which common tasks use the most tokens?" |
+| `tasks` | scope flags, `--by command_key\|command_class\|tool\|verb\|skill\|agent_type\|slash` (required), `--measure tokens\|cost\|time\|count` (default tokens), `-n` (default 20, max 500) | `top_tasks(scope, by, measure, n)` → `TaskGroups` | "Which common tasks use the most tokens?" |
 
 CLI-20 — `project_slow(scope, compare, n)`. The sessions are the in-scope sessions (QRY-3–QRY-8). Every figure uses full sessions (QRY-9): a session that crosses the period boundary counts whole, the same rule as the explorer list.
 - `current`: a `SlowBlock` = `{n_sessions, wall_ms, active_ms, time_split: TimeSplit, n_llm_calls, n_tool_calls, tok_total, cost: Money}`. `time_split` is Σ of the sessions' DM-51 parts per (state, substate), so it sums to `wall_ms`.
 - `previous`: the same block for the period of the same number of days that ends the day before `from_day`, under the same filters. It is null when `compare` is false or the scope is all time.
-- `sessions`: the `n` sessions with the largest `wall_ms`, each `{session, session_id, name, project_name, start_ms, wall_ms, active_ms, time_split, cost: Money, tok_total, longest_wait: Wait | null}`. `longest_wait` is the session's longest wait (below) of state `you`, `agentmsg`, `limit` or `none` [D54].
+- `sessions`: the `n` sessions with the largest `wall_ms`, each `{session, session_id, name, project_name, start_ms, wall_ms, active_ms, time_split, cost: Money, tok_total, longest_wait: Wait | null}`. `longest_wait` is the session's longest wait (below) of state `you`, `agentmsg`, `limit` or `none` [D54] (not `agents` or `tool`/`background`, which are running time [D55]).
 - `tools`: owned tool_calls of the sessions with `user_wait` NULL, grouped by (`tool_name`, `command_key`). `command_key` is null for tools without a command. Each group is `{tool_name, command_key, n, n_sessions, dur_ms, p50_ms, p90_ms, max_ms, n_derived, n_no_records}`, where `dur_ms` = Σ `dur_ms`, `n_derived` = calls with `time_prov = 'derived'`, and `n_no_records` = calls with `max_silence_ms ≥ 300000` (DM-40). Percentiles are nearest-rank over non-null `dur_ms`. The `n` groups with the largest `dur_ms` are listed.
 - `slowest_tools`: the `n` owned tool_calls with the largest `dur_ms` and `user_wait` NULL, each `{row: RowRef, session, turn, display_id, tool_name, command_key, summary, dur_ms, time_prov, max_silence_ms}`. `summary` is the stored step summary (a 160-char preview, D39).
 - `user_waits`: `{ask: {n, dur_ms}, permission: {n, dur_ms}}` over tool_calls with that `user_wait` (D54).
+- `test_runs` [D55]: `TestRuns` = `{n, run_ms, n_failed, n_passed, n_no_result, n_background}` over the owned tool_calls with `command_class = 'test'` (DM-28). `run_ms` = Σ of each call's run: `bg_end_ms − start_ms` for a background run with `bg_end_ms`, else `dur_ms`. `n_failed` = runs with `tests_failed > 0`; `n_passed` = runs with `tests_failed = 0`; `n_no_result` = runs with both counts NULL (DM-29); `n_background` = runs with `bg_end_ms`. The groups of `tools` stay keyed by `command_key`.
 - `waits` [D54]: the `n` longest waits across the sessions, as `Wait` plus `session` and `display_id` of the wait's turn, ordered by `dur_ms` descending, then session, then `start_ms`. A wait is a stretch of 2 min or more (every state), or a main-thread tool_call with `user_wait` set and `dur_ms` of 2 min or more; per session this is the hit set of the `waits` finder (QRY-38). `Wait` has the `Stretch` fields plus `row: RowRef | null`. For a stretch, `row` is null. For a call, `row` is the tool row, `start_ms`, `end_ms` and `dur_ms` are the call's, `state` is `you`, `substate` is its `user_wait`, `turn` is its attributed turn, `next_turn` is null and `running` is empty.
 - `models`: `ModelLine[]` over the sessions' owned llm_calls (QRY-33).
 
@@ -719,6 +720,7 @@ CLI-21 — `session_breakdown(session, n)`. One session (QRY-6 lookup):
 - `tools`: the CLI-20 tool groups over this session only.
 - `agents`: the `n` agent rows (QRY-34, any depth) with the largest `cost_usd`, each `{row, turn, display_id, depth, agent_names, cost_usd, cost_lower_bound, n_unpriced, tok_total, run_ms, n_llm_calls}`.
 - `waits` [D54]: the `n` longest waits of the session (CLI-20), as `Wait`. Their `dur_ms` values are the `n` largest values of `find(session, 'waits')`.
+- `test_runs` [D55]: the CLI-20 `TestRuns` over this session only.
 - `models`: the session's `ModelLine[]`.
 - Invariant: every figure equals the one returned by `session_detail`, `session_turns` or `find` for the same session. This command composes those functions; it does not recompute their figures.
 
@@ -726,7 +728,7 @@ CLI-22 — `top_tasks(scope, by, measure, n)` groups the in-scope sessions' owne
 
 | `by` | Items counted (`n`) | Tokens and cost | `dur_ms` | `basis` |
 |---|---|---|---|---|
-| `tool`, `command_key` | owned tool_calls (`command_key` groups skip null keys) | the issuing llm_call's (the tool_call's parent) `tok_total` and `cost_usd`, divided evenly among that call's owned tool_calls | Σ tool `dur_ms` | `issuing_call_split` |
+| `tool`, `command_key`, `command_class` [D55] | owned tool_calls (`command_key` and `command_class` groups skip null keys) | the issuing llm_call's (the tool_call's parent) `tok_total` and `cost_usd`, divided evenly among that call's owned tool_calls | Σ tool `dur_ms` | `issuing_call_split` |
 | `verb` | the steps whose `op_id` is an owned tool_call, keyed by `steps.verb` | as `tool`, per tool_call | Σ tool `dur_ms` | `issuing_call_split` |
 | `skill` | skill loads (QRY-29 `n_skill_loads` rule) keyed by skill name | the attributed turn's `attr_tok_total` and `attr_cost_usd` (DM-45), divided evenly among the distinct skills loaded in that turn | the turn's `span_wall_ms`, divided the same way | `turn_split` |
 | `agent_type` | engagements keyed by `agent_type` (null → `"(none)"`); owned llm_calls not under an engagement form the group `"(main)"` | Σ of owned llm_calls whose nearest engagement ancestor is in the group (nested agents count in their own group only) | Σ engagement `wall_ms` (`"(main)"`: null) | `nearest_engagement` |
