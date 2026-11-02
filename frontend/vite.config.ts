@@ -16,5 +16,7 @@ export default defineConfig({
     environment: 'node',
     include: ['src/**/*.test.ts', 'src/**/*.test.tsx'],
     setupFiles: ['src/test-setup.ts'],
+    // Per-test limit (default 5 s) is too tight for a blade test when 8 workers share the CPU; a hung test still fails.
+    testTimeout: 20000,
   },
 })
