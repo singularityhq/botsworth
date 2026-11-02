@@ -7,7 +7,7 @@ Botsworth shows where the time, tokens and money of your Claude Code, Codex and 
 session logs those tools already write, keeps the numbers in a local SQLite file, and shows them in a web UI and a
 command line. Nothing leaves your machine.
 
-![The Session view of a $159.32 session: a time bar split into model, tools, sub-agents, waiting for you and stalled, above a list of turns ranked by cost](docs/images/session.png)
+![The Session view of a $159.32 session: a time bar split into model, tools, sub-agents, waiting for you and stalled, above the ledger of turns ordered by cost](docs/images/session.png)
 
 ## What it answers
 
@@ -30,7 +30,7 @@ From source, which is the only way until the first PyPI release:
 ```sh
 git clone https://github.com/singularityhq/botsworth
 cd botsworth
-make setup                          # uv sync + npm ci in frontend/
+make setup                          # npm ci and UI build, then uv sync
 make build                          # builds the UI and the wheel into dist/
 uv tool install dist/botsworth-*.whl
 ```
@@ -59,13 +59,19 @@ the folder names under [Supported providers](#supported-providers).
 The pictures below come from one real project, renamed `drive-backup` and scrubbed: 37 sessions over 16 days,
 $874.96 in total. Your numbers will differ.
 
-1. **Sessions.** Sort by cost. The period total leads, and the most expensive session ($159.32) is at the top.
-   ![Sessions view sorted by cost](docs/images/sessions.png)
-2. **Session.** Open it. The header reads 21h 25m wall, 14h 09m active, 23 sub-agents. Read the time bar for the
-   largest segment, then the cost-ranked turns for the loudest turn.
-   ![Session view](docs/images/session.png)
-3. **Review.** Switch to Review to see the same split across all sessions in the period. Here sub-agents carry 65% of
-   the cost and `/compact` turns carry 15% ($129 over 12 turns). Stalled time and tests are listed as findings.
+1. **Sessions.** Open the period picker (the default is Last 7 days) and choose "All time". Click the Cost column.
+   The header reads $874.96, 2.53B tokens, 37 sessions, 12h47m lost, and the most expensive session ($159.32) is
+   at the top.
+   ![Sessions view for all time, sorted by cost](docs/images/sessions.png)
+2. **Session.** Open that session. The header shows $159.32 (main thread $21.81, the agents it started $137.51)
+   and 21h25m wall: 13h42m running, 7h44m not running, 52m lost. The legend says where the time went: stalled 52m,
+   agents 12h58m, nothing running 4h51m, waiting on you 2h01m. Order the ledger by cost to put the largest turns
+   first.
+   ![Session view with the ledger ordered by cost](docs/images/session.png)
+3. **Review.** Go back to Sessions and open Review for the time across all sessions in the period. Its headline
+   reads: "7d02h of session time in 37 sessions. 12h47m was lost to stalls (1 not measured). The largest cause was
+   waiting on you (26h21m)." Below it are the findings: stalled, waiting on you, and tests (1,448 test runs, 342 with
+   failures). Each has a "Change" suggestion.
    ![Review view](docs/images/review.png)
 4. **Turn.** Open the largest turn to see its model calls, tool calls and sub-agent runs in order.
    ![Turn view](docs/images/turn.png)
@@ -97,22 +103,26 @@ review: wall 7d 2h, lost 12h 46m, 37 sessions (1 without stall data)
 …
 ```
 
-Where did one session's time go, and which turns were largest?
+Where did one session's time go, and which turns were largest? `breakdown` prints a review block, then lists such as
+`turns_by_tokens`, which ranks turns by tokens. This shows that list:
 
 ```sh
-botsworth breakdown fe22d938 --table
+botsworth breakdown fe22d938 --table -n 3
 ```
 
 ```text
-review: wall 21h 25m, lost 51m 57s, 1 session
-  stalled lost 51m 57s n=3 longest 42m 58s at 2026-10-18T19:09:01+05:30 T18
-  polling 5h 25m n=100 longest 52m 24s at 2026-10-18T17:03:55+05:30 T9
-  you 2h 0m n=3 longest 1h 26m at 2026-10-18T12:36:28+05:30 T3
-  tests 8m 42s n=12 longest 2m 33s at 2026-10-19T03:54:18+05:30 T31
+…
+turns_by_tokens (3):
+  cost_usd=$16.1297 cost_lower_bound=False n_unpriced=0 type=turn turn=claude_code/fe22d938-c9f5-4a89-ad82-53903be8584d/turn/main#9 display_id=T9 kind=human origin=typed label=Q15: A start=2026-10-18T …
+  cost_usd=$22.6461 cost_lower_bound=False n_unpriced=0 type=turn turn=claude_code/fe22d938-c9f5-4a89-ad82-53903be8584d/turn/main#36 display_id=T31 kind=human origin=queued label=So? start=2026-10-19T …
+  cost_usd=$21.6875 cost_lower_bound=False n_unpriced=0 type=turn turn=claude_code/fe22d938-c9f5-4a89-ad82-53903be8584d/turn/main#32 display_id=T27 kind=human origin=typed label=inspecyt the running s …
 …
 ```
 
-Which slash commands cost the most?
+Cost per turn is on each line. The turn with the most tokens was T9 ($16.13); T31 ($22.65) and T27 ($21.69) cost more.
+The first lines of the output are the review block (stalled, polling, you, tests), the same causes as in the UI.
+
+Which slash commands cost the most? `/compact` took $129.42 over 12 turns, 15% of the period:
 
 ```sh
 botsworth tasks --by slash --measure cost --table -n 1
@@ -131,7 +141,29 @@ groups (1):
   key=/compact n=12 n_sessions=9 tok_total=403419054.0 cost_usd=$129.4155 cost_lower_bound=False n_unpriced=0 dur_ms_h=11h 56m p50_ms_h=8m 4…
 ```
 
-Other keys for `--by` are `tool`, `skill`, `agent_type`, `command_key`, `command_class` and `verb`. `--measure` is
+Which sub-agents cost the most? `(main)` is the main thread; everything else is sub-agent work. Here `(main)` is
+$308.69 of $874.96, so sub-agents carried about 65%:
+
+```sh
+botsworth tasks --by agent_type --measure cost --table -n 3
+```
+
+```text
+tz: Asia/Kolkata
+freshness: last_ingest=2026-11-02T10:27:17+05:30 parser_version=2 price_fingerprint=01c11f043ed97afa schema_version=12 api_version=1
+by: agent_type
+measure: cost
+basis: nearest_engagement
+scope_totals: tok_total=2528668007 cost.cost_usd=$874.9610 cost.cost_lower_bound=False cost.n_unpriced=0 dur_ms_h=7d 2h
+unassigned: tok_total=0.0 cost_usd=$0.0000
+total_groups: 231
+groups (3):
+  key=(main) n=4855 n_sessions=36 tok_total=845777852.0 cost_usd=$308.6890 cost_lower_bound=False n_unpriced=0 dur_ms_h=- p50_ms_h=- p90_ms_h=- share=0.35280319703206414  …
+  key=general-purpose n=12 n_sessions=1 tok_total=17435002.0 cost_usd=$66.2646 cost_lower_bound=False n_unpriced=0 dur_ms_h=2h 53m p50_ms_h=13m 39s p90_ms_h=19m 02s share …
+  key=s7b-model n=4 n_sessions=1 tok_total=82621750.0 cost_usd=$27.4686 cost_lower_bound=False n_unpriced=0 dur_ms_h=5h 11m p50_ms_h=1m 35s p90_ms_h=3h 39m share=0.031394 …
+```
+
+Other keys for `--by` are `tool`, `skill`, `command_key`, `command_class` and `verb`. `--measure` is
 `tokens`, `cost`, `time` or `count`.
 
 Other commands that are useful early: `sessions` (a ranked page of sessions), `period` (totals), `turns` and `turn`
