@@ -102,3 +102,26 @@ def test_snapshot_write_trims_to_catalog_providers(tmp_path):
     path = snapshot.write(catalog, "2026-01-01", tmp_path)
     assert json.loads(path.read_text()).keys() == {"anthropic", "openai"}
     assert snapshot.latest(tmp_path) == path
+
+
+def test_snapshot_help_neither_fetches_nor_writes(monkeypatch, capsys):
+    def boom(*a, **k):
+        raise AssertionError("--help must not fetch")
+
+    monkeypatch.setattr(snapshot, "fetch", boom)
+    monkeypatch.setattr(snapshot.urllib.request, "urlopen", boom)
+    before = sorted(snapshot.DATA.iterdir())
+    with pytest.raises(SystemExit) as e:
+        snapshot.main(["--help"])
+    assert e.value.code == 0
+    assert "usage:" in capsys.readouterr().out
+    assert sorted(snapshot.DATA.iterdir()) == before
+
+
+def test_snapshot_main_passes_date_to_fetch(monkeypatch, capsys):
+    calls = []
+    monkeypatch.setattr(snapshot, "fetch", lambda day=None: calls.append(day) or Path("x.json"))
+    snapshot.main(["v9"])
+    snapshot.main([])
+    assert calls == ["v9", None]
+    assert capsys.readouterr().out == "x.json\nx.json\n"

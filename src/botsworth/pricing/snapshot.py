@@ -4,7 +4,10 @@ GUARANTEES:
 - `fetch(date)` downloads https://models.dev/api.json, keeps only the catalog
   providers the Pricer reads (`CATALOG_PROVIDERS`), and writes
   `data/models.dev-<date>.json` atomically (temp file + rename). Only called by
-  hand (`python -m botsworth.pricing.snapshot`), never at import or ingest.
+  hand (`python -m botsworth.pricing.snapshot [DATE]`), never at import or ingest.
+- `main(argv)` is that command: optional `DATE` (default today), prints the written
+  path. `--help` prints usage and exits 0 without a network call or a write; an
+  unknown option exits 2 the same way.
 - `latest()` returns the newest dated snapshot in `data/`.
 - `ALIASES_PATH` is the explicit alias table: per catalog provider
   `alias -> model_id`, plus `no_premium_1m` (models whose `[1m]` variant bills
@@ -17,9 +20,9 @@ DOES NOT: price anything; run at import time.
 
 from __future__ import annotations
 
+import argparse
 import json
 import os
-import sys
 import tempfile
 import urllib.request
 from datetime import date as Date
@@ -60,5 +63,18 @@ def latest(data_dir: Path = DATA) -> Path:
     return found[-1]
 
 
+def main(argv: list[str] | None = None) -> None:
+    parser = argparse.ArgumentParser(
+        prog="python -m botsworth.pricing.snapshot",
+        description=(
+            f"Download {MODELS_DEV_URL} and write data/models.dev-DATE.json in the package. "
+            "Maintainer task, run by hand from a checkout; the only network call in Botsworth."
+        ),
+    )
+    parser.add_argument("date", nargs="?", help="date tag for the file name (default: today, YYYY-MM-DD)")
+    args = parser.parse_args(argv)
+    print(fetch(args.date))
+
+
 if __name__ == "__main__":
-    print(fetch(sys.argv[1] if len(sys.argv) > 1 else None))
+    main()
