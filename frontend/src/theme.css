@@ -137,3 +137,10 @@ html {
     outline: none;
   }
 }
+
+/* SYS-R target size: a text-sized control keeps its look and its layout footprint but gets a 24 px hit box. The 2 px of padding added
+   above and below is taken back by an equal negative margin, so rows, headers and lines do not grow (WCAG 2.5.8). */
+@utility hit-24 {
+  padding-block: 2px;
+  margin-block: -2px;
+}

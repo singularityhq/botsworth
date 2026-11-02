@@ -32,7 +32,7 @@ export function TotalsLine({ view, review }: { view: TotalsView; review?: { lost
 function ReviewEntry({ lostMs, onOpen }: { lostMs: number; onOpen: () => void }) {
   return (
     <Tooltip content="Where this scope lost time (r)">
-      <button type="button" onClick={onOpen} className="rounded-chip text-body text-ink2 hover:underline">
+      <button type="button" onClick={onOpen} className="hit-24 rounded-chip text-body text-ink2 hover:underline">
         {lostMs >= LOST_MIN_MS ? (
           <>
             <b className="fig font-medium text-error">{fmt.dur(lostMs)}</b> lost

@@ -20,7 +20,7 @@ export function Breadcrumb({ blades, onCloseTo }: { blades: readonly CrumbSpec[]
               type="button"
               title={c.text}
               onClick={() => onCloseTo(i)}
-              className="truncate text-ink3 transition-colors duration-150 hover:text-ink1 hover:underline focus-visible:text-struct"
+              className="hit-24 truncate text-ink3 transition-colors duration-150 hover:text-ink1 hover:underline focus-visible:text-struct"
             >
               {truncateCrumb(c.text)}
             </button>

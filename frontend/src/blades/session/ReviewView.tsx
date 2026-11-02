@@ -105,7 +105,7 @@ function Card({ finding: f, review, scope, tz, onOpenSession, onOpenEvidence }: 
             type="button"
             disabled={!onOpenEvidence}
             onClick={() => onOpenEvidence?.(f.longest!)}
-            className="self-start text-left text-body text-struct hover:underline disabled:cursor-default disabled:no-underline"
+            className="hit-24 self-start text-left text-body text-struct hover:underline disabled:cursor-default disabled:no-underline"
           >
             {evidence}
           </button>
@@ -116,7 +116,7 @@ function Card({ finding: f, review, scope, tz, onOpenSession, onOpenEvidence }: 
             {f.sessions.map((x, i) => (
               <span key={x.session}>
                 {i > 0 ? ' · ' : ''}
-                <button type="button" data-session-link={x.session} onClick={() => onOpenSession?.(x.session)} className="text-body text-struct hover:underline">
+                <button type="button" data-session-link={x.session} onClick={() => onOpenSession?.(x.session)} className="hit-24 text-body text-struct hover:underline">
                   {x.name}
                   {shared.has(x.name) ? (
                     <>

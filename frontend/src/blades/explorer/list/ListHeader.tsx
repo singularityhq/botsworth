@@ -61,7 +61,7 @@ function HeadCell({ head, sort, dir, onSort }: { head: Head; sort: SortKey; dir:
       type="button"
       aria-sort={active ? (dir === 'desc' ? 'descending' : 'ascending') : 'none'}
       onClick={() => onSort(key)}
-      className={`flex items-center gap-1 text-body font-medium transition-colors duration-150 hover:text-ink1 ${justify} ${active ? 'text-ink1' : 'text-ink3'}`}
+      className={`hit-24 flex items-center gap-1 text-body font-medium transition-colors duration-150 hover:text-ink1 ${justify} ${active ? 'text-ink1' : 'text-ink3'}`}
     >
       {head.label}
       {active ? <Icon name={dir === 'desc' ? 'arrow-down-narrow-wide' : 'arrow-up-narrow-wide'} tone="inherit" /> : null}

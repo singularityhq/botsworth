@@ -46,7 +46,7 @@ export function FinderLine({ find, bars, fieldRef, onFind, onBars, onEnter, view
           aria-label="Find a step"
           autoComplete="off"
           spellCheck={false}
-          className="min-w-0 flex-1 bg-transparent text-ink1 outline-none placeholder:text-ink3"
+          className="h-6 min-w-0 flex-1 bg-transparent text-ink1 outline-none placeholder:text-ink3"
         />
         <KeyCap>/</KeyCap>
       </label>

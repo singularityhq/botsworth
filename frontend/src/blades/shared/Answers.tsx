@@ -123,7 +123,7 @@ function TimeAnswer({ wallMs, split, onJump, lostMs, onOpenReview }: { wallMs: n
             <>
               {' · '}
               <Tooltip content="Open Review (r)">
-                <button type="button" disabled={!onOpenReview} onClick={onOpenReview} className="rounded-chip hover:underline disabled:cursor-default disabled:no-underline">
+                <button type="button" disabled={!onOpenReview} onClick={onOpenReview} className="hit-24 rounded-chip hover:underline disabled:cursor-default disabled:no-underline">
                   <b className="fig font-medium text-error">{fmt.dur(lostMs)}</b> lost
                 </button>
               </Tooltip>
@@ -139,7 +139,7 @@ function TimeAnswer({ wallMs, split, onJump, lostMs, onOpenReview }: { wallMs: n
               type="button"
               disabled={!onJump}
               onClick={() => onJump?.(k)}
-              className="inline-flex items-center gap-1.5 rounded-chip px-0.5 text-ink3 transition-colors duration-150 hover:text-struct disabled:cursor-default disabled:hover:text-ink3"
+              className="hit-24 inline-flex items-center gap-1.5 rounded-chip px-0.5 text-ink3 transition-colors duration-150 hover:text-struct disabled:cursor-default disabled:hover:text-ink3"
             >
               <i className="block h-2.5 w-2.5 shrink-0 rounded-[2px]" style={fillOf(k)} />
               {displayInfo(k).short}

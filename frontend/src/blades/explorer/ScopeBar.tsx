@@ -24,7 +24,7 @@ export function SearchField({ value, onChange, inputRef }: { value: string; onCh
         aria-label="Search sessions"
         spellCheck={false}
         autoComplete="off"
-        className="min-w-0 flex-1 bg-transparent text-body text-ink1 placeholder:text-ink3 focus:outline-none"
+        className="h-6 min-w-0 flex-1 bg-transparent text-body text-ink1 placeholder:text-ink3 focus:outline-none"
       />
       {value !== '' ? (
         <button
