@@ -42,14 +42,14 @@ review: causes {cause, ms} sum to wall_ms: stalled (none/stalled; lost_ms),
   (other model, tool, agents time), idle (none/*). findings: causes of 2 min+;
   n counts stretches (stalled, you, message) or calls (tests, polling). tests is
   wall time held by tests; test_runs.run_ms sums runs, which can overlap.
-time_prov: derived = result minus call time, may include a wait (DM-40); n_no_records: 5 min.
+time_prov: derived = result minus call time, may include a wait; n_no_records: 5 min.
 user_waits: calls that waited on you, {n, dur_ms} for ask (AskUserQuestion,
   request_user_input, ask) and permission (Claude calls you approved or rejected;
   older Claude, Codex and omp leave no record). They are not in tools.
 test_runs: {n, run_ms, n_failed, n_passed, n_no_result, n_background} of calls
-  with command_class test; a background run lasts until its notice (DM-41).
+  with command_class test; a background run lasts until its notice.
 waits: waits of 2 min+, longest first: stretches (row null) and main calls that
-  waited on you. longest_wait: longest not agents or tool/background (D54, D55).
+  waited on you. longest_wait: longest not agents or tool/background.
 """
 _TIME_FORMAT = """\
 time: tz is the zone used (--tz). Each <x>_ms timestamp has an ISO sibling <x>; each duration has <x>_ms_h
@@ -77,7 +77,7 @@ TASKS_EPILOG = (
     """\
 output fields: freshness, by, measure, basis, scope_totals, unassigned,
   total_groups (all groups), groups (the first n)
-basis: how tokens and cost reach a group (D42).
+basis: how tokens and cost reach a group.
   issuing_call_split  by tool, command_key, command_class, verb: the tokens of
                       the call that issued the tool calls, divided evenly
   turn_split          by skill: the turn's tokens, divided among its skills
@@ -130,17 +130,17 @@ def register(sub: Any) -> None:
         p.set_defaults(fmt="json", handler=handler)
         return p
 
-    p = cmd("slow", "where the time of the in-scope sessions went (CLI-20)", _slow)
+    p = cmd("slow", "where the time of the in-scope sessions went", _slow)
     scope_args(p)
     p.add_argument("--compare", action=argparse.BooleanOptionalAction, default=True)
     p.add_argument("-n", type=int, default=10, help="rows per list, 1 to 100")
 
-    p = cmd("breakdown", "the largest turns, rows, tools and agents of one session (CLI-21)", _breakdown)
+    p = cmd("breakdown", "the largest turns, rows, tools and agents of one session", _breakdown)
     p.add_argument("session", metavar="SESSION")
     p.add_argument("-n", type=int, default=10, help="rows per list, 1 to 100")
     tz_arg(p)
 
-    p = cmd("tasks", "tokens, cost and time grouped by a task key (CLI-22)", _tasks)
+    p = cmd("tasks", "tokens, cost and time grouped by a task key", _tasks)
     scope_args(p)
     p.add_argument("--by", required=True, choices=BY)
     p.add_argument("--measure", choices=MEASURES, default="tokens")

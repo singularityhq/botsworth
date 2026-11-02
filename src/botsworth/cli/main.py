@@ -268,8 +268,14 @@ def _add_v4_commands(cmd: Callable[[str, str], argparse.ArgumentParser]) -> None
 
 
 def build_parser() -> argparse.ArgumentParser:
-    ap = argparse.ArgumentParser(prog="botsworth", description="Botsworth (design §6.2)")
-    ap.add_argument("--db", help="store path (D20: --db > configure() > BOTSWORTH_DB > default)")
+    ap = argparse.ArgumentParser(
+        prog="botsworth",
+        description="Botsworth: where the time, tokens and money of your agent sessions went",
+    )
+    ap.add_argument(
+        "--db",
+        help="store path (default: BOTSWORTH_DB, then BOTSWORTH_HOME, then the platform default)",
+    )
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     def cmd(name: str, help: str) -> argparse.ArgumentParser:
@@ -284,7 +290,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("id")
     p.add_argument("--depth", type=int, default=1)
 
-    cmd("query", "design §5 query JSON").add_argument("request", help="query JSON, or - for stdin")
+    cmd("query", "run a query given as JSON").add_argument("request", help="query JSON, or - for stdin")
 
     p = cmd("top", "top ops in a scope by one metric")
     p.add_argument("--scope", default="all", help="op id / display id, or 'all'")
@@ -352,7 +358,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     cmd("paths", "print the data folder and store file")
 
-    p = cmd("ingest", "read provider logs into the store (explicit, D5)")
+    p = cmd("ingest", "read provider logs into the store")
     p.add_argument("--provider", action="append", choices=["claude_code", "codex", "omp"])
     p.add_argument("--force", action="store_true", help="re-read every bundle into the existing store")
     p.add_argument("--rebuild", action="store_true", help="build a fresh store from the logs and swap it in")
