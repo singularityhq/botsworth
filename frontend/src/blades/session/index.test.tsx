@@ -174,6 +174,35 @@ describe('SessionBlade with the F1a fixtures', () => {
     expect(spy).not.toHaveBeenCalled()
   })
 
+  it('the rail re-reveals the open row when layout changes after the first reveal, until the user scrolls it', async () => {
+    serve()
+    const callbacks: Array<() => void> = []
+    class CaptureObserver {
+      constructor(cb: () => void) {
+        callbacks.push(cb)
+      }
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    }
+    vi.stubGlobal('ResizeObserver', CaptureObserver)
+    mount(`s=${encodeURIComponent(S)}&t=2`, { width: 400, compact: true })
+    const row = (await screen.findByText('I hit my usage limit. Please continue')).closest('[data-turn-key]') as HTMLElement
+    const box = screen.getByLabelText('Turns')
+    // The open row sits 40 px below the box after a late layout change (font swap, strip transition).
+    const rect = (top: number, bottom: number) => ({ top, bottom, left: 0, right: 0, width: 0, height: bottom - top, x: 0, y: top, toJSON() {} }) as DOMRect
+    vi.spyOn(box, 'getBoundingClientRect').mockReturnValue(rect(0, 100))
+    vi.spyOn(row, 'getBoundingClientRect').mockReturnValue(rect(80, 140))
+    box.scrollTop = 0
+    act(() => callbacks.forEach((cb) => cb()))
+    expect(box.scrollTop).toBe(40)
+    // After a user wheel scroll the rail stops following layout changes.
+    fireEvent.wheel(box)
+    box.scrollTop = 0
+    act(() => callbacks.forEach((cb) => cb()))
+    expect(box.scrollTop).toBe(0)
+  })
+
   it('a session that does not exist shows the not-found state', async () => {
     serve({ detail: reply(404, { error: 'no such session', code: 'not_found' }) })
     mount('s=nope')

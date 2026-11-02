@@ -27,12 +27,32 @@ interface RailProps {
 export function SessionRail({ session: s, entries, loading, tz, find, search, openKey, cursor, onOpenTurn }: RailProps) {
   const list = useRef<HTMLDivElement>(null)
 
-  // SES-4: the rail's open row follows the turn blade and scrolls into view.
+  // SES-4: the rail's open row follows the turn blade and scrolls into view. Row heights keep changing after the
+  // first reveal (web font swap, the strip's width transition), so the reveal repeats on each resize of the box or a
+  // row until the user scrolls the rail themselves (wheel or touch), or the open turn changes.
   useEffect(() => {
-    if (openKey === null) return
-    const row = findRow(list.current, openKey)
-    // Not `scrollIntoView`: it scrolls every ancestor too, and pulled the blade strip back to the rail (FX 8).
-    if (row && list.current) revealInBox(list.current, row)
+    const box = list.current
+    if (openKey === null || !box) return
+    let armed = true
+    const reveal = () => {
+      const row = findRow(box, openKey)
+      // Not `scrollIntoView`: it scrolls every ancestor too, and pulled the blade strip back to the rail (FX 8).
+      if (armed && row) revealInBox(box, row)
+    }
+    const disarm = () => {
+      armed = false
+    }
+    reveal()
+    const ro = new ResizeObserver(reveal)
+    ro.observe(box)
+    for (const child of Array.from(box.children)) ro.observe(child)
+    box.addEventListener('wheel', disarm, { passive: true })
+    box.addEventListener('touchmove', disarm, { passive: true })
+    return () => {
+      ro.disconnect()
+      box.removeEventListener('wheel', disarm)
+      box.removeEventListener('touchmove', disarm)
+    }
   }, [openKey, entries.length])
 
   return (
