@@ -5,6 +5,8 @@
 Report it privately with GitHub Security Advisories: open the repository's **Security** tab and choose
 **Report a vulnerability**. Please do not open a public issue for a security problem.
 
+Reports of conduct problems (see [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)) use the same private reporting channel.
+
 Include the Botsworth version, your OS, the steps to reproduce, and what you expected. Do not include real session
 text. We will reply in the advisory thread. Botsworth is a 0.1.0 Alpha project maintained by one person, so replies
 can take a few days.
