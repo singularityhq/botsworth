@@ -7,9 +7,10 @@ DB_ARG = $(if $(DB),--db $(DB))
 help:  ## List targets
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | sed 's/:.*## /\t/'
 
-setup:  ## Install Python (uv sync) and frontend (npm ci) dependencies
+setup:  ## Install frontend (npm ci) and Python (uv sync) dependencies; builds the UI first
+	cd frontend && npm ci && npm run build
+	# uv sync installs the package, and the package build includes frontend/dist, so the UI is built first.
 	uv sync
-	cd frontend && npm ci
 
 check: lint test  ## Gate for agents: ruff + pytest + frontend vitest, build and oxlint
 	cd frontend && npm test && npm run build && npm run lint

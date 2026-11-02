@@ -9,7 +9,7 @@ You need Python 3.12 or newer, [uv](https://docs.astral.sh/uv/), and Node (the v
 
 ```sh
 git clone https://github.com/singularityhq/botsworth && cd botsworth
-make setup     # uv sync, and npm ci in frontend/
+make setup     # npm ci and UI build in frontend/, then uv sync
 make check     # the gate: ruff, pytest, vitest, tsc + vite build, oxlint
 ```
 

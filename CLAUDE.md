@@ -8,7 +8,7 @@ money go. Package `src/botsworth`, CLI `botsworth`. Users: see `README.md`.
 
 All go through the Makefile (`make help`). Python only via `uv run`, never bare `python3`.
 
-- `make setup`: `uv sync` + `npm ci` in `frontend/`. `make check`: the gate. Ruff, pytest (`tests/unit`), vitest, `tsc -b` +
+- `make setup`: `npm ci` + UI build in `frontend/`, then `uv sync` (the package build needs `frontend/dist`). `make check`: the gate. Ruff, pytest (`tests/unit`), vitest, `tsc -b` +
   vite build, oxlint. Run it before every commit. `make test`, `make lint`, `make fmt` run the parts.
 - `make ui` builds `frontend/dist`. `make build` = ui + `uv build`; the wheel bundles the UI at `botsworth/http/ui/`.
 - `make run`, `make ingest`, `make paths`, `make bench-api`: take `DB=path`; empty = platform default store.
