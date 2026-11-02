@@ -1,4 +1,8 @@
-# Agent Profiler — Design
+# Botsworth — Design
+
+(Botsworth was called Agent Profiler while it was designed. References to `approaches.md`, `design-model.md`,
+`design-scenarios.md` and other planning drafts point to documents that are not part of the public repository; the
+specs in `docs/specs/` and the decision log in `decisions.md` carry everything those drafts settled.)
 
 Status: v4 build landed on main, 2026-10-13 (schema v7). This file is a map: it states the model, names
 the module that owns each contract, and points at the source of truth for detail. It does not copy the specs.
