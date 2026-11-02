@@ -404,6 +404,18 @@ describe('agent (DET-30 to DET-34)', () => {
     expect(cents + rest).toBe(328)
   })
 
+  it('each call row shows its time and tokens and ends in a chevron, so it reads as a link', async () => {
+    const top = call('k1', { depth: 1, cost_usd: 1.5, dur_ms: 125_000, tok: { in: null, cache_read: null, cache_write: null, out: null, reasoning: null, total: 212_000 }, steps: [{ step_id: 'k1', verb: 'say', summary: 'Call 1', snippet: '' }] })
+    const none = call('k2', { depth: 1, cost_usd: 0.5, dur_ms: null, tok: { in: null, cache_read: null, cache_write: null, out: null, reasoning: null, total: null }, steps: [{ step_id: 'k2', verb: 'say', summary: 'Call 2', snippet: '' }] })
+    serve({ details: { ...DETAILS, [AG.id]: { ...agentDetail(), top_calls: [top, none] } } })
+    mount(`t=1&step=${encodeURIComponent(AG.id)}`)
+    const rows = await ui.findAllByRole('button', { name: /^\$\d/ })
+    expect(rows[0].textContent).toContain('2m')
+    expect(rows[0].textContent).toContain('212k')
+    expect(rows[1].textContent).toMatch(/—.*—/) // SYS-31: not in data
+    expect(rows[0].querySelector('svg')).not.toBeNull()
+  })
+
   it('the rows button shows and folds its rows', async () => {
     serve()
     mount(`t=1&step=${encodeURIComponent(AG.id)}`)

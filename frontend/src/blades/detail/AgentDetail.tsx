@@ -117,6 +117,12 @@ function DetailSections({ ctx, a, detail }: { ctx: DetailCtx; a: AgentData; deta
                   lead={c.cost_usd === null ? undefined : <span className="text-money">{fmt.money(c.cost_usd)}</span>}
                   glyph={t.glyph}
                   name={t.text}
+                  trail={
+                    <>
+                      <span className="fig w-14 text-right text-ink3">{c.dur_ms === null ? '—' /* FALLBACK-OK: SYS-31 (not in data) */ : fmt.dur(c.dur_ms)}</span>
+                      <span className="fig w-14 text-right text-ink3">{c.tok.total === null ? '—' /* FALLBACK-OK: SYS-31 (not in data) */ : fmt.tokens(c.tok.total)}</span>
+                    </>
+                  }
                   onClick={() => ctx.goTo(c.id)}
                 />
               )
