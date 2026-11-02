@@ -7,7 +7,7 @@ Botsworth shows where the time, tokens and money of your Claude Code, Codex and 
 session logs those tools already write, keeps the numbers in a local SQLite file, and shows them in a web UI and a
 command line. Nothing leaves your machine.
 
-![The Session view of a $159.32 session: a time bar split into model, tools, sub-agents, waiting for you and stalled, above the ledger of turns ordered by cost](docs/images/session.png)
+![The Session view of a $159.32 session: a time bar split into model, tools, sub-agents, waiting for you and stalled, above the turn ledger, with the costliest turn ($22.65) selected](docs/images/session.png)
 
 ## What it answers
 
@@ -65,9 +65,9 @@ $874.96 in total. Your numbers will differ.
    ![Sessions view for all time, sorted by cost](docs/images/sessions.png)
 2. **Session.** Open that session. The header shows $159.32 (main thread $21.81, the agents it started $137.51)
    and 21h25m wall: 13h42m running, 7h44m not running, 52m lost. The legend says where the time went: stalled 52m,
-   agents 12h58m, nothing running 4h51m, waiting on you 2h01m. Order the ledger by cost to put the largest turns
-   first.
-   ![Session view with the ledger ordered by cost](docs/images/session.png)
+   agents 12h58m, nothing running 4h51m, waiting on you 2h01m. The ledger runs in time order, and its "by cost" bars
+   mark the expensive turns; press `b` (Biggest) to jump to the costliest one, here turn 31 at $22.65.
+   ![Session view with the costliest turn selected](docs/images/session.png)
 3. **Review.** Go back to Sessions and open Review for the time across all sessions in the period. Its headline
    reads: "7d02h of session time in 37 sessions. 12h47m was lost to stalls (1 not measured). The largest cause was
    waiting on you (26h21m)." Below it are the findings: stalled, waiting on you, and tests (1,448 test runs, 342 with
