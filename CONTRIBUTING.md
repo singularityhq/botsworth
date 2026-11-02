@@ -5,7 +5,7 @@ and a CLI over it. This file tells you how to build it, test it and send a chang
 
 ## Setup
 
-You need Python 3.12 or newer, [uv](https://docs.astral.sh/uv/), and Node (the version in `frontend/.node-version`).
+You need Python 3.12 or newer, [uv](https://docs.astral.sh/uv/), and Node 24 or newer (CI uses the version in `frontend/.node-version`).
 
 ```sh
 git clone https://github.com/singularityhq/botsworth && cd botsworth
