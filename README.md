@@ -58,6 +58,8 @@ the folder names under [Supported providers](#supported-providers).
 
 ## Find out why a session cost so much
 
+![A 16-second tour: sort sessions by cost, open the $159.32 session, read where its time went](docs/media/botsworth-tour.gif)
+
 The pictures below come from one real project, renamed `drive-backup` and scrubbed: 37 sessions over 16 days,
 $874.96 in total. Your numbers will differ.
 
