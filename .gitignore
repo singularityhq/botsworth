@@ -9,3 +9,5 @@ build/
 *.db-wal
 *.db-shm
 dist/
+node_modules/
+frontend/dist/

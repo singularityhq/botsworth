@@ -1,0 +1,48 @@
+name: Bug report
+description: Something in Botsworth does not work as documented.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Do not paste prompt text, model output or other private session content.** Names, ids and numbers are fine.
+  - type: input
+    id: version
+    attributes:
+      label: Botsworth version
+      description: "For example the output of `uv tool list` or `pip show botsworth`."
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: Operating system and Python version
+    validations:
+      required: true
+  - type: dropdown
+    id: provider
+    attributes:
+      label: Provider
+      options: [Claude Code, Codex, omp, More than one, Not provider-specific]
+    validations:
+      required: true
+  - type: textarea
+    id: status
+    attributes:
+      label: Output of `botsworth status`
+      render: json
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: The commands you ran, or what you clicked in the UI.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected and what happened
+    validations:
+      required: true

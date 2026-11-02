@@ -25,6 +25,12 @@ dependencies = [
     "platformdirs>=4.13.0",
 ]
 
+[project.urls]
+Homepage = "https://github.com/singularityhq/botsworth"
+Repository = "https://github.com/singularityhq/botsworth"
+Issues = "https://github.com/singularityhq/botsworth/issues"
+Changelog = "https://github.com/singularityhq/botsworth/blob/main/CHANGELOG.md"
+
 [project.scripts]
 botsworth = "botsworth.cli.main:main"
 
