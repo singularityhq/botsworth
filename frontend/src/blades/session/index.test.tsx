@@ -164,6 +164,16 @@ describe('SessionBlade with the F1a fixtures', () => {
     expect(screen.queryByText('1 session event')).toBeNull()
   })
 
+  it('the rail rows carry the measure bar (SYS-36 mark, SYS-39 bar), scaled to the costliest turn', async () => {
+    serve()
+    mount(`s=${encodeURIComponent(S)}&t=2`, { width: 400, compact: true })
+    await screen.findByText('I hit my usage limit. Please continue')
+    const bars = Array.from(screen.getByLabelText('Turns').querySelectorAll('i')) as HTMLElement[]
+    expect(bars.length).toBeGreaterThan(0)
+    const widths = bars.map((b) => parseFloat(b.style.width))
+    expect(Math.max(...widths)).toBe(64) // the largest turn fills the 64 px track
+  })
+
   it('the rail follows the open turn by scrolling its own list, never an ancestor (the blade strip)', async () => {
     serve()
     const spy = vi.fn()

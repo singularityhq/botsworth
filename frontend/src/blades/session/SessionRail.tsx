@@ -5,8 +5,9 @@ import { Icon } from '../../ui/Icon'
 import { ProjectDot } from '../../ui/ProjectDot'
 import { CompactRow } from '../../ui/Row'
 import { SkeletonRows } from '../../ui/Skeleton'
-import { Flags } from './TurnRow'
-import { findRow, RAIL_WAITING_MIN_MS, revealInBox, turnFlags, waitingShown, type TurnEntry } from './turnList.logic'
+import type { Bars } from '../../state/url'
+import { Flags, MeasureBar, RAIL_TRACK } from './TurnRow'
+import { findRow, maxMeasure, measureValue, RAIL_WAITING_MIN_MS, revealInBox, turnFlags, waitingShown, type TurnEntry } from './turnList.logic'
 import { matchCount } from './sessionSearch'
 import type { FindResult } from '../../api/types'
 
@@ -20,12 +21,15 @@ interface RailProps {
   /** Op id of the turn open in the turn blade. */
   openKey: string | null
   cursor: string | null
+  /** The measure the bars draw (SES-8 `bars`). */
+  bars: Bars
   onOpenTurn: (key: string) => void
 }
 
 /** SES-4 (400 px): the session's compressed form while the turn blade is open. Head, then one compact row per numbered turn the search and range keep. */
-export function SessionRail({ session: s, entries, loading, tz, find, search, openKey, cursor, onOpenTurn }: RailProps) {
+export function SessionRail({ session: s, entries, loading, tz, find, search, openKey, cursor, bars, onOpenTurn }: RailProps) {
   const list = useRef<HTMLDivElement>(null)
+  const max = maxMeasure(entries, bars)
 
   // SES-4: the rail's open row follows the turn blade and scrolls into view. Row heights keep changing after the
   // first reveal (web font swap, the strip's width transition), so the reveal repeats on each resize of the box or a
@@ -110,6 +114,7 @@ export function SessionRail({ session: s, entries, loading, tz, find, search, op
                     <Flags flags={turnFlags(r, find === '' ? null : matchCount(search, r.turn))} find={find} />
                   </>
                 }
+                mark={<MeasureBar value={measureValue(r, bars)} max={max} bars={bars} track={RAIL_TRACK} />}
               />
             )
           })

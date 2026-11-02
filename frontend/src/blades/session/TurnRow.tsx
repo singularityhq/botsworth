@@ -70,15 +70,17 @@ function Counted({ icon, n, title, error = false, hit = false }: { icon: 'bot' |
 }
 
 /** SES-34 item 5 (SYS-39): linear against the largest visible turn, right-anchored, 8 px; cost bars `--list-bar`, others ink2. */
-export function MeasureBar({ value, max, bars }: { value: number; max: number; bars: Bars }) {
-  const w = barWidth(value, max, TRACK)
+export function MeasureBar({ value, max, bars, track = TRACK }: { value: number; max: number; bars: Bars; track?: number }) {
+  const w = barWidth(value, max, track)
   return (
-    <span aria-hidden="true" className="flex justify-end" style={{ width: TRACK }}>
+    <span aria-hidden="true" className="flex shrink-0 justify-end" style={{ width: track }}>
       {w > 0 ? <i className="block h-2 rounded-[2px]" style={{ width: w, background: bars === 'cost' ? 'var(--list-bar)' : 'var(--color-ink2)' }} /> : null}
     </span>
   )
 }
 const TRACK = 104
+/** SYS-39: the bar's track is 64 px outside the explorer list; the rail's compact row (SYS-36) uses it. */
+export const RAIL_TRACK = 64
 
 interface TurnRowProps extends RowShared {
   entry: TurnEntry

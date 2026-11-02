@@ -347,6 +347,7 @@ export function SessionBlade({ width, compact }: { width: number; compact: boole
           search={search.data}
           openKey={openKey}
           cursor={cursor}
+          bars={url.bars}
           onOpenTurn={openTurnKey}
         />
         {toastNode}
