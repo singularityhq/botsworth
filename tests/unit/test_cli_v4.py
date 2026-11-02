@@ -499,12 +499,13 @@ def test_serve_never_ingests_and_runs_without_a_store(running, tmp_path):
     assert not db.exists() and not Path(f"{db}.lock").exists()
 
 
-def test_serve_port_in_use_exit_3(qstore, capsys):
+def test_serve_port_in_use_exit_3(qstore, capsys, tmp_path):
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
         s.listen()
         port = s.getsockname()[1]
-        code, out, err = run(capsys, "--db", str(qstore), "serve", "--port", str(port))
+        code, out, err = run(capsys, "--db", str(qstore), "serve", "--ui", str(tmp_path), "--port", str(port))
+    # --ui keeps the test independent of whether frontend/dist exists (CLI-10 warns when no UI is found)
     assert (code, out) == (3, "")
     assert err == f"error: port {port} in use\n"
 
