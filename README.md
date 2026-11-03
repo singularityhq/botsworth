@@ -217,7 +217,7 @@ a session and its descendants counts the same money several times. Use `"measure
 ## How the numbers are counted
 
 - **Cost** is the logged token counts multiplied by a price list. The list is a snapshot of
-  [models.dev](https://models.dev) dated 2026-10-12, bundled in the package. It is not what your provider billed you;
+  [models.dev](https://models.dev) dated 2026-11-03, bundled in the package. It is not what your provider billed you;
   discounts, plans and rounding on the provider's side are not in it.
 - **Once per API request.** One request can span several log lines. Cost and tokens are counted once for each
   request, not once for each line.
