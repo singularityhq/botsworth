@@ -10,7 +10,7 @@ command line over them. Nothing leaves your machine ([Privacy](#privacy)).
 
 ![The Session view of a $159.32 session: cost split into main thread and the agents it started, a time bar with stalled 52m, agents 12h58m, nothing running 4h51m and waiting on you 2h01m, and the turn ledger with the costliest turn ($22.65) selected](docs/images/session.png)
 
-▶ **[Watch the 76-second video](docs/media/botsworth-promo.mp4)** · [Install](#install) · [Features](#features) ·
+▶ **[Watch the 76-second video](https://github.com/singularityhq/botsworth/raw/main/docs/media/botsworth-promo.mp4)** (MP4, 8 MB) · [Install](#install) · [Features](#features) ·
 [Command line](#command-line) · [How the numbers are counted](#how-the-numbers-are-counted)
 
 ## What one real project showed
