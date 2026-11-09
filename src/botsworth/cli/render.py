@@ -8,6 +8,9 @@ GUARANTEES:
   and leaves out the raw number it belongs to (D50, `cli.timefmt`).
 - `slow` and `breakdown` print `review` first (CLI-20, CLI-21 [D56]): a header (wall, lost
   time, sessions), then one line per finding (cause, time, n, longest), so the 2 KB budget shows it.
+- `ingest` prints one line per provider (`N bundles · N rebuilt · N unchanged`), the store line, up to
+  three rejection reasons with a `... N more` tail, and the total time (D57); `cli.progress` reuses the
+  same block for the live stderr summary.
 - A `TimeSplit` (`{parts: [...]}`, D54) prints as `key=[state/substate=duration ...]`; the substate `none` of
   state `none` is left out of the name.
 - Output is for people: its text and layout are not stable (CLI-11).
@@ -123,6 +126,56 @@ def _shown(d: dict[str, Any], key: str) -> Any:
     return d.get(f"{key}_h", d[key])
 
 
+def _num(v: Any) -> str:
+    return f"{v:,}" if isinstance(v, int) else str(v)
+
+
+def _bundles(n: int) -> str:
+    return f"{_num(n)} bundle" + ("" if n == 1 else "s")
+
+
+def ingest_lines(data: dict[str, Any]) -> list[str]:
+    """The readable run report of `ingest` (D57): providers, store cost, rejections, total time."""
+    lines = [f"ingest: {data.get('mode', 'incremental')}"]
+    adapter_rejects: list[str] = []
+    for provider, rep in (data.get("providers") or {}).items():
+        if rep.get("skipped"):
+            lines.append(f"  {provider:<12} skipped — {rep['skipped']}")
+            continue
+        parts = [
+            _bundles(rep.get("discovered", 0)),
+            f"{_num(rep.get('rebuilt', 0))} rebuilt",
+            f"{_num(rep.get('unchanged', 0))} unchanged",
+        ]
+        if rep.get("rejected"):
+            parts.append(f"{len(rep['rejected'])} rejected")
+        lines.append(f"  {provider:<12} " + " · ".join(parts))
+        adapter_rejects += [f"{provider}/{r['bundle_id']}: {r['reason']}" for r in rep["rejected"]]
+    store = data.get("store") or {}
+    store_rejects: list[str] = []
+    # A no-op run has no store work to show; the provider lines and the total carry it.
+    if store and (store.get("bundles_changed") or store.get("rejected") or store.get("repriced")):
+        parts = [_bundles(store.get("bundles_changed", 0))]
+        if store.get("rejected"):
+            parts.append(f"{len(store['rejected'])} rejected")
+            store_rejects += [f"{r['bundle']}: {r['error']}" for r in store["rejected"]]
+        if store.get("repriced"):
+            parts.append(f"{_num(store['repriced'])} repriced")
+        ms = (data.get("ms") or {}).get("store")
+        if ms is not None:
+            parts.append(f"{ms / 1000:.1f}s")
+        lines.append(f"  {'store':<12} " + " · ".join(parts))
+    rejects = store_rejects + adapter_rejects  # a bundle the store refused outranks an adapter failure
+    for reason in rejects[:3]:
+        lines.append((f"    rejected {reason}")[:_LINE_CHARS])
+    if len(rejects) > 3:
+        lines.append(f"    ... {len(rejects) - 3} more rejected (use --json)")
+    total = (data.get("ms") or {}).get("total")
+    if total is not None:
+        lines.append(f"  {'done':<12} {total / 1000:.1f}s")
+    return lines
+
+
 def _review_lines(review: dict[str, Any]) -> list[str]:
     head = f"review: wall {_shown(review, 'wall_ms')}, lost {_shown(review, 'lost_ms')}"
     n = review["n_sessions"]
@@ -149,6 +202,8 @@ def _lines(cmd: str, data: Any) -> list[str]:
         return _v4_lines(d)
     if cmd == "paths":
         return [f"{k}: {v}" for k, v in data.items()]
+    if cmd == "ingest":
+        return ingest_lines(data)
     if cmd == "outline":
         return [
             "  ".join(

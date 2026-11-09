@@ -110,9 +110,12 @@ botsworth serve --open              # UI and API on http://127.0.0.1:8420
 ```
 
 Nothing ingests on its own. Run `botsworth ingest` again to pick up new sessions; only logs that changed are read
-again. `--provider claude_code` (repeatable; also `codex`, `omp`) reads only some providers. `botsworth ingest
---rebuild` builds a new store from the logs and replaces the old one when it is done; a running `serve` keeps
-working. It reads every provider, so it cannot be combined with `--provider`.
+again. In a terminal it draws one line while it works — `scanning claude_code …`, then `37/1,204 bundles · 24
+rebuilt · 1,180 unchanged` — and ends with a short per-provider summary on stderr. `--provider claude_code`
+(repeatable; also `codex`, `omp`) reads only some providers. `botsworth ingest --rebuild` builds a new store from
+the logs and replaces the old one when it is done; a running `serve` keeps working. It reads every provider, so it
+cannot be combined with `--provider`. Piped or redirected, ingest prints nothing but the JSON report; add
+`--table` for the readable summary on stdout instead of JSON.
 
 The UI opens on the last 7 days. To find your most expensive sessions, choose "All time" in the period picker and
 click the Cost column.

@@ -16,6 +16,8 @@ First public release. Alpha: commands, output and the store schema can change be
   on request. Times are stored as epoch milliseconds, and the time zone is chosen per request.
 - Prices from a bundled models.dev snapshot (2026-11-03) with an alias table; unpriced models show cost as a lower bound.
 - Explicit ingest (`botsworth ingest`), incremental by file, with `--rebuild` to build a fresh store and swap it in.
+  In a terminal it shows one live progress line and a per-provider summary; `--table` prints that summary instead of
+  the JSON report.
 - CLI: `slow`, `breakdown` and `tasks` for common questions, plus read commands for sessions, turns, calls, periods,
   days, facets, search and ingest status. Output is JSON by default, `--table` for people.
 - HTTP API and web UI (`botsworth serve`, `127.0.0.1:8420` by default) over the same store, with the UI bundled in the

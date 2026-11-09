@@ -52,10 +52,20 @@ GUARANTEES:
 - Returns `{mode: "rebuild"|"incremental", providers: {p: {root, discovered,
   rebuilt, unchanged, rejected: [{bundle_id, reason}]}}, store:
   IngestResult.to_dict(), ms: {...}}`.
+- `progress` (optional, D57) is called with one dict per step, in order after the lock is taken:
+  `start {mode, store}` (`store` is the resolved `<db>`, never `<db>.rebuild`),
+  `provider {provider, root, skipped}` for a provider whose root is missing,
+  `scanning {provider}`, `discovered {provider, bundles}`,
+  `bundle {done, total, rebuilt, unchanged, rejected}` after each bundle is processed (adapter
+  rejections count in `rejected`; store rejections are known only after the run), and
+  `store {bundles}` when the bundle stream is exhausted, before the run returns. Calls happen
+  outside adapter error handling and under the ingest lock; an exception from `progress`
+  propagates and aborts the run like any other failure, so a caller must not raise.
 EXPECTS: adapters honour `adapters.Adapter`; source dirs are only read.
 FAILURE BEHAVIOR: adapter failures reject one bundle; store failures follow
   store.ingest (rejected bundle keeps old rows; `IngestLocked` propagates).
-DOES NOT: parse provider files itself; query; resume from a byte offset.
+DOES NOT: parse provider files itself; query; resume from a byte offset;
+  write progress itself (the caller renders it).
 KNOWN LIMITATIONS: a changed bundle is rebuilt from whole files (design §8
   item 3 prefix-resume deferred). `source_files.status` has no `rejected`
   value; `reject_reason` carries it.
@@ -65,7 +75,7 @@ from __future__ import annotations
 
 import hashlib
 import time
-from collections.abc import Iterable, Iterator, Mapping
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from pathlib import Path
 
 from botsworth import adapters, pointer
@@ -83,6 +93,14 @@ LIVE_WINDOW_MS = 10 * 60 * 1000
 _NO_START = 2**62  # design §4.6: a bundle with no timestamp sorts last
 
 Stat = tuple[int, int, str]  # size, mtime_ns, sha_first_4k
+
+# One event per step of a run: start, provider (with `skipped`), discovered, bundle, store.
+Progress = Callable[[dict], None]
+
+
+def _tell(progress: Progress | None, event: str, **fields) -> None:
+    if progress is not None:
+        progress({"event": event, **fields})
 
 
 def _stat(path: Path) -> Stat | None:
@@ -120,14 +138,17 @@ def run(
     *,
     db: Path | str | None = None,
     pricer: Pricer | None = None,
+    progress: Progress | None = None,
 ) -> dict:
     db_path = location.resolve_db(db)
     with ingest.lock(db_path):
         if not rebuild and not ingest.needs_rebuild(db_path):
-            return {"mode": "incremental"} | _run(providers, roots, force, reprice, db_path, pricer)
+            _tell(progress, "start", mode="incremental", store=str(db_path))
+            return {"mode": "incremental"} | _run(providers, roots, force, reprice, db_path, pricer, progress)
+        _tell(progress, "start", mode="rebuild", store=str(db_path))
         target = ingest.rebuild_target(db_path)
         try:
-            report = _run(providers, roots, force, reprice, target, pricer)
+            report = _run(providers, roots, force, reprice, target, pricer, progress)
             ingest.finish_rebuild(db_path)
         except BaseException:
             ingest.discard_rebuild(db_path)
@@ -135,7 +156,7 @@ def run(
         return {"mode": "rebuild"} | report
 
 
-def _run(providers, roots, force, reprice, store: Path, pricer) -> dict:
+def _run(providers, roots, force, reprice, store: Path, pricer, progress: Progress | None = None) -> dict:
     """One run against `store` (= the db, or `<db>.rebuild`)."""
     t_start = time.perf_counter()
     pricer = pricer or Pricer()
@@ -170,6 +191,7 @@ def _run(providers, roots, force, reprice, store: Path, pricer) -> dict:
             scanned.append(provider)
         else:
             rep["skipped"] = "root missing"
+            _tell(progress, "provider", provider=provider, root=str(root), skipped="root missing")
 
     def built_bundles() -> Iterator[Bundle]:
         """Discover all scanned providers, sort by session start, build the changed bundles one at a time."""
@@ -177,9 +199,11 @@ def _run(providers, roots, force, reprice, store: Path, pricer) -> dict:
         recorded: dict[str, dict[str, list[str]]] = {}  # provider -> bundle key -> recorded paths
         for provider in scanned:
             t = time.perf_counter()
+            _tell(progress, "scanning", provider=provider)
             refs = list(adapters.get(provider).discover(root_of[provider].expanduser()))
             ms["discover"] += (time.perf_counter() - t) * 1000
             report[provider]["discovered"] = len(refs)
+            _tell(progress, "discovered", provider=provider, bundles=len(refs))
             by_key = recorded[provider] = {}
             for path, r in known.items():
                 if r["provider"] == provider and r["status"] != "source_missing":
@@ -190,6 +214,8 @@ def _run(providers, roots, force, reprice, store: Path, pricer) -> dict:
                 (adapters.session_start_ms(ref) or _NO_START, provider, ref.bundle_id, ref) for ref in refs
             ]
         found.sort(key=lambda x: x[:3])
+        total, done = len(found), 0
+        counts = {"rebuilt": 0, "unchanged": 0, "rejected": 0}
         for _, provider, _, ref in found:
             adapter = adapters.get(provider)
             root = root_of[provider].expanduser()
@@ -208,6 +234,9 @@ def _run(providers, roots, force, reprice, store: Path, pricer) -> dict:
                     for p in paths
                     if (st := status_of(s := stat(p, root), False)) != known[p]["status"]
                 )
+                done += 1
+                counts["unchanged"] += 1
+                _tell(progress, "bundle", done=done, total=total, **counts)
                 continue
             partial = False
             bundle = None
@@ -230,7 +259,12 @@ def _run(providers, roots, force, reprice, store: Path, pricer) -> dict:
             rows_of[key] = new
             if bundle is not None:
                 rep["rebuilt"] += 1
+            done += 1
+            counts["rejected" if bundle is None else "rebuilt"] += 1
+            _tell(progress, "bundle", done=done, total=total, **counts)
+            if bundle is not None:
                 yield bundle
+        _tell(progress, "store", bundles=total)
 
     overrides = {}
     if "codex" in scanned:  # DM-12: renames live outside every bundle, so they are read on every run

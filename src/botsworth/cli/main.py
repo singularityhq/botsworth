@@ -18,6 +18,11 @@ GUARANTEES:
   store (`pipeline.run(rebuild=True)`; D52); on failure the old store stays and the temp file is removed.
   It cannot be combined with `--provider` (a partial rebuild would drop the other providers; exit 2).
   `--force` re-reads every bundle into the existing store. Ingest writes nothing but the store file.
+- `ingest` draws its run on stderr when stderr is a terminal (D57): one line rewritten in place
+  (`scanning`, then `N/M bundles · N rebuilt · N unchanged`), cleared before the run ends, then the
+  `--table` summary. `--table` prints that summary on stdout instead of the report and suppresses the
+  stderr copy; stdout is otherwise always the one-line JSON report. A pipe or CI log (stderr not a
+  terminal) sees no progress at all.
 - `paths` prints `{data_dir, store}` (the resolved store file and its folder) and runs without a store; it
   creates nothing.
 - `status` and `serve` run without a store: `status` reports `store_state` (like its HTTP route), `serve`
@@ -41,6 +46,7 @@ from typing import Any
 
 from botsworth.cli import serve as serve_cmd
 from botsworth.cli import timefmt
+from botsworth.cli.progress import IngestProgress
 from botsworth.cli.render import V4_COMMANDS, render_table
 from botsworth.cli.scope import (
     UsageError,
@@ -462,12 +468,24 @@ def run(args: argparse.Namespace, api: Any, db: Any) -> Any:
 
         if args.rebuild and args.provider:
             raise UsageError("--rebuild rebuilds every provider; drop --provider")
+        progress = IngestProgress()
         try:
-            return pipeline.run(
-                args.provider, force=args.force, reprice=args.reprice, rebuild=args.rebuild, db=db
+            data = pipeline.run(
+                args.provider,
+                force=args.force,
+                reprice=args.reprice,
+                rebuild=args.rebuild,
+                db=db,
+                progress=progress,
             )
         except ingest.IngestLocked as e:
+            progress.abort()
             raise CliError(str(e)) from None
+        except BaseException:
+            progress.abort()
+            raise
+        progress.finish(data, summary=args.fmt != "table")
+        return data
     raise AssertionError(f"unhandled subcommand {c}")
 
 

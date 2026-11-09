@@ -706,3 +706,25 @@ twice as fast" (an estimate that reads as a fact). Limits: tests and polling
 are recognised by command text only (DM-28); stalls are Claude-only (D55);
 a test run in parallel with agent model work counts as `agents`, so `tests`
 is a lower bound for agent test time.
+
+## D57 — Ingest shows its work on a terminal (maintainer, 2026-11-09)
+`botsworth ingest` used to print nothing for the length of a run over 16k session files, then one JSON
+line, so a working run and a hung one looked the same. Chosen:
+- `pipeline.run(..., progress=...)` takes an optional callback and emits ordered events (`start`,
+  `provider` for a missing root, `scanning`, `discovered`, `bundle`, `store`); the pipeline still prints
+  nothing itself. The callback runs under the ingest lock and outside adapter error handling, and its
+  exception aborts the run like any other failure.
+- `cli.progress.IngestProgress` renders on stderr only, and only when stderr is a terminal: one line
+  rewritten in place (`\r` plus trailing spaces, no ANSI), phase changes painted at once, bundle counts
+  throttled to 10 Hz, clipped to the terminal width. At the end it clears the line and prints the same
+  block `--table` prints (`cli.render.ingest_lines`); an error path clears first so no half line is left
+  above `error: …`.
+- stdout is unchanged: one JSON run report, or the readable block with `--table` (whose ingest fallback
+  was the raw JSON). Piped or redirected stderr sees no progress and no summary, so scripts are unaffected.
+Why: the run is a wait, and a wait needs proof of life and an end state in the user's words. Rejected:
+a progress bar (the bundle count is not a byte or time fraction); ANSI colour (no state to carry, and it
+needs terminal capability probing); showing progress on stdout (breaks the JSON contract and pipes).
+Limits: store rejections are known only after the run, so the live count includes adapter rejections
+while the summary lists both; a run stopped by Ctrl-C leaves only the cleared line (exit 130 unchanged).
+CLI-4's "stderr nothing on success" now means no error line: on a terminal, ingest owns stderr while it
+runs (CLI-11 already treats stderr text as unstable).

@@ -391,3 +391,57 @@ def test_session_start_ms_reads_the_main_file_only_as_far_as_it_needs(tmp_path):
     assert adapters.session_start_ms(ref('{"a": 1}\n{"timestamp": 5}\n')) == 5
     assert adapters.session_start_ms(ref('{"a": 1}\n')) is None  # sorts last in the pipeline
     assert adapters.session_start_ms(BundleRef("x", "m", "m", (tmp_path / "gone.jsonl",))) is None
+
+
+# ── progress (D57) ──────────────────────────────────────────────────────────
+
+
+def test_progress_events_describe_the_run(tmp_path):
+    root = claude_tree(tmp_path)
+    events: list[dict] = []
+    report = run(tmp_path, root, progress=events.append)
+
+    assert events[0]["event"] == "start" and events[0]["mode"] == "rebuild"
+    assert Path(events[0]["store"]).resolve() == (tmp_path / "s.db").resolve()  # never the .rebuild file
+    scanned = [e["provider"] for e in events if e["event"] == "scanning"]
+    assert scanned == ["claude_code"]
+    discovered = [e for e in events if e["event"] == "discovered"]
+    assert discovered == [
+        {
+            "event": "discovered",
+            "provider": "claude_code",
+            "bundles": report["providers"]["claude_code"]["discovered"],
+        }
+    ]
+    assert events[-2] == {
+        "event": "bundle",
+        "done": 1,
+        "total": 1,
+        "rebuilt": 1,
+        "unchanged": 0,
+        "rejected": 0,
+    }
+    assert events[-1] == {"event": "store", "bundles": 1}
+
+    events.clear()
+    again = run(tmp_path, root, progress=events.append)  # unchanged: nothing is built, counts still arrive
+    assert again["providers"]["claude_code"]["rebuilt"] == 0
+    assert events[0]["mode"] == "incremental"
+    assert events[-2] == {
+        "event": "bundle",
+        "done": 1,
+        "total": 1,
+        "rebuilt": 0,
+        "unchanged": 1,
+        "rejected": 0,
+    }
+
+
+def test_progress_names_a_skipped_provider(tmp_path):
+    events: list[dict] = []
+    pipeline.run(["omp"], {"omp": tmp_path / "gone"}, db=tmp_path / "s.db", progress=events.append)
+    assert events == [
+        {"event": "start", "mode": "rebuild", "store": str((tmp_path / "s.db").resolve())},
+        {"event": "provider", "provider": "omp", "root": str(tmp_path / "gone"), "skipped": "root missing"},
+        {"event": "store", "bundles": 0},
+    ]

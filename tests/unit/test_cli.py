@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import io
 import json
 import shutil
 import sys
@@ -323,11 +324,13 @@ def test_gate_ingest_then_read(tmp_path, capsys, monkeypatch):
 
 def test_ingest_runs_the_pipeline(tmp_path, capsys, monkeypatch):
     from botsworth import pipeline
+    from botsworth.cli.progress import IngestProgress
     from botsworth.store import ingest
 
     calls = []
 
     def run(providers, **kw):
+        assert isinstance(kw.pop("progress"), IngestProgress)
         calls.append((providers, kw))
         if len(calls) == 2:
             raise ingest.IngestLocked("another ingest holds x.lock")
@@ -352,3 +355,52 @@ def test_ingest_runs_the_pipeline(tmp_path, capsys, monkeypatch):
 def test_gate_missing_store_exit_2(tmp_path, capsys):
     code, out, err = real(capsys, "--db", str(tmp_path / "none.sqlite"), "sessions")
     assert (code, out) == (2, "") and "run 'botsworth ingest'" in err
+
+
+# ── ingest progress (D57) ───────────────────────────────────────────────────
+
+
+class _TTY(io.StringIO):
+    def isatty(self) -> bool:
+        return True
+
+
+def _fake_ingest(monkeypatch, raises: BaseException | None = None) -> _TTY:
+    """A pipeline.run that paints two progress events; returns the terminal it drew on."""
+    from botsworth import pipeline
+
+    stream = _TTY()
+    monkeypatch.setattr(sys, "stderr", stream)
+
+    def run(providers, **kw):
+        kw["progress"]({"event": "start", "mode": "incremental", "store": "s"})
+        kw["progress"]({"event": "store", "bundles": 0})
+        if raises is not None:
+            raise raises
+        return {"mode": "incremental", "providers": {}, "store": {}, "ms": {"total": 5000.0}}
+
+    monkeypatch.setattr(pipeline, "run", run)
+    return stream
+
+
+def test_ingest_draws_on_a_terminal_but_stdout_stays_the_json_report(tmp_path, capsys, monkeypatch):
+    stream = _fake_ingest(monkeypatch)
+    code, out, _ = real(capsys, "--db", str(tmp_path / "s.sqlite"), "ingest", "--provider", "omp")
+    assert code == 0 and json.loads(out)["mode"] == "incremental"
+    assert "ingest: incremental" in stream.getvalue() and "done" in stream.getvalue()
+
+
+def test_ingest_table_prints_the_summary_once(tmp_path, capsys, monkeypatch):
+    stream = _fake_ingest(monkeypatch)
+    code, out, _ = real(capsys, "--db", str(tmp_path / "s.sqlite"), "ingest", "--provider", "omp", "--table")
+    assert code == 0 and out.splitlines()[0] == "ingest: incremental"
+    assert "ingest: incremental" not in stream.getvalue()  # the block is on stdout, not twice
+
+
+def test_ingest_clears_the_progress_line_before_the_error(tmp_path, capsys, monkeypatch):
+    from botsworth.store import ingest
+
+    stream = _fake_ingest(monkeypatch, ingest.IngestLocked("another ingest holds x.lock"))
+    code, out, _ = real(capsys, "--db", str(tmp_path / "s.sqlite"), "ingest")
+    assert (code, out) == (1, "")
+    assert stream.getvalue().endswith("error: another ingest holds x.lock\n")
