@@ -29,6 +29,10 @@ EXIT_BUSY = 3  # the cell is still running, or the session is busy or still load
 EXIT_CHOICE = 4  # start parameters differ from the running session, or run cannot pick a session
 EXIT_START_FAILED = 5  # start could not create the session
 
+EXIT_SERVER_TAKEN = (
+    17  # exit code of a server process that finds a live server on its name (not a client code)
+)
+
 NO_SESSION = (
     "no session running: all session state is lost and must be rebuilt; start one with botsworth repl start"
 )

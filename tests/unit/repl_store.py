@@ -17,7 +17,7 @@ import shutil
 from pathlib import Path
 
 import pytest
-from test_adapter_claude import assistant, result, tool, user, write
+from test_adapter_claude import assistant, result, stamp, tool, user, write
 
 from botsworth import pipeline
 from botsworth.pricing import Pricer
@@ -33,6 +33,13 @@ def nested_session(root: Path) -> None:
         user("u", 0, "go"),
         assistant("m1", 1, model="claude-opus-4-5", content=[tool("sp0", "Agent", prompt="p0")]),
         result("sp0", 20, toolUseResult={"agentId": "a0"}),
+        {
+            "type": "system",
+            "uuid": "cmp",
+            "timestamp": stamp(25),
+            "subtype": "compact_boundary",
+            "compactMetadata": {"trigger": "auto", "preTokens": 10000, "postTokens": 3000, "durationMs": 900},
+        },
         assistant("m2", 30, model="claude-opus-4-5"),
     ]
     a0 = [
@@ -47,6 +54,14 @@ def nested_session(root: Path) -> None:
     for aid, rows in (("a0", a0), ("a1", a1)):
         agent = write(path.with_suffix("") / "subagents" / f"agent-{aid}.jsonl", rows)
         agent.with_suffix(".meta.json").write_text(json.dumps({}))
+
+
+def late_session(root: Path) -> str:
+    """Add one more Claude session to `root` (for a test that ingests again while a REPL runs)."""
+    path = write(
+        root / "-repo" / "late.jsonl", [user("lu", 0, "go"), assistant("l1", 1, model="claude-opus-4-5")]
+    )
+    return path.stem
 
 
 def build_roots(base: Path) -> dict[str, Path]:

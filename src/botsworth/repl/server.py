@@ -25,12 +25,16 @@ GUARANTEES:
   returns); a signal that arrives outside a cell is ignored. `stop` interrupts, then ends the process after 5
     s.
   The process also ends after `--idle` minutes without a `run`, never during a cell.
-- On exit it removes its socket. It writes nothing else.
+- It publishes its socket by hard-linking a listening socket from a private name, never replaces a live socket
+  (a second server on the same name ends with exit 17), and on exit removes the socket only if it is still its
+  own. Once it has decided to stop, a `run` is refused. `interrupt` of a cell that has not started cancels it.
+  It writes nothing else.
 EXPECTS: pandas installed; a store of the current schema; a short enough socket path (AF_UNIX limit).
 FAILURE BEHAVIOR: cannot create the folder or bind the socket, or the frames do not load (no store, schema
   mismatch, unknown zone or session): one line `error: <reason>` on stderr, exit 1, no socket left. The client
     reports
-  it and exits 5. A malformed request gets `{"ok": false, "error": ...}` and the server keeps running.
+  it and exits 5. Any failure while answering a request gets `{"ok": false, "error": ...}` and
+  the server keeps running. Memory it cannot read is reported as unknown, not as an error.
 DOES NOT: touch the store after the load, offer SQL, keep a log, or run a cell on more than one thread.
 """
 
@@ -63,15 +67,19 @@ MAX_OUT = 20_000
 STOP_GRACE_S = 5.0
 
 
-def rss_bytes() -> int:
-    """Resident memory of this process in bytes (/proc where it exists, else `ps`)."""
+def rss_bytes() -> int | None:
+    """Resident memory of this process in bytes (/proc where it exists, else `ps`); None when unreadable."""
     statm = Path("/proc/self/statm")
     if statm.exists():
         return int(statm.read_text().split()[1]) * os.sysconf("SC_PAGE_SIZE")
-    out = subprocess.run(
-        ["ps", "-o", "rss=", "-p", str(os.getpid())], capture_output=True, text=True, check=True
-    )
-    return int(out.stdout.strip()) * 1024
+    try:
+        out = subprocess.run(
+            ["ps", "-o", "rss=", "-p", str(os.getpid())], capture_output=True, text=True, check=True
+        )
+        return int(out.stdout.strip()) * 1024
+    except (OSError, subprocess.SubprocessError, ValueError):
+        # FALLBACK-OK: REPL-4 memory unreadable (no `ps`): reported as unknown, never an error
+        return None
 
 
 class Server:
@@ -95,6 +103,8 @@ class Server:
         self.lock = threading.Lock()
         self.busy_since: float | None = None
         self.in_cell = False
+        self.job: dict | None = None
+        self.ino = -1
         self.stopping = False
         self.last: dict = {"state": "none", "out": "", "dur_s": 0.0}
         self.path = repl.sock_path(a.name)
@@ -136,11 +146,9 @@ class Server:
                     data += chunk
                 req = json.loads(data)
                 reply = getattr(self, "op_" + req["op"])(req)
-            except (ValueError, KeyError, AttributeError) as e:
-                reply = {
-                    "ok": False,
-                    "error": f"bad request: {e!r}",
-                }  # FALLBACK-OK: REPL-4 bad request, server stays up
+            except Exception as e:  # noqa: BLE001
+                # FALLBACK-OK: REPL-4 a failed request is reported to the caller; the server stays up
+                reply = {"ok": False, "error": f"{type(e).__name__}: {e}"}
             try:
                 conn.sendall(json.dumps(reply).encode() + b"\n")
             except OSError:
@@ -154,7 +162,7 @@ class Server:
             "pid": os.getpid(),
             "params": self.params,
             "uptime_s": round(time.time() - self.started),
-            "rss_mb": round(rss_bytes() / 1e6),
+            "rss_mb": None if (rss := rss_bytes()) is None else round(rss / 1e6),
             "idle_s": round(time.time() - self.last_use),
             "busy_s": None if busy is None else round(time.time() - busy, 1),
             "last_state": self.last["state"],
@@ -174,40 +182,73 @@ class Server:
 
     def op_run(self, req: dict) -> dict:
         with self.lock:
+            if self.stopping:
+                return {"ok": True, "stopping": True}
             if not self.ready:
                 return {"ok": True, "loading": True}
             if self.busy_since is not None:
                 return {"ok": True, "busy": True}
             self.busy_since = self.last_use = time.time()
             done = threading.Event()
-            job = {"code": req["code"], "done": done}
+            job = {"code": req["code"], "done": done, "started": False}
+            self.job = job
             self.jobs.put(job)
-        if done.wait(float(req.get("wait", 50))):
+        if done.wait(float(req["wait"])):
             return {"ok": True, **job["result"]}
         return {"ok": True, "pending": True}
 
+    def cancel_queued(self) -> bool:
+        """End a job the main thread has not started (caller holds the lock); True when there was one."""
+        job = self.job
+        if job is None or job["started"] or job.get("cancelled"):
+            return False
+        job["cancelled"] = True
+        job["result"] = self.last = {
+            "state": "interrupted",
+            "out": "KeyboardInterrupt: the cell was interrupted before it started.\n",
+            "dur_s": 0.0,
+        }
+        self.busy_since = None
+        self.job = None
+        job["done"].set()
+        return True
+
     def op_interrupt(self, req: dict) -> dict:
-        busy = self.busy_since is not None
-        if busy:
-            os.kill(os.getpid(), signal.SIGINT)
+        with self.lock:
+            busy = self.busy_since is not None
+            if busy and not self.cancel_queued():
+                os.kill(os.getpid(), signal.SIGINT)
         return {"ok": True, "was_busy": busy}
 
     def op_stop(self, req: dict) -> dict:
-        self.stopping = True
-        if self.busy_since is not None:
-            os.kill(os.getpid(), signal.SIGINT)
-        threading.Timer(STOP_GRACE_S, self.hard_exit).start()
+        with self.lock:
+            self.stopping = True
+            if self.busy_since is not None and not self.cancel_queued():
+                os.kill(os.getpid(), signal.SIGINT)
+        timer = threading.Timer(STOP_GRACE_S, self.hard_exit)
+        timer.daemon = (
+            True  # a normal stop ends the process at once; this only backs up a cell that ignores SIGINT
+        )
+        timer.start()
         self.jobs.put(None)
         return {"ok": True, "pid": os.getpid()}
 
+    def unlink_own(self) -> None:
+        """Remove the socket file only if it is still this server's (a later server may own the name)."""
+        try:
+            if os.stat(self.path).st_ino == self.ino:
+                self.path.unlink()
+        except FileNotFoundError:
+            pass  # FALLBACK-OK: REPL-4 the file is already gone
+
     def hard_exit(self) -> None:
-        with contextlib.suppress(FileNotFoundError):
-            self.path.unlink()
+        self.unlink_own()
         os._exit(0)
 
     # ---- main thread: run cells ----
     def on_sigint(self, signum: int, frame: object) -> None:
         if self.in_cell:
+            self.in_cell = False  # one KeyboardInterrupt per cell
             raise KeyboardInterrupt
 
     def run_cell(self, code: str) -> dict:
@@ -218,7 +259,6 @@ class Server:
             try:
                 tree = ast.parse(code, "<cell>", "exec")
                 last = tree.body.pop() if tree.body and isinstance(tree.body[-1], ast.Expr) else None
-                self.in_cell = True
                 exec(compile(tree, "<cell>", "exec"), self.ns)
                 if last is not None:
                     value = eval(compile(ast.Expression(last.value), "<cell>", "eval"), self.ns)
@@ -249,8 +289,8 @@ class Server:
 
     def memory_warning(self) -> str:
         rss = rss_bytes()
-        if rss <= self.a.max_rss * 1e6:
-            return ""
+        if rss is None or rss <= self.a.max_rss * 1e6:
+            return ""  # FALLBACK-OK: REPL-4 unknown memory gives no warning
         mine = [
             (n, v.memory_usage(deep=True).sum() / 1e6)
             for n, v in self.ns.items()
@@ -263,20 +303,35 @@ class Server:
         )
 
     def main_loop(self) -> None:
-        while not self.stopping:
+        while True:
             try:
                 job = self.jobs.get(timeout=0.5)
             except queue.Empty:
-                if self.busy_since is None and time.time() - self.last_use > self.a.idle * 60:
+                with self.lock:
+                    if self.busy_since is None and time.time() - self.last_use > self.a.idle * 60:
+                        self.stopping = True  # decided under the lock: a later `run` is refused, not queued
+                if self.stopping:
                     return
                 continue
             if job is None:
                 return
-            res = self.run_cell(job["code"])
-            self.last = res
-            self.last_use = time.time()
-            job["result"] = res
-            self.busy_since = None
+            with self.lock:
+                if job.get("cancelled"):
+                    continue
+                job["started"] = True
+                self.in_cell = True
+            try:
+                res = self.run_cell(job["code"])
+            except KeyboardInterrupt:
+                # FALLBACK-OK: REPL-4 a stray interrupt ends the cell, not the server
+                res = {"state": "interrupted", "out": "KeyboardInterrupt\n", "dur_s": 0.0}
+            self.in_cell = False
+            with self.lock:
+                self.last = res
+                self.last_use = time.time()
+                job["result"] = res
+                self.busy_since = None
+                self.job = None
             job["done"].set()
 
 
@@ -285,21 +340,62 @@ def fail(message: str) -> None:
     sys.exit(1)
 
 
-def bind(path: Path) -> socket.socket:
-    """Create the socket folder (0700) and bind the socket (0600), or end the process with the reason."""
+class Taken(Exception):
+    """A live server already owns the socket name."""
+
+
+def probe_live(path: Path) -> bool:
+    """True when something accepts connections on `path`."""
+    c = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    c.settimeout(2)
+    try:
+        c.connect(str(path))
+    except (ConnectionRefusedError, FileNotFoundError):
+        return False
+    except OSError:
+        return True  # a busy or odd socket is not ours to remove
+    finally:
+        c.close()
+    return True
+
+
+def bind(path: Path) -> tuple[socket.socket, int]:
+    """Create the socket folder (0700), then publish a listening socket (0600) under `path` atomically.
+
+    The socket is bound and listening under a private name first and then hard-linked to `path`, so `path`
+    never names a socket that is not yet listening. A live socket at `path` is never replaced (`Taken`);
+    a dead one is. Returns the socket and the inode that is this server's.
+    """
     os.umask(0o077)
+    tmp = path.with_name(f".{path.stem}.{os.getpid()}.bind")
     try:
         path.parent.mkdir(mode=0o700, exist_ok=True)
         os.chmod(path.parent, 0o700)
         sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        if path.exists():
-            path.unlink()  # the client removed no live socket: this one is stale
-        sock.bind(str(path))
-        os.chmod(path, 0o600)
+        tmp.unlink(missing_ok=True)
+        sock.bind(str(tmp))
+        os.chmod(tmp, 0o600)
         sock.listen(8)
+        ino = os.stat(tmp).st_ino
+        for _ in range(3):
+            try:
+                os.link(tmp, path)
+                break
+            except FileExistsError:
+                if probe_live(path):
+                    raise Taken(path.stem) from None
+                path.unlink(missing_ok=True)  # dead: the server that made it is gone
+        else:
+            raise OSError(f"cannot replace {path}")
+    except Taken:
+        tmp.unlink(missing_ok=True)
+        print(f"error: session {path.stem} is already running", file=sys.stderr)
+        sys.exit(repl.EXIT_SERVER_TAKEN)
     except OSError as e:
+        tmp.unlink(missing_ok=True)
         fail(f"cannot create the session socket {path}: {e}")
-    return sock
+    tmp.unlink(missing_ok=True)
+    return sock, ino
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -314,13 +410,13 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--max-rss", type=float, default=2000, help="MB; a warning follows a cell when above")
     a = p.parse_args(argv)
     srv = Server(a)
-    sock = bind(srv.path)
+    sock, srv.ino = bind(srv.path)
     threading.Thread(target=srv.serve, args=(sock,), daemon=True).start()
     try:
         srv.start_up()
     except Exception as e:  # noqa: BLE001  # FALLBACK-OK: REPL-4 a load failure is reported to the client, then the server ends
         sock.close()
-        srv.path.unlink(missing_ok=True)
+        srv.unlink_own()
         fail(str(e).splitlines()[0] if str(e) else type(e).__name__)
     pd.set_option("display.max_rows", 60)
     pd.set_option("display.max_columns", 40)
@@ -333,8 +429,7 @@ def main(argv: list[str] | None = None) -> None:
         srv.main_loop()
     finally:
         sock.close()
-        with contextlib.suppress(FileNotFoundError):
-            srv.path.unlink()
+        srv.unlink_own()
 
 
 if __name__ == "__main__":

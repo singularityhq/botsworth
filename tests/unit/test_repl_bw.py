@@ -298,8 +298,8 @@ def test_what_if_prices_the_tokens_at_the_other_models_rates(bw):
     only_first = bw.what_if(frame, "claude-haiku-4-5", where=frame.index == 0)
     assert only_first.repriced.tolist() == [True, False, False, False]
     assert only_first.new_cost_usd[1] == 5.0
-    unknown = bw.what_if(frame, "no-such-model")
-    assert not unknown.repriced.any() and (unknown.new_cost_usd == frame.cost_usd).all()
+    with pytest.raises(ValueError, match="claude-sonet-4-5"):  # a misspelt model is an error, not delta 0
+        bw.what_if(frame, "claude-sonet-4-5")
 
 
 def test_what_if_at_each_calls_own_model_returns_the_stored_computed_cost(bw):
@@ -335,3 +335,61 @@ def test_reload_replaces_the_frames_the_helpers_use_and_a_rebound_name_does_not(
     bw.reload()
     assert bw.schema().rows["calls"] == len(fr["calls"])
     assert bw.schema().rows["calls"] > 3
+
+
+def _synthetic_calls(n: int, seed: int = 1) -> pd.DataFrame:
+    rng = np.random.default_rng(seed)
+
+    def toks(hi, p_null=0.0):
+        v = pd.array(rng.integers(0, hi, n), dtype="Int64")
+        v[rng.random(n) < p_null] = pd.NA
+        return v
+
+    w5, w1 = toks(5000, 0.5), toks(5000, 0.5)
+    flat = rng.random(n) < 0.3
+    w5[flat], w1[flat] = pd.NA, pd.NA
+    return pd.DataFrame(
+        {
+            "provider": rng.choice(["claude_code", "codex", "omp"], n),
+            "in_tok": toks(100_000, 0.05),
+            "out_tok": toks(10_000, 0.05),
+            "cache_read_tok": toks(200_000, 0.3),
+            "cache_write_tok": toks(5000, 0.3),
+            "cache_write_5m_tok": w5,
+            "cache_write_1h_tok": w1,
+            "cost_usd": rng.random(n),
+        }
+    )
+
+
+@pytest.mark.parametrize("model", ["claude-haiku-4-5", "gpt-5", "claude-opus-4-5-20251101"])
+def test_what_if_vectorised_equals_the_pricer_row_by_row(bw, model):
+    from botsworth.pricing import Pricer
+    from botsworth.repl.bw import TOKEN_COLS
+
+    frame = _synthetic_calls(3000)
+    out = bw.what_if(frame, model)
+    pricer = Pricer()
+    for i, row in frame.iterrows():
+        rates = pricer.resolve(model, row.provider)
+        tokens = {c: (None if pd.isna(row[c]) else int(row[c])) for c in TOKEN_COLS}
+        cost = pricer.cost(tokens, rates) if rates else None
+        assert bool(out.repriced[i]) == (cost is not None), (i, dict(row))
+        want = row.cost_usd if cost is None else cost.cost_usd
+        assert out.new_cost_usd[i] == pytest.approx(want, rel=1e-12, abs=1e-12), i
+    assert out.repriced.any() and not out.repriced.all()
+
+
+def test_what_if_on_300k_rows_takes_seconds_not_minutes(bw):
+    import time
+
+    frame = _synthetic_calls(300_000)
+    t0 = time.perf_counter()
+    out = bw.what_if(frame, "claude-haiku-4-5")
+    assert time.perf_counter() - t0 < 5
+    assert out.repriced.any()
+
+
+def test_what_if_names_a_model_no_provider_prices(bw):
+    with pytest.raises(ValueError, match="claude-sonet-4-5"):
+        bw.what_if(bw._frames["calls"], "claude-sonet-4-5")

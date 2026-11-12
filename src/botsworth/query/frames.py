@@ -246,9 +246,11 @@ class Frames:
         ts = self._query(
             "SELECT op_rowid AS _op, state, sum(ms) AS ms FROM time_split WHERE scope='session' GROUP BY 1,2"
         )
-        parts = ts.pivot(index="_op", columns="state", values="ms").reindex(columns=STATES).fillna(0)
+        parts = ts.pivot(index="_op", columns="state", values="ms").reindex(columns=STATES)
         parts = parts.add_suffix("_ms")
         df = df.merge(parts, left_on="_op", right_index=True, how="left").drop(columns="_op")
+        # a session with no split row: 0, not NULL
+        df[list(parts.columns)] = df[list(parts.columns)].fillna(0)
         return _local(_types(df), "first_ms", self._tz)
 
     def _build_events(self) -> pd.DataFrame:

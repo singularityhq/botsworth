@@ -65,6 +65,40 @@ TOKEN_COLS = [
 ]
 
 
+PROVIDERS = ("claude_code", "codex", "omp")
+
+
+def _price(t: pd.DataFrame, rates) -> tuple[np.ndarray, np.ndarray]:
+    """Cost of the token columns of `t` at `rates`, as `Pricer.cost` computes it, for all rows at once.
+
+    Returns (cost in USD, priced); a row is not priced when a token count is missing or a used count has
+    no rate.
+    """
+
+    def col(name: str) -> pd.Series:
+        return pd.to_numeric(t[name], errors="coerce").astype("float64")
+
+    n_in, n_out = col("in_tok"), col("out_tok")
+    ok = (n_in.notna() & n_out.notna()).to_numpy().copy()
+    w5, w1 = col("cache_write_5m_tok"), col("cache_write_1h_tok")
+    flat = w5.isna() & w1.isna()
+    w5 = w5.where(~flat, col("cache_write_tok"))
+    parts = [
+        (n_in.fillna(0), rates.input),
+        (n_out.fillna(0), rates.output),
+        (col("cache_read_tok").fillna(0), rates.cache_read),
+        (w5.fillna(0), rates.cache_write_5m),
+        (w1.fillna(0), rates.cache_write_1h),
+    ]
+    total = np.zeros(len(t))
+    for count, rate in parts:
+        if rate is None:
+            ok &= (count == 0).to_numpy()
+            rate = 0
+        total = total + count.to_numpy() * rate
+    return total / 1e6, ok
+
+
 class Session:
     """One session: `.calls`, `.threads`, `.split`, `.cost`, `.n_calls`, `.sub_cost`, `.nested`."""
 
@@ -78,8 +112,9 @@ class Session:
             .groupby("thread")
             .agg(n_calls=("call_id", "size"), cost_usd=("cost_usd", "sum"))
         )
+        # FALLBACK-OK: REPL-6 a session whose calls are all on the main thread has no subagent group: 0
         self.sub_cost = float(self.split.cost_usd.get("subagents", 0.0))
-        self.sub_calls = int(self.split.n_calls.get("subagents", 0))
+        self.sub_calls = int(self.split.n_calls.get("subagents", 0))  # FALLBACK-OK: REPL-6 as above
         self.nested = threads[threads.depth > 1]
 
     def __repr__(self) -> str:
@@ -184,18 +219,23 @@ class BW:
             mask = where.reindex(out.index).fillna(False)
         else:
             mask = pd.Series(where, index=out.index)
-        new = out.cost_usd.copy()
+        mask = mask.astype(bool)
+        known = {p: pricer.resolve(model, p) for p in sorted({*PROVIDERS, *out.provider.dropna().unique()})}
+        if all(r is None for r in known.values()):
+            raise ValueError(
+                f"no price for model {model!r} at any provider (check the spelling; see `prices`)"
+            )
+        new = out.cost_usd.astype("float64").copy()
         done = pd.Series(False, index=out.index)
-        for provider, idx in out[mask.astype(bool)].groupby("provider").groups.items():
-            rates = pricer.resolve(model, provider)
+        for provider, rates in known.items():
             if rates is None:
-                # FALLBACK-OK: REPL-6 no price at this provider: rows keep their cost, repriced False
+                continue  # rows of this provider keep their cost, repriced False (REPL-6)
+            sel = mask & (out.provider == provider)
+            if not sel.any():
                 continue
-            toks = out.loc[idx, TOKEN_COLS].astype(object)
-            for i, t in zip(idx, toks.where(toks.notna(), None).to_dict("records"), strict=True):
-                cost = pricer.cost(t, rates)
-                if cost is not None:
-                    new[i], done[i] = cost.cost_usd, True
+            cost, ok = _price(out.loc[sel], rates)
+            idx = out.index[sel][ok]
+            new.loc[idx], done.loc[idx] = cost[ok], True
         out["new_cost_usd"], out["repriced"] = new, done
         out["delta_usd"] = out.new_cost_usd - out.cost_usd
         return out

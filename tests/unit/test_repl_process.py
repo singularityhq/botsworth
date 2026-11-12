@@ -291,3 +291,274 @@ def test_start_without_pandas_exit_5(monkeypatch, capsys, tmp_path):
 def test_exit_codes_are_documented_values():
     assert (repl.EXIT_OK, repl.EXIT_RAISED, repl.EXIT_NO_SESSION) == (0, 1, 2)
     assert (repl.EXIT_BUSY, repl.EXIT_CHOICE, repl.EXIT_START_FAILED) == (3, 4, 5)
+
+
+# ---- gate-2 findings ----
+def fake_server(env, name, reply):
+    """A socket under `name` that answers every request with `reply` (a session that misbehaves)."""
+    sd = tmpdir_of(env) / "botsworth-repl"
+    sd.mkdir(mode=0o700, exist_ok=True)
+    srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    srv.bind(str(sd / f"{name}.sock"))
+    srv.listen(4)
+
+    def answer():
+        while True:
+            try:
+                c, _ = srv.accept()
+            except OSError:
+                return
+            c.makefile().readline()
+            c.sendall(json.dumps(reply).encode() + b"\n")
+            c.close()
+
+    threading.Thread(target=answer, daemon=True).start()
+    return srv
+
+
+def dead(pid):
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return True
+    return False
+
+
+def wait_dead(pid, s=10):
+    end = time.time() + s
+    while time.time() < end and not dead(pid):
+        time.sleep(0.1)
+    return dead(pid)
+
+
+GIL_CELL = "sum(range(3 * 10**10))"  # one C call that never lets another Python thread run
+
+
+def test_stop_ends_a_server_whose_cell_holds_the_interpreter(env, repl_db):
+    start(env, repl_db, "--name", "a")
+    pid = pid_of(env, "a")
+    t0 = time.time()
+    r = bw(env, "run", GIL_CELL, "--name", "a", "--wait", "2")
+    assert r.returncode == 3 and "still running" in r.stderr  # finding 3
+    assert time.time() - t0 < 15
+    r = bw(env, "stop", "--name", "a")
+    assert r.returncode == 0 and "killed after 5 s" in r.stdout, r
+    assert wait_dead(pid)  # "stopped" is only printed for a dead process
+    assert bw(env, "run", "1", "--name", "a").returncode == 2
+
+
+def test_stop_during_a_running_cell_ends_it_at_once(env, repl_db):
+    start(env, repl_db, "--name", "a")
+    pid = pid_of(env, "a")
+    bw(env, "run", "import time; time.sleep(60)", "--name", "a", "--wait", "0.3")
+    t0 = time.time()
+    r = bw(env, "stop", "--name", "a")
+    assert r.returncode == 0 and "killed" not in r.stdout
+    assert time.time() - t0 < 4
+    assert wait_dead(pid)
+    assert bw(env, "run", "1").returncode == 2
+
+
+STUBBORN = (
+    "import time\nwhile True:\n    try:\n        time.sleep(0.1)\n    except BaseException:\n        pass"
+)
+
+
+def test_stop_kills_a_cell_that_swallows_the_interrupt(env, repl_db):
+    start(env, repl_db, "--name", "a")
+    pid = pid_of(env, "a")
+    bw(env, "run", STUBBORN, "--name", "a", "--wait", "0.3")
+    t0 = time.time()
+    r = bw(env, "stop", "--name", "a")
+    assert r.returncode == 0
+    assert time.time() - t0 > 4  # the 5 s grace ran out: the server's own timer (or the client) ended it
+    assert wait_dead(pid)
+    assert not (tmpdir_of(env) / "botsworth-repl" / "a.sock").exists()
+
+
+def test_a_normal_stop_is_quick_and_does_not_say_killed(env, repl_db):
+    start(env, repl_db, "--name", "a")
+    bw(env, "run", "1", "--name", "a")
+    t0 = time.time()
+    r = bw(env, "stop", "--name", "a")
+    took = time.time() - t0
+    assert r.returncode == 0 and "killed" not in r.stdout
+    assert took < 3, took  # the client itself starts in about 0.3 s; a 5 s grace timer would show here
+
+
+def test_concurrent_starts_of_one_name_leave_one_live_server(env, repl_db):
+    cmd = [sys.executable, "-m", "botsworth.cli.main", "--db", str(repl_db), "repl", "start", "--tz", "UTC"]
+    procs = []
+    for _ in range(3):
+        procs.append(
+            subprocess.Popen(
+                [*cmd, "--name", "x"], env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+            )
+        )
+        time.sleep(0.03)
+    results = [p.communicate(timeout=T) + (p.returncode,) for p in procs]
+    assert [r[2] for r in results] == [0, 0, 0], results
+    out = bw(env, "status")
+    assert "1 session(s) running" in out.stdout
+    time.sleep(1.0)
+    ps = subprocess.run(["ps", "-ax", "-o", "command="], capture_output=True, text=True).stdout
+    mine = [
+        ln
+        for ln in ps.splitlines()
+        if "botsworth.repl.server" in ln and "--name x" in ln and str(repl_db) in ln
+    ]
+    assert len(mine) == 1, mine  # a losing server ends instead of hiding behind the winner
+    pid = pid_of(env, "x")
+    time.sleep(1.5)  # a losing server must not remove the winner's socket when it ends
+    assert bw(env, "run", "1 + 1", "--name", "x").stdout.strip() == "2"
+    assert pid_of(env, "x") == pid
+    assert (tmpdir_of(env) / "botsworth-repl" / "x.sock").exists()
+    left = [f.name for f in (tmpdir_of(env) / "botsworth-repl").iterdir()]
+    assert left == ["x.sock"], left  # no private bind name is left behind
+
+
+def test_a_late_server_does_not_replace_a_live_socket(env, repl_db):
+    start(env, repl_db, "--name", "a")
+    pid = pid_of(env, "a")
+    r = subprocess.run(
+        [sys.executable, "-m", "botsworth.repl.server", "--db", str(repl_db), "--tz", "UTC", "--name", "a"],
+        env=env, capture_output=True, text=True, timeout=T,
+    )  # fmt: skip
+    assert r.returncode == repl.EXIT_SERVER_TAKEN and "already running" in r.stderr
+    assert bw(env, "run", "5", "--name", "a").stdout.strip() == "5"
+    assert pid_of(env, "a") == pid
+
+
+def test_a_session_survives_when_ps_is_missing(env, repl_db):
+    env = {**env, "PATH": "/nonexistent"}
+    start(env, repl_db, "--name", "a", "--max-rss", "1")
+    r = bw(env, "run", "k = 7; k", "--name", "a")
+    assert r.returncode == 0 and r.stdout.strip() == "7" and "warning" not in r.stdout
+    assert bw(env, "run", "k", "--name", "a").stdout.strip() == "7"  # the session did not die after one cell
+    assert bw(env, "status", "--name", "a").returncode == 0
+
+
+def test_a_server_error_reply_is_not_reported_as_no_session(env):
+    srv = fake_server(env, "e", {"ok": False, "error": "RuntimeError: boom"})
+    for args in (("run", "1"), ("status",), ("interrupt",), ("stop",)):
+        r = bw(env, *args, "--name", "e")
+        assert r.returncode == 3 and "boom" in r.stderr and "state is lost" not in r.stderr, args
+    r = bw(env, "status")  # the listing names the broken session instead of failing
+    assert "error: RuntimeError: boom" in r.stdout
+    srv.close()
+
+
+def test_a_session_that_is_stopping_refuses_a_run_as_exit_2(env):
+    srv = fake_server(env, "s", {"ok": True, "stopping": True})
+    r = bw(env, "run", "1", "--name", "s")
+    assert r.returncode == 2 and "state is lost" in r.stderr
+    srv.close()
+
+
+def test_server_that_dies_while_answering_leaves_no_stale_socket(env, repl_db):
+    start(env, repl_db, "--name", "a")
+    r = bw(env, "run", "import os; os._exit(0)", "--name", "a")
+    assert r.returncode == 2 and "state is lost" in r.stderr
+    assert not (tmpdir_of(env) / "botsworth-repl" / "a.sock").exists()
+
+
+def test_commands_other_than_start_never_exit_5(env):
+    long = tmpdir_of(env) / ("d" * 110)
+    long.mkdir()
+    env = {**env, "TMPDIR": str(long)}
+    for args in (("run", "1"), ("status",), ("interrupt",), ("stop",)):
+        r = bw(env, *args, "--name", "a")
+        assert r.returncode == 2, (args, r.stderr)
+
+
+def test_reload_through_the_session_sees_new_sessions_and_keeps_user_names(env, tmp_path):
+    from repl_store import build_roots, late_session
+
+    from botsworth import pipeline
+    from botsworth.pricing import Pricer
+
+    roots = build_roots(tmp_path / "src")
+    db = tmp_path / "live.sqlite"
+    pipeline.run(list(roots), roots, db=db, pricer=Pricer())
+    start(env, db, "--name", "a")
+    n0 = int(bw(env, "run", "len(sessions)", "--name", "a").stdout)
+    bw(env, "run", "mine = 41", "--name", "a")
+    new_id = late_session(roots["claude_code"])
+    pipeline.run(list(roots), roots, db=db, pricer=Pricer())
+    assert int(bw(env, "run", "len(sessions)", "--name", "a").stdout) == n0  # not yet
+    r = bw(env, "run", "bw.reload()", "--name", "a")
+    assert r.returncode == 0, r.stdout
+    assert int(bw(env, "run", "len(sessions)", "--name", "a").stdout) == n0 + 1
+    assert bw(env, "run", "mine + 1", "--name", "a").stdout.strip() == "42"
+    r = bw(env, "run", f"bw.session({new_id!r}).n_calls", "--name", "a")  # bw itself sees the new frames
+    assert r.returncode == 0 and r.stdout.strip() == "1", r.stdout
+
+
+# ---- server internals the process tests cannot time exactly ----
+def make_server(tmp_path, monkeypatch, idle=20.0):
+    from botsworth.repl import server
+
+    monkeypatch.setenv("TMPDIR", str(tmp_path))
+    a = type("A", (), {"db": "x", "tz": "UTC", "since": None, "until": None, "sessions": None,
+                        "name": "u", "idle": idle, "max_rss": 2000})()  # fmt: skip
+    srv = server.Server(a)
+    srv.ready = True
+    return srv
+
+
+def test_interrupt_of_a_queued_cell_cancels_it(tmp_path, monkeypatch):
+    srv = make_server(tmp_path, monkeypatch)
+    ran = []
+    srv.run_cell = lambda code: ran.append(code) or {"state": "ok", "out": "", "dur_s": 0}
+    got = []
+    t = threading.Thread(target=lambda: got.append(srv.op_run({"code": "1", "wait": 5})))
+    t.start()
+    while srv.busy_since is None:
+        time.sleep(0.01)
+    assert srv.op_interrupt({})["was_busy"] is True  # the main thread has not taken the cell yet
+    t.join(5)
+    assert got[0]["state"] == "interrupted" and srv.busy_since is None
+    srv.jobs.put(None)
+    srv.main_loop()
+    assert ran == []  # the cancelled cell never ran
+
+
+def test_a_stray_keyboard_interrupt_ends_the_cell_not_the_server(tmp_path, monkeypatch):
+    srv = make_server(tmp_path, monkeypatch)
+
+    def boom(code):
+        raise KeyboardInterrupt
+
+    srv.run_cell = boom
+    got = []
+    t = threading.Thread(target=lambda: got.append(srv.op_run({"code": "1", "wait": 5})))
+    t.start()
+    while srv.busy_since is None:
+        time.sleep(0.01)
+    srv.jobs.put(None)
+    srv.main_loop()  # returns normally
+    t.join(5)
+    assert got[0]["state"] == "interrupted" and srv.busy_since is None
+
+
+def test_an_idle_stop_refuses_later_runs(tmp_path, monkeypatch):
+    srv = make_server(tmp_path, monkeypatch, idle=0.0)
+    srv.last_use = time.time() - 5
+    srv.main_loop()  # decides to stop under the lock
+    assert srv.stopping
+    assert srv.op_run({"code": "1", "wait": 1}) == {"ok": True, "stopping": True}
+    assert srv.jobs.empty()  # nothing was queued behind the stop
+
+
+def test_every_exception_while_answering_gets_an_error_reply(tmp_path, monkeypatch):
+    srv = make_server(tmp_path, monkeypatch)
+
+    def boom(req):
+        raise RuntimeError("no ps")
+
+    srv.op_status = boom
+    a, b = socket.socketpair()
+    a.sendall(b'{"op": "status"}\n')
+    srv.handle(b)
+    reply = json.loads(a.recv(65536))
+    assert reply["ok"] is False and "RuntimeError: no ps" in reply["error"]

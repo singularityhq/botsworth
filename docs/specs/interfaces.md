@@ -794,7 +794,7 @@ REPL-1 — Commands. `--db` (global) selects the store as for every command; the
 | `repl run` | `CODE` or `-` (stdin), `--name NAME`, `--wait S` (default 50) | Runs the code in the session namespace. Prints what the code prints, then the repr of its last expression (like IPython). |
 | `repl status` | `--name NAME`, `--last` | Bare: lists every running session with RSS, idle time and state. `--name`: scope, load time, uptime, RSS, idle time, names the user defined, busy or idle with the running time, and how the last cell ended. `--last`: the output of the last cell (for a cell whose `run` exited 3). |
 | `repl interrupt` | `--name NAME` | Raises `KeyboardInterrupt` in the running cell at its next Python step; a long pandas call in C stops when it returns. |
-| `repl stop` | `--name NAME` | Ends the session: interrupt, then kill after 5 s. Returns when the process has ended. |
+| `repl stop` | `--name NAME` | Ends the session: interrupt, then kill after 5 s. Returns when the process has ended. A cell that is queued but not yet started is cancelled. |
 
 `--since` and `--until` are local days (`YYYY-MM-DD`, inclusive, in `--tz`) and limit the sessions to those that started in the range; `--sessions` limits to those ids. They differ from CLI-5's `--since <n>d`.
 A session name is 1–32 letters, digits, `-` or `_`. Without `--name`, `start` makes a short name and prints it.
@@ -809,11 +809,11 @@ REPL-2 — Exit codes. stdout carries the result; one reason line goes to stderr
 | 0 | success |
 | 1 | the cell raised (traceback printed; the namespace keeps every name set before the error), or `status --last` shows a cell that raised |
 | 2 | no session running: "no session running: all session state is lost and must be rebuilt; start one with botsworth repl start" |
-| 3 | the cell is still running after `--wait` (it goes on; output kept for `status --last`), the session is busy with an earlier cell, or it is still loading |
+| 3 | the cell is still running after `--wait` (it goes on; output kept for `status --last`; also when the session cannot answer because the cell holds the interpreter), the session is busy with an earlier cell, it is still loading, or the server answered with an error (the reason is printed) |
 | 4 | `start --name X` with values that differ from running X; or `run`/`status --last`/`interrupt`/`stop` without `--name` while several sessions run (the list is printed) |
-| 5 | `start` could not create the session; the reason is printed (pandas missing, with the install line `pip install 'botsworth[repl]'`; socket folder unusable; the socket could not be bound, e.g. a sandbox forbids it; no store; store of another schema version, with the store's message; unknown session id) |
+| 5 | `start` (only `start`) could not create the session; the reason is printed (pandas missing, with the install line `pip install 'botsworth[repl]'`; socket folder unusable; the socket could not be bound, e.g. a sandbox forbids it; no store; store of another schema version, with the store's message; unknown session id) |
 
-REPL-3 — Process model. `start` launches one detached server (`sys.executable -m botsworth.repl.server`, the interpreter that runs the client). It binds a Unix socket `$TMPDIR/botsworth-repl/<name>.sock` (folder mode 0700, socket mode 0600), opens the store read-only (`mode=ro`), loads the frames, closes the connection and keeps none. The server writes nothing else: no store, no cache, no log. It stops by `stop`, or after `--idle` minutes without a `run` (never during a cell). A cell runs on the server's main thread; `status`, `interrupt` and `stop` are answered by other threads while it runs. `run` waits at most `--wait` seconds; there is no cell time limit, a cell that must end is ended by `interrupt` or `stop`. A client of the Codex default sandbox cannot bind the socket and gets exit 5.
+REPL-3 — Process model. `start` launches one detached server (`sys.executable -m botsworth.repl.server`, the interpreter that runs the client). It binds a Unix socket under a private name in `$TMPDIR/botsworth-repl/`, listens, then hard-links it to `<name>.sock` (folder mode 0700, socket mode 0600), so the name never points at a socket that does not listen yet; if the name exists it connects to it: live means this server ends (exit code 17, a server-process code, not a client code), dead means the file is replaced. On exit it removes `<name>.sock` only when that file is still its own. It opens the store read-only (`mode=ro`), loads the frames, closes the connection and keeps none. The server writes nothing else: no store, no cache, no log. It stops by `stop`, or after `--idle` minutes without a `run` (never during a cell); once it has decided to stop, a `run` is refused (exit 2) instead of queued. A cell runs on the server's main thread; `status`, `interrupt` and `stop` are answered by other threads while it runs. `run` waits at most `--wait` seconds; there is no cell time limit, a cell that must end is ended by `interrupt` or `stop`. A client of the Codex default sandbox cannot bind the socket and gets exit 5.
 
 REPL-4 — Failure behavior.
 
@@ -824,7 +824,13 @@ REPL-4 — Failure behavior.
 | Caller's tool call killed during `run` | the cell continues; its output is kept for `status --last` |
 | Output longer than 20,000 characters | cut, with a line `[output cut: N more characters]`; pandas shows at most 60 rows |
 | Memory above `--max-rss` after a cell | the output ends with a warning naming the biggest frames the user defined; nothing is deleted |
-| Server process died (killed, out of memory) | `run` prints the REPL-2 code 2 message and exits 2; the stale socket file is removed |
+| Server process died (killed, out of memory), also while answering | `run` prints the REPL-2 code 2 message and exits 2; the stale socket file is removed |
+| A command other than `start` finds a socket it cannot use (path too long, wrong type, not permitted) | exit 2, as for no session |
+| Two `start --name X` at once | one server owns `X`; the other server ends at once and its `start` reports the running session as for a repeated `start` (exit 0, or 4 when the values differ). A live socket is never replaced |
+| The server cannot read its memory (no `ps`) | RSS shows as unknown and no memory warning is given; nothing fails |
+| The server fails while answering a request | it answers `{ok: false, error}`, the client prints the error and exits 3, and the session keeps running |
+| `stop` and the server does not answer (a cell holds the interpreter) | the client takes the server's process id from the socket (peer credentials), sends SIGINT, waits 5 s, sends SIGKILL, and prints "stopped" only after the process has ended |
+| `run` and the server does not answer within `--wait` plus 5 s | exit 3 with the "still running" message |
 | Store schema is not the current version | `start` exits 5 with the store's message; nothing loads |
 | `start` cannot bind the socket or use the folder | exit 5 with the reason; no process is left |
 | Server idle for `--idle` minutes | the process ends and removes its socket; the next `run` exits 2 |
@@ -1054,7 +1060,7 @@ REPL-6 — Helpers (`bw`). Each returns a DataFrame or a small record and never 
 | `bw.prev(frame=None)` | the rows of `frame` (default `calls`) plus `prev_call_id`, `prev_model`, `prev_effect`, `prev_gap_ms` of the previous call in the same thread (by `thread_pos`); NULL for the first |
 | `bw.first_after(event_kind, frame=None)` | the first call of `frame` (default `calls`) that starts after an event of that kind in the same thread, each call once, plus `event_id` and `event_ts_ms` of the earliest such event |
 | `bw.cache_writes(frame=None)` | the calls of `frame` (default `calls`) with cache written and none read (read 0 or NULL), plus `first_in_thread` (`thread_pos` = 1) |
-| `bw.what_if(frame, model, where=None)` | the rows of `frame` plus `new_cost_usd`, `delta_usd` (`new_cost_usd − cost_usd`) and `repriced`: the same tokens priced at `model` through `botsworth.pricing.Pricer`. A row with no price for `model` at its provider, or `where` False, keeps its cost (`repriced` False) |
+| `bw.what_if(frame, model, where=None)` | the rows of `frame` plus `new_cost_usd`, `delta_usd` (`new_cost_usd − cost_usd`) and `repriced`: the same tokens priced at `model` through `botsworth.pricing.Pricer`. A row with no price for `model` at its provider, or `where` False, keeps its cost (`repriced` False). `ValueError` naming the model when no provider prices it at all (a misspelt name) |
 | `bw.text(src, part=None, max_bytes=4000)` | the source text behind a `src://` pointer (a `src` column), read on demand through `pointer.resolve` |
 | `bw.reload()` | reloads the frames from the store after an ingest; names the user defined stay (they are not recomputed) |
 

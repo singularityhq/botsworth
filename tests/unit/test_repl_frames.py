@@ -271,3 +271,54 @@ def test_load_does_not_write_the_store(repl_db):
     for name in frames.NAMES:
         getattr(f, name)
     assert (path.stat().st_mtime_ns, path.stat().st_size) == before
+
+
+def test_events_frame_has_rows_and_its_integer_columns_are_int64(fr):
+    ev = fr.events
+    comp = ev[ev.kind == "compaction"]
+    assert len(comp) == 1
+    row = comp.iloc[0]
+    assert (row.pre_tokens, row.post_tokens, row.duration_ms, row.trigger) == (10000, 3000, 900, "auto")
+    for col in ("pre_tokens", "post_tokens", "duration_ms", "ts_ms"):
+        assert str(ev[col].dtype) == "Int64", col
+    assert str(ev.is_main.dtype) == "boolean"
+    assert ev.event_id.is_unique
+
+
+@pytest.mark.parametrize(
+    ("zone", "before", "after"),
+    [
+        # America/New_York: clocks go 02:00 EST -> 03:00 EDT on 2026-03-08 (07:00 UTC)
+        ("America/New_York", "2026-03-08T06:59:00Z", "2026-03-08T07:01:00Z"),
+        # Australia/Lord_Howe: a 30-minute shift, 02:00 LHDT -> 01:30 LHST on 2026-04-05 (15:00 UTC)
+        ("Australia/Lord_Howe", "2026-04-04T14:59:00Z", "2026-04-04T15:01:00Z"),
+        ("Australia/Lord_Howe", "2026-04-04T15:29:00Z", "2026-04-04T15:31:00Z"),
+        ("Australia/Lord_Howe", "2026-10-03T15:29:00Z", "2026-10-03T15:31:00Z"),
+    ],
+)
+def test_local_day_and_hour_across_a_dst_change(zone, before, after):
+    from datetime import UTC, datetime
+    from zoneinfo import ZoneInfo
+
+    def ms(iso):
+        return int(datetime.fromisoformat(iso.replace("Z", "+00:00")).astimezone(UTC).timestamp() * 1000)
+
+    df = pd.DataFrame({"start_ms": pd.array([ms(before), ms(after)], dtype="Int64")})
+    out = frames._local(df, "start_ms", zone)
+    for i, iso in enumerate((before, after)):
+        local = datetime.fromtimestamp(ms(iso) / 1000, ZoneInfo(zone))
+        assert (out.local_day[i], out.local_hour[i]) == (local.strftime("%Y-%m-%d"), local.hour), (zone, iso)
+
+
+def test_a_session_with_no_time_split_rows_has_zero_state_times(repl_db, tmp_path):
+    db = tmp_path / "s.sqlite"
+    shutil.copy(repl_db, db)
+    con = sqlite3.connect(db)
+    victim = con.execute("SELECT session_id, op_rowid FROM sessions ORDER BY session_id LIMIT 1").fetchone()
+    con.execute("DELETE FROM time_split WHERE scope='session' AND op_rowid = ?", (victim[1],))
+    con.commit()
+    con.close()
+    s = frames.load(db, TZ).sessions.set_index("session_id")
+    for state in frames.STATES:
+        assert s.loc[victim[0], f"{state}_ms"] == 0, state
+        assert str(s[f"{state}_ms"].dtype) == "Int64"

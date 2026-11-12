@@ -18,7 +18,9 @@ GUARANTEES:
   without
   `--name` use the only running session, or exit 4 listing them.
 - A socket file with no server behind it is removed, and the command exits 2 with the "state is lost" message.
-- `stop` returns after the process has ended: it asks, waits 5 s, then kills.
+- `stop` returns after the process has ended: it asks, waits 5 s, then kills. A server that does not answer is
+  reached by its process id from the socket's peer credentials (SIGINT, 5 s, SIGKILL); "stopped" prints only
+  for a dead process. A command other than `start` that finds an unusable socket exits 2.
 EXPECTS: pandas importable by the interpreter that runs the client (`start` checks and prints the install
   line).
 FAILURE BEHAVIOR: `start` prints the reason and exits 5 for: pandas missing, socket folder not usable, server
@@ -30,12 +32,14 @@ DOES NOT: read the store, keep state between invocations, or write any file (the
 
 from __future__ import annotations
 
+import contextlib
 import importlib.util
 import json
 import os
 import secrets
 import signal
 import socket
+import struct
 import subprocess
 import sys
 import time
@@ -59,22 +63,66 @@ class Exit(Exception):
         self.message = message
 
 
-def call(name: str, req: dict, timeout: float = ANSWER_S) -> dict | None:
-    """One request. None when no server answers (a stale socket is removed); `unresponsive` on a timeout."""
+def peer_pid(s: socket.socket) -> int | None:
+    """Pid of the process at the other end of a connected Unix socket, or None where the OS cannot say."""
+    try:
+        if sys.platform == "darwin":
+            return int.from_bytes(s.getsockopt(0, 0x002, 4), sys.byteorder)  # SOL_LOCAL, LOCAL_PEERPID
+        data = s.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, struct.calcsize("3i"))
+        return struct.unpack("3i", data)[0]
+    except (OSError, AttributeError):
+        return None  # FALLBACK-OK: REPL-4 an OS without a peer-pid option: `stop` cannot reach a stuck server
+
+
+def drop_if_dead(path: Path, ino: int | None = None) -> None:
+    """Remove `path` if nothing listens on it (and, when `ino` is given, it is still that file)."""
+    c = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    c.settimeout(2)
+    try:
+        c.connect(str(path))
+    except (ConnectionRefusedError, FileNotFoundError):
+        try:
+            if ino is None or os.stat(path).st_ino == ino:
+                path.unlink()
+        except FileNotFoundError:
+            pass  # FALLBACK-OK: REPL-4 already removed
+    except OSError:
+        pass  # FALLBACK-OK: REPL-4 an odd or busy socket is left alone
+    finally:
+        c.close()
+
+
+def call(name: str, req: dict, timeout: float = ANSWER_S, start: bool = False) -> dict | None:
+    """One request. None when no server answers (a stale socket is removed); `unresponsive` on a timeout.
+
+    A socket that cannot be used at all is exit 5 for `start` and "no session" for every other command.
+    """
     path = repl.sock_path(name)
     s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     s.settimeout(timeout)
     try:
+        ino = os.stat(path).st_ino
+    except FileNotFoundError:
+        s.close()
+        return None  # FALLBACK-OK: REPL-4 no socket file: no session
+    except OSError:
+        ino = None
+    try:
         s.connect(str(path))
     except (FileNotFoundError, ConnectionRefusedError):
         # FALLBACK-OK: REPL-4 no server behind the socket: remove a stale file, report "no session"
-        path.unlink(missing_ok=True)
+        s.close()
+        drop_if_dead(path, ino)
         return None
     except TimeoutError:
         s.close()
         return {"ok": False, "unresponsive": True}  # FALLBACK-OK: REPL-4 a server stuck in a long call
     except OSError as e:
-        raise Exit(repl.EXIT_START_FAILED, f"cannot use the session socket {path}: {e}") from None
+        s.close()
+        if start:
+            raise Exit(repl.EXIT_START_FAILED, f"cannot use the session socket {path}: {e}") from None
+        return None  # FALLBACK-OK: REPL-2 no usable socket under this name is no session
+    pid = peer_pid(s)
     try:
         with s:
             s.sendall(json.dumps(req).encode() + b"\n")
@@ -82,11 +130,28 @@ def call(name: str, req: dict, timeout: float = ANSWER_S) -> dict | None:
             while not data.endswith(b"\n"):
                 chunk = s.recv(1 << 20)
                 if not chunk:
+                    drop_if_dead(path, ino)
                     return None  # FALLBACK-OK: REPL-4 the server ended while answering
                 data += chunk
     except TimeoutError:
-        return {"ok": False, "unresponsive": True}  # FALLBACK-OK: REPL-4 a server stuck in a long call
+        return {"ok": False, "unresponsive": True, "pid": pid}  # FALLBACK-OK: REPL-4 a server stuck in a call
+    except OSError:
+        drop_if_dead(path, ino)
+        return None  # FALLBACK-OK: REPL-4 the server went away while answering
     return json.loads(data)
+
+
+def broken(st: dict) -> bool:
+    """The reply is not a status: the server did not answer in time, or reported an error."""
+    return bool(st.get("unresponsive")) or st.get("ok") is False
+
+
+def failed(name: str, r: dict) -> Exit:
+    if r.get("unresponsive"):
+        return Exit(
+            repl.EXIT_BUSY, f"session {name} does not answer; a cell may be stuck in a long call (see `stop`)"
+        )
+    return Exit(repl.EXIT_BUSY, f"session {name} reported an error: {r.get('error', 'unknown')}")
 
 
 def live() -> list[tuple[str, dict]]:
@@ -100,14 +165,20 @@ def live() -> list[tuple[str, dict]]:
     return out
 
 
+def mb(v: int | None) -> str:
+    return "unknown" if v is None else f"{v} MB"
+
+
 def list_line(name: str, st: dict) -> str:
+    if st.get("ok") is False and not st.get("unresponsive"):
+        return f"  {name}: error: {st.get('error', 'unknown')}"
     if st.get("unresponsive"):
         return f"  {name}: unresponsive (stuck in a long call; `botsworth repl stop --name {name}` ends it)"
     p = st["params"]
     state = (
         "loading" if not st["ready"] else (f"busy {st['busy_s']} s" if st["busy_s"] is not None else "idle")
     )
-    return f"  {name}: RSS {st['rss_mb']} MB, {state}, idle {st['idle_s']} s, tz {p['tz']}, store {p['db']}"
+    return f"  {name}: RSS {mb(st['rss_mb'])}, {state}, idle {st['idle_s']} s, tz {p['tz']}, store {p['db']}"
 
 
 def print_sessions(sessions: list[tuple[str, dict]]) -> None:
@@ -134,11 +205,11 @@ def show_status(name: str, st: dict) -> None:
     scope = f"since={p['since']} until={p['until']} sessions={p['sessions']}"
     print(f"session {name}: pid {st['pid']}  store {p['db']}  tz {p['tz']}  {scope}")
     if not st["ready"]:
-        print(f"  loading the frames; uptime {st['uptime_s']} s; RSS {st['rss_mb']} MB")
+        print(f"  loading the frames; uptime {st['uptime_s']} s; RSS {mb(st['rss_mb'])}")
         return
     print(
         f"  loaded in {st['load_s']} s wall / {st['load_cpu_s']} s CPU; uptime {st['uptime_s']} s; "
-        f"RSS {st['rss_mb']} MB; idle {st['idle_s']} s"
+        f"RSS {mb(st['rss_mb'])}; idle {st['idle_s']} s"
     )
     print("  frames: " + ", ".join(f"{k} {v}" for k, v in st["rows"].items()))
     print(f"  your names: {', '.join(st['user_names']) or '(none)'}")
@@ -157,16 +228,24 @@ def wanted(db: str, tz: str, since: str | None, until: str | None, sessions: lis
     }
 
 
+class Taken(Exception):
+    """The server this `start` launched found a live server on the same name (a concurrent `start`)."""
+
+
 def wait_ready(name: str, proc: subprocess.Popen | None) -> dict:
     deadline = time.time() + LOAD_WAIT_S
     while time.time() < deadline:
         if proc is not None and proc.poll() is not None:
+            if proc.returncode == repl.EXIT_SERVER_TAKEN:
+                raise Taken
             err = proc.stderr.read().decode().strip().splitlines() if proc.stderr else []
             reason = err[-1].removeprefix("error: ") if err else f"the server exited with {proc.returncode}"
             raise Exit(repl.EXIT_START_FAILED, f"start failed: {reason}")
-        st = call(name, {"op": "status"})
+        st = call(name, {"op": "status"}, start=True)
         if st is not None and st.get("ready"):
             return st
+        if st is not None and st.get("ok") is False and not st.get("unresponsive"):
+            raise Exit(repl.EXIT_START_FAILED, f"start failed: {st.get('error')}")
         time.sleep(0.1)
     raise Exit(
         repl.EXIT_START_FAILED,
@@ -199,55 +278,65 @@ def start(
         raise Exit(
             repl.EXIT_START_FAILED, f"start failed: cannot use the socket folder {folder}: {e}"
         ) from None
-    running = live()
-    if running:
-        print_sessions(running)
-    name = name or secrets.token_hex(3)
     want = wanted(db, tz, since, until, sessions)
-    same = dict(running).get(name)
-    if same is not None:
-        if same.get("unresponsive"):
-            raise Exit(repl.EXIT_CHOICE, f"session {name} runs but does not answer; stop it first")
-        diff = [
-            f"{k}: running {same['params'][k]!r}, asked {v!r}"
-            for k, v in want.items()
-            if same["params"][k] != v
-        ]
-        if diff:
-            raise Exit(repl.EXIT_CHOICE, f"session {name} runs with different parameters: " + "; ".join(diff))
-        show_status(name, wait_ready(name, None))
+    name = name or secrets.token_hex(3)
+    for attempt in range(3):
+        running = live()
+        if attempt == 0 and running:
+            print_sessions(running)
+        same = dict(running).get(name)
+        if same is not None:
+            if broken(same):
+                raise Exit(repl.EXIT_CHOICE, f"session {name} runs but does not answer; stop it first")
+            diff = [
+                f"{k}: running {same['params'][k]!r}, asked {v!r}"
+                for k, v in want.items()
+                if same["params"][k] != v
+            ]
+            if diff:
+                raise Exit(
+                    repl.EXIT_CHOICE, f"session {name} runs with different parameters: " + "; ".join(diff)
+                )
+            show_status(name, wait_ready(name, None))
+            return repl.EXIT_OK
+        cmd = [sys.executable, "-m", "botsworth.repl.server", "--db", db, "--tz", tz, "--name", name,
+               "--idle", str(idle), "--max-rss", str(max_rss)]  # fmt: skip
+        for opt, value in (("since", since), ("until", until)):
+            if value:
+                cmd += [f"--{opt}", value]
+        if sessions:
+            cmd += ["--sessions", *sessions]
+        proc = subprocess.Popen(
+            cmd,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            start_new_session=True,
+        )
+        try:
+            st = wait_ready(name, proc)
+        except Taken:
+            continue  # FALLBACK-OK: REPL-4 a concurrent start won the name: report it as a running session
+        show_status(name, st)
+        print(f"use it with: botsworth repl run --name {name} '<python>'   (bw.help() lists the helpers)")
+        print(st["banner"])
         return repl.EXIT_OK
-    cmd = [sys.executable, "-m", "botsworth.repl.server", "--db", db, "--tz", tz, "--name", name,
-           "--idle", str(idle), "--max-rss", str(max_rss)]  # fmt: skip
-    for opt, value in (("since", since), ("until", until)):
-        if value:
-            cmd += [f"--{opt}", value]
-    if sessions:
-        cmd += ["--sessions", *sessions]
-    proc = subprocess.Popen(
-        cmd,
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.PIPE,
-        start_new_session=True,
-    )
-    st = wait_ready(name, proc)
-    show_status(name, st)
-    print(f"use it with: botsworth repl run --name {name} '<python>'   (bw.help() lists the helpers)")
-    print(st["banner"])
-    return repl.EXIT_OK
+    raise Exit(repl.EXIT_START_FAILED, f"start failed: session {name} keeps appearing and ending")
 
 
 def run(code: str, name: str | None = None, wait: float = 50) -> int:
     name = pick(name)
-    r = call(name, {"op": "run", "code": code, "wait": wait}, timeout=wait + 30)
-    if r is None:
+    r = call(name, {"op": "run", "code": code, "wait": wait}, timeout=wait + ANSWER_S)
+    if r is None or r.get("stopping"):
         raise Exit(repl.EXIT_NO_SESSION, repl.NO_SESSION)
     if r.get("unresponsive"):
         raise Exit(
             repl.EXIT_BUSY,
-            f"session {name} does not answer; a cell may be stuck in a long call (see `status`)",
+            f"cell still running after {wait:g} s (the session does not answer: the cell holds the "
+            f"interpreter). It continues; `stop --name {name}` ends the session.",
         )
+    if r.get("ok") is False:
+        raise failed(name, r)
     if r.get("loading"):
         raise Exit(repl.EXIT_BUSY, f"session {name} is still loading the frames; run again in a few seconds")
     if r.get("busy"):
@@ -275,15 +364,15 @@ def status(name: str | None = None, last: bool = False) -> int:
         if not sessions:
             raise Exit(repl.EXIT_NO_SESSION, repl.NO_SESSION)
         print_sessions(sessions)
-        if len(sessions) == 1 and not sessions[0][1].get("unresponsive"):
+        if len(sessions) == 1 and not broken(sessions[0][1]):
             show_status(*sessions[0])
         return repl.EXIT_OK
     name = pick(name)
     st = call(name, {"op": "status", "last": last})
     if st is None:
         raise Exit(repl.EXIT_NO_SESSION, repl.NO_SESSION)
-    if st.get("unresponsive"):
-        raise Exit(repl.EXIT_BUSY, f"session {name} does not answer; a cell may be stuck in a long call")
+    if broken(st):
+        raise failed(name, st)
     if not last:
         show_status(name, st)
         return repl.EXIT_OK
@@ -301,6 +390,8 @@ def interrupt(name: str | None = None) -> int:
     r = call(name, {"op": "interrupt"})
     if r is None:
         raise Exit(repl.EXIT_NO_SESSION, repl.NO_SESSION)
+    if broken(r):
+        raise failed(name, r)
     print("interrupt sent to the running cell" if r.get("was_busy") else "no cell is running")
     return repl.EXIT_OK
 
@@ -310,14 +401,32 @@ def stop(name: str | None = None) -> int:
     r = call(name, {"op": "stop"})
     if r is None:
         raise Exit(repl.EXIT_NO_SESSION, repl.NO_SESSION)
+    unresponsive = bool(r.get("unresponsive"))
+    if not unresponsive and r.get("ok") is False:
+        raise failed(name, r)
     pid = r.get("pid")
+    if pid is None:
+        raise Exit(
+            repl.EXIT_BUSY,
+            f"session {name} does not answer and its process id is unknown: it was not stopped",
+        )
+    if unresponsive:
+        os.kill(
+            pid, signal.SIGINT
+        )  # the server may be stuck in a long call; this is what `stop` asks of a cell
     deadline = time.time() + STOP_GRACE_S
-    while pid is not None and alive(pid) and time.time() < deadline:
+    while alive(pid) and time.time() < deadline:
         time.sleep(0.05)
     killed = False
-    if pid is not None and alive(pid):
-        os.kill(pid, signal.SIGKILL)
+    if alive(pid):
+        with contextlib.suppress(ProcessLookupError):
+            os.kill(pid, signal.SIGKILL)
         killed = True
+        end = time.time() + 5
+        while alive(pid) and time.time() < end:
+            time.sleep(0.05)
+        if alive(pid):
+            raise Exit(repl.EXIT_BUSY, f"session {name} (pid {pid}) did not end after SIGKILL")
         repl.sock_path(name).unlink(missing_ok=True)
     print(f"session {name} stopped" + (" (killed after 5 s)" if killed else ""))
     return repl.EXIT_OK
