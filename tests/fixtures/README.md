@@ -5,3 +5,5 @@ canonical stream must reproduce, with a `note`. Adapter-level facts (tokens, cos
 hints) are asserted by `tests/unit/test_adapter_claude.py`; F3 interval metrics, F5 unique cost and
 F6 lower-bound ancestors are store results, computed in that test from the emitted leaves and listed
 here so the store's tests can assert the same numbers after loading the adapter output.
+
+`E1/` (effect, DM-28): one synthetic session per provider (`claude/`, `codex/`, `omp/`, one catalog `prices.json`) with 7 llm_calls and 12 tool_calls each, covering every effect: `look`, `change`, `run`, `test`, `wait`, `message`, `unknown`. Read through the real adapters and `pipeline.run` by `tests/unit/test_effect.py`, which asserts the per-provider effect counts. The same counts hold for all three providers.

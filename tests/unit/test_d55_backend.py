@@ -3,7 +3,7 @@
 
 DM-27 (peer and coordinator turns), DM-41 (background runs and notices), DM-29 (counts from output), DM-50
 (background and stalled time through load), DM-52 (stretches), CLI-20 / CLI-21 `test_runs`, CLI-22
-`command_class`. Every record is synthetic and written to tmp_path."""
+`effect`. Every record is synthetic and written to tmp_path."""
 
 from __future__ import annotations
 
@@ -435,12 +435,12 @@ def test_counts_come_from_stdout_and_stderr_then_the_result_text(tmp_path):
         at(assistant("r2", 3), 3),
     ]
     b = build(tmp_path, rows)
-    got = {tail(o.op_id): (o.command_class, o.tests_passed, o.tests_failed) for o in ops(b, "tool_call")}
+    got = {tail(o.op_id): (o.effect, o.tests_passed, o.tests_failed) for o in ops(b, "tool_call")}
     assert got == {
         "a": ("test", 540, 0),
         "b": ("test", 540, 5),
         "c": ("test", None, None),  # the summary line was cut off by `tail -1`
-        "d": (None, None, None),  # not a test run: no counts, even if the output looks like one
+        "d": ("look", None, None),  # not a test run: no counts, even if the output looks like one
         "e": ("test", 984, 2),
     }
     stream.validate(b)
@@ -475,13 +475,11 @@ def test_only_counts_are_stored_not_the_output_text(tmp_path):
                 ]
                 == 0
             )
-    row = conn.execute(
-        "SELECT tests_passed, tests_failed, command_class FROM ops WHERE kind='tool_call'"
-    ).fetchone()
+    row = conn.execute("SELECT tests_passed, tests_failed, effect FROM ops WHERE kind='tool_call'").fetchone()
     assert tuple(row) == (5, 0, "test")
 
 
-def test_command_class_is_computed_from_the_full_command_before_clipping(tmp_path):
+def test_effect_is_computed_from_the_full_command_before_clipping(tmp_path):
     long = "echo " + "x" * 3000 + " && pytest"
     rows = [
         at(user("u0", 0, "t"), 0),
@@ -491,9 +489,9 @@ def test_command_class_is_computed_from_the_full_command_before_clipping(tmp_pat
     ]
     b = build(tmp_path, rows)
     (call,) = ops(b, "tool_call")
-    assert len(call.command) == 2048 and call.command_class == "test"
+    assert len(call.command) == 2048 and call.effect == "test"
     conn = loaded(tmp_path, b)
-    assert conn.execute("SELECT command_class FROM ops WHERE kind='tool_call'").fetchone()[0] == "test"
+    assert conn.execute("SELECT effect FROM ops WHERE kind='tool_call'").fetchone()[0] == "test"
 
 
 def test_stream_rejects_misplaced_d55_fields(tmp_path):
@@ -503,16 +501,16 @@ def test_stream_rejects_misplaced_d55_fields(tmp_path):
     bg = next(o for o in b.ops if o.kind == "tool_call" and tail(o.op_id) == "bg1")
     fg = next(o for o in b.ops if o.kind == "tool_call" and tail(o.op_id) == "fg1")
     assert stream.defects(b) == []
-    turn.command_class = "test"  # a turn is no shell call
+    turn.effect = "test"  # a turn is no shell call
     llm.bg_end_ms = 1  # nor a call that ran in the background
-    bg.command_class, bg.tests_passed, bg.tests_failed = None, 1, 0  # counts need command_class test
+    bg.effect, bg.tests_passed, bg.tests_failed = None, 1, 0  # counts need effect test
     fg.tests_failed = None  # and both numbers
     found = {(d.kind, tail(d.ref)) for d in stream.defects(b)}
     assert found == {("kind_field", n) for n in (tail(turn.op_id), tail(llm.op_id), "bg1", "fg1")}
-    turn.command_class, llm.bg_end_ms = None, None
+    turn.effect, llm.bg_end_ms = None, None
     bg.tests_passed = bg.tests_failed = None
     fg.tests_failed = 5
-    fg.command_class = "other"
+    fg.effect = "other"
     assert {(d.kind, tail(d.ref)) for d in stream.defects(b)} == {("bad_enum", "fg1"), ("kind_field", "fg1")}
 
 
@@ -521,7 +519,7 @@ def test_stream_round_trips_the_d55_fields(tmp_path):
     path = stream.write_bundle(b, tmp_path / "out")
     again = stream.read_bundle(path)
     pick = lambda x: {  # noqa: E731
-        tail(o.op_id): (o.command_class, o.bg_end_ms, o.tests_passed, o.tests_failed)
+        tail(o.op_id): (o.effect, o.bg_end_ms, o.tests_passed, o.tests_failed)
         for o in x.ops
         if o.kind == "tool_call"
     }
@@ -582,8 +580,8 @@ def test_slow_time_split_has_the_new_parts_in_wire_order(conn):
     assert sum(p.ms for p in r.current.time_split.parts) == r.current.wall_ms
 
 
-def test_tasks_by_command_class(conn):
-    t = U.top_tasks(only(conn), "command_class", "count", n=10, db=conn)
+def test_tasks_by_effect(conn):
+    t = U.top_tasks(only(conn), "effect", "count", n=10, db=conn)
     assert t.basis == "issuing_call_split"
     assert [(g.key, g.n) for g in t.groups] == [("test", 2)]
     g = t.groups[0]
@@ -591,7 +589,7 @@ def test_tasks_by_command_class(conn):
     assert g.example.session == t.groups[0].example.session
 
 
-def test_tasks_by_command_class_skips_calls_without_a_class(tmp_path):
+def test_tasks_by_effect_groups_every_tool_call(tmp_path):
     rows = [
         at(user("u0", 0, "t"), 0),
         at(
@@ -609,8 +607,8 @@ def test_tasks_by_command_class_skips_calls_without_a_class(tmp_path):
         at(assistant("r2", 3), 3),
     ]
     c = loaded(tmp_path, build(tmp_path, rows))
-    t = U.top_tasks(Scope(q="s1"), "command_class", "count", n=10, db=c)
-    assert sorted((g.key, g.n) for g in t.groups) == [("test", 1), ("wait", 1)]
+    t = U.top_tasks(Scope(q="s1"), "effect", "count", n=10, db=c)
+    assert sorted((g.key, g.n) for g in t.groups) == [("look", 1), ("test", 1), ("wait", 1)]
 
 
 def test_tasks_still_rejects_an_unknown_key(conn):
@@ -626,7 +624,7 @@ def test_test_runs_of_a_session_without_tests_are_zero(tmp_path):
     )
 
 
-def test_cli_prints_test_runs_and_command_class_groups(tmp_path, capsys):
+def test_cli_prints_test_runs_and_effect_groups(tmp_path, capsys):
     from botsworth.cli import main as cli
 
     loaded(tmp_path, build(tmp_path, background_session())).close()
@@ -640,7 +638,7 @@ def test_cli_prints_test_runs_and_command_class_groups(tmp_path, capsys):
     for out in (run("slow", "--no-compare"), run("breakdown", "claude_code/s1/session/-")):
         assert {k: v for k, v in out["test_runs"].items() if k != "run_ms_h"} == want
         assert out["test_runs"]["run_ms_h"] == "11m 00s"
-    groups = run("tasks", "--by", "command_class", "--measure", "count")
+    groups = run("tasks", "--by", "effect", "--measure", "count")
     assert (groups["basis"], [(g["key"], g["n"]) for g in groups["groups"]]) == (
         "issuing_call_split",
         [("test", 2)],
@@ -662,7 +660,7 @@ def test_help_epilog_names_test_runs_and_the_new_substates(capsys):
 # ---- Codex and omp (DM-28 on both; DM-29 where the output text is reachable) ---------------------------
 
 
-def test_codex_shell_calls_carry_command_class_and_counts(tmp_path, pricer):
+def test_codex_shell_calls_carry_effect_and_counts(tmp_path, pricer):
     from test_adapter_codex import SID, L, call, kind, meta, one, tc, u
 
     def run(n, cmd, output):
@@ -675,7 +673,7 @@ def test_codex_shell_calls_carry_command_class_and_counts(tmp_path, pricer):
             L(6, {"type": "task_complete", "turn_id": "t"}),
         ]
         (op,) = kind(one(tmp_path / str(n), pricer, lines), "tool_call")
-        return op.command_class, op.tests_passed, op.tests_failed
+        return op.effect, op.tests_passed, op.tests_failed
 
     assert run(1, "cd /r && uv run pytest -q", "Output:\n3 failed, 540 passed, 2 errors in 410.2s") == (
         "test",
@@ -684,10 +682,10 @@ def test_codex_shell_calls_carry_command_class_and_counts(tmp_path, pricer):
     )
     assert run(2, "uv run pytest -q | tail -1", "Output:\n.... [100%]") == ("test", None, None)
     assert run(3, "sleep 30", "Output:\n") == ("wait", None, None)
-    assert run(4, "git status", "Output:\n540 passed in 1.0s") == (None, None, None)
+    assert run(4, "git status", "Output:\n540 passed in 1.0s") == ("look", None, None)
 
 
-def test_codex_end_event_fallback_sets_command_class(tmp_path, pricer):
+def test_codex_end_event_fallback_sets_effect(tmp_path, pricer):
     from test_adapter_codex import SID, L, kind, meta, one, tc, u
 
     lines = [
@@ -714,10 +712,10 @@ def test_codex_end_event_fallback_sets_command_class(tmp_path, pricer):
         L(6, {"type": "task_complete", "turn_id": "t"}),
     ]
     (op,) = kind(one(tmp_path, pricer, lines), "tool_call")
-    assert (op.command_key, op.command_class) == ("timeout 60", "test")  # the key is the first program, D17
+    assert (op.command_key, op.effect) == ("timeout 60", "test")  # the key is the first program, D17
 
 
-def test_omp_bash_calls_carry_command_class_and_counts(tmp_path):
+def test_omp_bash_calls_carry_effect_and_counts(tmp_path):
     from test_adapter_omp import T, assistant, kind, result, start, user
     from test_adapter_omp import build as omp_build
 
@@ -732,9 +730,9 @@ def test_omp_bash_calls_carry_command_class_and_counts(tmp_path):
         ]
         b = omp_build(tmp_path / str(n), rows)
         op = next(o for o in kind(b, "tool_call") if o.tool_name == "bash")
-        return op.command_class, op.tests_passed, op.tests_failed
+        return op.effect, op.tests_passed, op.tests_failed
 
     assert run(1, "cd /proj && uv run pytest -q", "1 failed, 9 passed in 2.00s") == ("test", 9, 1)
     assert run(2, "bun test | tail -1", "no summary") == ("test", None, None)
     assert run(3, "sleep 2", "") == ("wait", None, None)
-    assert run(4, "ls", "9 passed in 2.00s") == (None, None, None)
+    assert run(4, "ls", "9 passed in 2.00s") == ("look", None, None)

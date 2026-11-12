@@ -21,7 +21,7 @@ GUARANTEES:
   SES-15 order (`timesplit.ordered`). `stored_split(conn, root_rowid, scope)` reads the root's `time_split`
   rows of one scope (DM-51, DM-53) as `{op_rowid: {(state, substate): ms}}`; an op with no row is absent.
   `session_parts(conn, roots)` reads the scope `session` rows of many sessions at once, by session op rowid.
-- `test_runs(conn, roots)` (CLI-20 `test_runs`, D55) counts the owned tool_calls with `command_class` test of
+- `test_runs(conn, roots)` (CLI-20 `test_runs`, D55) counts the owned tool_calls with `effect` test of
   `roots`; `run_ms` runs to `bg_end_ms` for a background run, else `dur_ms`. `slow`, `breakdown` and the
   Review (QRY-42) all use it, so their blocks are equal.
 EXPECTS: a connection from `botsworth.query._conn` (schema v13) with `row_factory = sqlite3.Row`.
@@ -156,7 +156,7 @@ def session_parts(conn: sqlite3.Connection, roots: Sequence[int]) -> Parts:
 
 
 def test_runs(conn: sqlite3.Connection, roots: Sequence[int]) -> wire.TestRuns:
-    """CLI-20 `test_runs` (D55): owned tool_calls with `command_class = 'test'` of `roots`."""
+    """CLI-20 `test_runs` (D55): owned tool_calls with `effect = 'test'` of `roots`."""
     r = conn.execute(
         "SELECT COUNT(*) AS n,"
         " COALESCE(SUM(CASE WHEN bg_end_ms IS NOT NULL THEN bg_end_ms - start_ms ELSE dur_ms END), 0)"
@@ -164,7 +164,7 @@ def test_runs(conn: sqlite3.Connection, roots: Sequence[int]) -> wire.TestRuns:
         " COALESCE(SUM(tests_failed > 0), 0) AS n_failed, COALESCE(SUM(tests_failed = 0), 0) AS n_passed,"
         " COALESCE(SUM(tests_passed IS NULL AND tests_failed IS NULL), 0) AS n_no_result,"
         " COALESCE(SUM(bg_end_ms IS NOT NULL), 0) AS n_background"
-        " FROM ops WHERE kind = 'tool_call' AND duplicate_of IS NULL AND command_class = 'test'"
+        " FROM ops WHERE kind = 'tool_call' AND duplicate_of IS NULL AND effect = 'test'"
         f" AND root_rowid IN {_IDS}",
         {"ids": json.dumps(list(roots))},
     ).fetchone()

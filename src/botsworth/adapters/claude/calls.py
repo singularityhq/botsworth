@@ -26,8 +26,9 @@ GUARANTEES:
   (`derived`).
 - Every leaf carries `agent_id`, `agent_type`, `spawn_depth`, `is_fork`,
   `occ_key`, `src` (lines first..last; `h` on single-line pointers).
-- D55 on Bash calls: `command_class` (DM-28) from the full command; for `test`, `tests_passed` and
-  `tests_failed` (DM-29) from `toolUseResult.stdout` and `stderr`, else the tool_result text, never stored;
+- D55: every tool call carries `effect` (DM-28; a Bash call from the full command); for `test`,
+  `tests_passed` and `tests_failed` (DM-29) from `toolUseResult.stdout` and `stderr`, else the tool_result
+  text, never stored;
   An llm_call whose nearest earlier non-assistant line is a task-notification attachment starts at the
   group's first line (the attachment's timestamp is the queue time, not the time the thread reached it).
   `bg_end_ms` (DM-41) when the result has a `backgroundTaskId`: the earliest queue time of a notice of
@@ -57,10 +58,11 @@ from typing import Any
 from botsworth.adapters.claude import notices, records
 from botsworth.adapters.claude.records import Line, message, ts_ms
 from botsworth.adapters.claude.tree import ACCOUNT, PROVIDER, Ctx, Send, Tree
-from botsworth.adapters.common.commands import command_class, command_key, command_norm, count_tests
+from botsworth.adapters.common.commands import command_key, command_norm, count_tests
 from botsworth.adapters.common.links import body_hash
+from botsworth.adapters.common.taxonomy import effect_of, verb_of
 from botsworth.adapters.common.turns import envelope_body
-from botsworth.model import ARGS_JSON_MAX, CostBasis, IdProv, Kind, Op, Prov, Role
+from botsworth.model import ARGS_JSON_MAX, CostBasis, Effect, IdProv, Kind, Op, Prov, Role
 from botsworth.pricing import Pricer
 
 SPAWN_TOOLS = frozenset({"Agent", "Task"})
@@ -325,8 +327,8 @@ def _tool_call(
     outcome, exit_code, exit_prov = result_outcome(result)
     command = inp.get("command") if isinstance(inp.get("command"), str) else None
     bash = name == "Bash"
-    klass = command_class(command) if bash else None
-    counts = count_tests(_output_text(rline, rblock)) if klass == "test" else None
+    effect = effect_of(verb_of("claude_code", name), command)
+    counts = count_tests(_output_text(rline, rblock)) if effect == Effect.TEST else None
     bg_end = (
         notices.bg_end(found, tuid)
         if bash and isinstance(tur, dict) and isinstance(tur.get("backgroundTaskId"), str)
@@ -356,7 +358,7 @@ def _tool_call(
         command=command[:ARGS_JSON_MAX] if command else None,
         command_norm=command_norm(command, ctx.project) if bash else None,
         command_key=command_key(command) if bash else None,
-        command_class=klass,
+        effect=effect,
         bg_end_ms=bg_end,
         tests_passed=counts[0] if counts else None,
         tests_failed=counts[1] if counts else None,

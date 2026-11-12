@@ -20,6 +20,8 @@ GUARANTEES:
 - v11 (D55): `ops.bg_end_ms`, `command_class`, `tests_passed`, `tests_failed` (tool_call only; DM-41,
   DM-28, DM-29); `stretches.state` also allows `tool` (`background` only, DM-52); `notice` events
   (DM-41) are ordinary `events` rows.
+- `command_class` is renamed `effect` in place (DM-28): any tool call, and every llm_call (the set of its tool
+  calls' effects).
 - v12 (D56): no column changes. `time_split` and `stretches` rows carry the substates `test` and `wait` under
   `tool` and `agents` (DM-50, DM-52), so a v11 store is rebuilt.
 - v13 (DM-92, DM-45): `ops.thread_rowid`, `thread_pos` (every op) and `gap_ms` (llm_call only); an llm_call
@@ -92,7 +94,7 @@ _OP_COLUMNS = """
   attr_cost_lower_bound INTEGER,
   thread_rowid INTEGER, thread_pos INTEGER, gap_ms INTEGER,
   span_wall_ms INTEGER, max_silence_ms INTEGER, user_wait TEXT,
-  bg_end_ms INTEGER, command_class TEXT, tests_passed INTEGER, tests_failed INTEGER
+  bg_end_ms INTEGER, effect TEXT, tests_passed INTEGER, tests_failed INTEGER
 """
 
 _STEP_COLUMNS = """

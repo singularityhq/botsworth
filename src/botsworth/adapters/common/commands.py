@@ -29,12 +29,25 @@ GUARANTEES:
   recognises (pytest, vitest, jest; for cargo test the sum of all its `test result:` lines; `failed`
   includes pytest errors), else None. ANSI colour codes are ignored.
   It returns two integers and keeps no text (D39).
+- `shell_effect(command)` (DM-28) is `look`, `change` or `run` for the unwrapped command without heredoc
+  bodies. An output redirection to anything but `/dev/null` (`>`, `>>`; `2>&1` and `>&N` are not
+  redirections) makes it `change`. Otherwise each segment (split on `&& || ; |` and newlines) is judged by
+  its first word after `VAR=value` prefixes and a leading `(` or `{`: `cd pushd popd export set unset
+  source .` are skipped; `git` is `look` for a read subcommand (status, log, diff, show, ...), `change` for
+  a write subcommand (add, commit, checkout, ...), else `run`; `sed` is `change` with `-i`, else `look`;
+  `find` is `run` with `-delete|-exec|-execdir|-ok`, else `look`; `sqlite3` is `change` when its arguments
+  hold write SQL, `look` when they hold only read SQL, else `run`; a read program (`cat ls grep ...`) is
+  `look`; a writing program (`rm mv cp mkdir ...`) is `change`; any other program is `run`.
+  The command takes the first of `change`, `run`, `look` that any segment has; no judged segment gives `look`.
 EXPECTS: `project` is the session's first cwd (D10) or None.
-FAILURE BEHAVIOR: none; no shell parsing errors are possible (no shlex).
-DOES NOT: split compound commands into sub-actions or detect writes (R-outline, deferred).
+FAILURE BEHAVIOR: none; no shell parsing errors are possible (no shlex). `shell_effect` asserts its argument
+  is a string or an argv list.
+DOES NOT: detect writes inside a quoted argument, a function body, a script or a subshell the shell runs.
 KNOWN LIMITATIONS: quoting is not parsed, so a `&&` inside quotes splits a
   segment for `command_key` and `command_class`; a runner name at the start of a line inside a quoted
   multi-line string (not a heredoc) counts as a command. `make test` is not a test runner (DM-28).
+  `shell_effect` takes `>` inside a quoted argument (`echo "a -> b"`) for a redirection and judges a shell
+  function call (`ab() { ...; }; ab x`) as `run`.
 """
 
 from __future__ import annotations
@@ -275,3 +288,73 @@ def count_tests(text: str | None) -> tuple[int, int] | None:
                 failed = sum(int(n) for n, name in parts if name != "passed")
                 return passed, failed
     return None
+
+
+# ── DM-28: the effect of a shell command ─────────────────────────────────────────────────────────
+
+_NOISE_REDIRECT = re.compile(r"\d*>&\d+|&?\d*>>?\s*/dev/null")
+_EFFECT_SPLIT = re.compile(r"&&|\|\||;|\||\n")
+_SEGMENT_PREFIX = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=\S*\s*")
+_NO_EFFECT_WORDS = frozenset({"cd", "pushd", "popd", "export", "set", "unset", "source", "."})
+_READ_PROGRAMS = frozenset(
+    "cat ls grep egrep fgrep rg head tail wc stat file du df jq awk cut sort uniq tr tree which pwd echo"
+    " printf test [ diff basename dirname realpath readlink date ps true false column nl xxd od strings less"
+    " more type command env id whoami hostname uname lsof pgrep sleep".split()
+)
+_WRITE_PROGRAMS = frozenset(
+    "rm mv cp mkdir touch chmod chown ln tee truncate rmdir install patch kill pkill".split()
+)
+_GIT_READ = frozenset(
+    "status log diff show rev-parse branch grep ls-files blame describe remote config shortlog ls-tree"
+    " cat-file rev-list".split()
+)
+_GIT_WRITE = frozenset(
+    "add commit checkout switch merge rebase reset stash push pull fetch restore rm mv apply cherry-pick tag"
+    " clean worktree init clone".split()
+)
+_SQL_WRITE = re.compile(r"\b(insert|update|delete|drop|create|alter|replace|vacuum)\b", re.I)
+_SQL_READ = re.compile(r"\b(select|pragma)\b|\.schema|\.tables|\.headers", re.I)
+_SED_IN_PLACE = re.compile(r"(^|\s)-\w*i")
+_FIND_ACTION = re.compile(r"-(delete|exec|execdir|ok)\b")
+
+
+def shell_effect(command: str | list | None) -> str:
+    """DM-28: `look`, `change` or `run` for a shell command (rules in the CONTRACT)."""
+    text = unwrap(command)
+    assert text is not None, f"shell_effect of {type(command).__name__}"
+    text = _drop_heredoc_bodies(text)
+    if ">" in _NOISE_REDIRECT.sub("", text):
+        return "change"
+    effects = {_segment_effect(segment) for segment in _EFFECT_SPLIT.split(text)}
+    for effect in ("change", "run"):
+        if effect in effects:
+            return effect
+    return "look"
+
+
+def _segment_effect(segment: str) -> str | None:
+    """`look`, `change` or `run` for one segment, None for one that does nothing (`cd`, an assignment)."""
+    s = segment.strip().lstrip("({").strip()
+    while (t := _SEGMENT_PREFIX.sub("", s, count=1)) != s:
+        s = t
+    if not s:
+        return None
+    first, *rest = s.split(None, 1)
+    args = rest[0] if rest else ""
+    program = first.strip("\"'").rsplit("/", 1)[-1]
+    if program in _NO_EFFECT_WORDS:
+        return None
+    if program == "git":
+        sub = args.split(None, 1)[0] if args else ""
+        return "look" if sub in _GIT_READ else "change" if sub in _GIT_WRITE else "run"
+    if program == "sed":
+        return "change" if _SED_IN_PLACE.search(args) else "look"
+    if program == "find":
+        return "run" if _FIND_ACTION.search(args) else "look"
+    if program == "sqlite3":
+        if _SQL_WRITE.search(args):
+            return "change"
+        return "look" if _SQL_READ.search(args) else "run"
+    if program in _READ_PROGRAMS:
+        return "look"
+    return "change" if program in _WRITE_PROGRAMS else "run"

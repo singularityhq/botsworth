@@ -47,7 +47,7 @@ user_waits: calls that waited on you, {n, dur_ms} for ask (AskUserQuestion,
   request_user_input, ask) and permission (Claude calls you approved or rejected;
   older Claude, Codex and omp leave no record). They are not in tools.
 test_runs: {n, run_ms, n_failed, n_passed, n_no_result, n_background} of calls
-  with command_class test; a background run lasts until its notice.
+  with effect test; a background run lasts until its notice.
 waits: waits of 2 min+, longest first: stretches (row null) and main calls that
   waited on you. longest_wait: longest not agents or tool/background.
 """
@@ -78,7 +78,7 @@ TASKS_EPILOG = (
 output fields: freshness, by, measure, basis, scope_totals, unassigned,
   total_groups (all groups), groups (the first n)
 basis: how tokens and cost reach a group.
-  issuing_call_split  by tool, command_key, command_class, verb: the tokens of
+  issuing_call_split  by tool, command_key, effect, verb: the tokens of
                       the call that issued the tool calls, divided evenly
   turn_split          by skill: the turn's tokens, divided among its skills
   nearest_engagement  by agent_type: calls under the nearest agent run;
@@ -88,8 +88,8 @@ unassigned: part of scope_totals that is in no group. It is 0 for
   issuing_call_split, where a call that issued no tool is the group "no tool".
 Token figures are fractional because a call's tokens are divided evenly.
 share: the group's measure divided by scope_totals, or null.
---by: command_key = tool calls that have a command_key; command_class = test
-  or wait shell calls; tool = tool calls by tool name; verb = steps of tool
+--by: command_key = tool calls that have a command_key; effect = tool calls by what they
+  did (look, change, run, test, wait, message, unknown); tool = tool calls by tool name; verb = steps of tool
   calls, by steps.verb; skill = skill loads; agent_type = agent runs
   (engagements); slash = slash-command and builtin turns.
 """

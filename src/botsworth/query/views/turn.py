@@ -98,7 +98,7 @@ def split_inputs(conn: sqlite3.Connection, root_rowid: int) -> timesplit.Inputs:
     rows = conn.execute(
         """
         SELECT rowid, kind, start_ms, end_ms, agent_id, segments, n_inverted, duplicate_of, user_wait,
-               seq, pre, turn_kind, turn_origin, display_ix, bg_end_ms, command_class,
+               seq, pre, turn_kind, turn_origin, display_ix, bg_end_ms, effect,
                CASE WHEN kind = 'turn' THEN label END AS label
         FROM ops WHERE root_rowid = ?
         """,

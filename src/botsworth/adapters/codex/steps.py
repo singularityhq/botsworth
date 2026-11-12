@@ -5,7 +5,8 @@ GUARANTEES:
   own record: verb via `taxonomy.verb_of("codex", name)` (MCP tools whose name
   contains `fetch` -> `fetch`), target (project-relative path, command head,
   agent type, URL/query, or tool name for `other`), summary <= 120, the raw
-  command, `command_norm`, `command_key` (D17) and `command_class` (DM-28, D55) for every run.
+  command, `command_norm`, `command_key` (D17) for every run, and `effect` (DM-28, `effect_of`) for every
+  tool call.
 - `apply_patch` yields one target per changed path (`patch_paths`), so the
   caller emits one edit step per path.
 - A code-mode `exec` script is ONE run step: `exec_script` lists its inner
@@ -33,9 +34,9 @@ from typing import Any
 
 from botsworth.adapters.common.taxonomy import (
     clip,
-    command_class,
     command_key,
     command_norm,
+    effect_of,
     rel,
     summary,
     unwrap,
@@ -60,10 +61,10 @@ class ToolView:
     verb: str
     target: str | None
     summary: str
+    effect: str  # DM-28: `effect_of` the verb and, for a shell run, the full command
     command: str | None = None
     command_norm: str | None = None
     command_key: str | None = None
-    command_class: str | None = None  # DM-28, from the full command
     sub_items: list[SubItem] | None = None
     edit_targets: list[str | None] = field(default_factory=list)
 
@@ -109,7 +110,7 @@ def _run(raw: object, project: str | None) -> ToolView:
         command=clip(text, 2000) if text else None,
         command_norm=norm,
         command_key=command_key(raw),
-        command_class=command_class(raw),
+        effect=effect_of(Verb.RUN, raw),
     )
 
 
@@ -135,7 +136,7 @@ def classify(name: str, args: Any, project: str | None) -> ToolView:
             command=clip(raw, 2000),
             command_norm=command_norm(raw, project),
             command_key=command_key(cmds[0]) if cmds else None,
-            command_class=command_class(raw),
+            effect=effect_of(Verb.RUN, raw),
             sub_items=subs,
         )
     if name == "apply_patch":
@@ -145,22 +146,48 @@ def classify(name: str, args: Any, project: str | None) -> ToolView:
             verb=Verb.EDIT,
             target=_target(", ".join(paths)),
             summary=summary("edit", ", ".join(paths)),
+            effect=effect_of(Verb.EDIT, None),
             edit_targets=[_target(p) for p in paths] or [None],
         )
     if name in SPAWN_TOOLS:
         tgt = a.get("agent_type") or a.get("role") or a.get("agent_id") or a.get("target")
-        return ToolView(verb=Verb.SPAWN, target=_target(tgt), summary=summary(name, tgt))
+        return ToolView(
+            verb=Verb.SPAWN,
+            target=_target(tgt),
+            summary=summary(name, tgt),
+            effect=effect_of(Verb.SPAWN, None),
+        )
     if name == "view_image":
         path = rel(a.get("path"), project)
-        return ToolView(verb=Verb.READ, target=_target(path), summary=summary("view", path))
+        return ToolView(
+            verb=Verb.READ,
+            target=_target(path),
+            summary=summary("view", path),
+            effect=effect_of(Verb.READ, None),
+        )
     if name == "request_user_input":
-        return ToolView(verb=Verb.ASK_USER, target=None, summary=clip(json.dumps(a), SUMMARY_MAX) or name)
+        return ToolView(
+            verb=Verb.ASK_USER,
+            target=None,
+            summary=clip(json.dumps(a), SUMMARY_MAX) or name,
+            effect=effect_of(Verb.ASK_USER, None),
+        )
     if name == "write_stdin":
-        return ToolView(verb=Verb.RUN, target=None, summary=summary("stdin", a.get("chars")))
+        return ToolView(
+            verb=Verb.RUN,
+            target=None,
+            summary=summary("stdin", a.get("chars")),
+            effect=effect_of(Verb.RUN, None),
+        )
     verb = verb_of("codex", name)
     if verb == Verb.OTHER and name.startswith("mcp:") and "fetch" in name:
         verb = Verb.FETCH
-    return ToolView(verb=verb, target=_target(name), summary=clip(name, SUMMARY_MAX) or "other")
+    return ToolView(
+        verb=verb,
+        target=_target(name),
+        summary=clip(name, SUMMARY_MAX) or "other",
+        effect=effect_of(verb, None),
+    )
 
 
 def web_search(action: dict[str, Any]) -> ToolView:
@@ -169,6 +196,7 @@ def web_search(action: dict[str, Any]) -> ToolView:
         verb=Verb.SEARCH,
         target=_target(what),
         summary=clip(f"web {action.get('type') or 'search'} {what or ''}", SUMMARY_MAX) or "web",
+        effect=effect_of(Verb.SEARCH, None),
     )
 
 

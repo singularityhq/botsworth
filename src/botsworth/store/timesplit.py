@@ -53,6 +53,7 @@ from collections import defaultdict
 from collections.abc import Iterable, Mapping, Sequence
 from typing import Any, NamedTuple
 
+from botsworth.model import Effect
 from botsworth.store.intervals import Interval, merge
 
 MIN_STRETCH_MS = 60_000
@@ -126,8 +127,9 @@ class Split(NamedTuple):
 
 
 class Classes(NamedTuple):
-    """The class-tagged subsets of the intervals (DM-50 [D56], from `command_class`, DM-28). `main_test`,
-    `main_wait`: main tool_calls of that class (subsets of `main_tool`); `bg_test`: main background runs of
+    """The class-tagged subsets of the intervals (DM-50 [D56], from the tool calls' `effect` `test` and
+    `wait`, DM-28). `main_test`, `main_wait`: main tool_calls of that class (subsets of `main_tool`);
+    `bg_test`: main background runs of
     class `test` (subset of `main_bg`); `agent_test`, `agent_wait`: agent tool_calls and background runs of
     that class; `agent_plain`: every other agent interval (llm_calls, calls of another class). The three
     agent lists together are `agent_leaf`."""
@@ -161,7 +163,7 @@ def collect(rows: Iterable[Mapping[str, Any]], notices: Iterable[tuple[int, int 
     """The inputs of the split from the ops of one session. Load (folded rows) and the query layer (stored
     rows) both call this, so they feed `runs()` and `split()` the same facts. A row has `kind`, `start_ms`,
     `end_ms`, `agent_id`, `duplicate_of`, `n_inverted`, `segments` (a list, or its JSON text), `user_wait`,
-    `bg_end_ms`, `command_class` (`test`, `wait` or None, DM-28), and for a turn `rowid`, `seq`, `pre`,
+    `bg_end_ms`, `effect` (DM-28; only a tool_call's is read), and for a turn `rowid`, `seq`, `pre`,
     `turn_kind`, `turn_origin`, `label`, `display_ix`.
 
     The wall is the union of the containers' segments (a container without segments counts as its own
@@ -210,8 +212,9 @@ def collect(rows: Iterable[Mapping[str, Any]], notices: Iterable[tuple[int, int 
         if r["duplicate_of"] is not None or r["n_inverted"] or start is None:
             continue
         main = r["agent_id"] is None
-        klass = r["command_class"]
-        assert klass in (None, "test", "wait"), f"unknown command_class {klass!r}"
+        effect = r["effect"] if r["kind"] == "tool_call" else None  # an llm_call holds a set of effects
+        assert effect is None or effect in set(Effect), f"unknown effect {effect!r}"
+        klass = effect if effect in (Effect.TEST, Effect.WAIT) else None
         if main:  # the class lists the call's foreground and background intervals go to (DM-50 [D56])
             fg_lists = [f"main_{klass}"] if klass else []
             bg_lists = ["bg_test"] if klass == "test" else []

@@ -1037,7 +1037,7 @@ class UserWaits:
 
 @dataclass(frozen=True)
 class TestRuns:
-    """CLI-20 [D55]: owned tool_calls with `command_class = 'test'`. `run_ms` counts a background run to its
+    """CLI-20 [D55]: owned tool_calls with `effect = 'test'`. `run_ms` counts a background run to its
     notice (`bg_end_ms`); `n_no_result` = runs with no test counts (DM-29)."""
 
     __test__ = False  # not a pytest class

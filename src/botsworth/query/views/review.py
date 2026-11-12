@@ -16,7 +16,7 @@ GUARANTEES:
   stored stretches of that cause (a main-thread wait on the user is a tool row and has no stretch, DM-52,
   so `you` can have `ms` and
   `n` 0); `longest.row` is the `gap-<start_ms>` RowRef. For `tests` and `polling` they come from the
-  owned tool_calls with `command_class` `test` / `wait`: `n` counts them, `longest` is the one with the
+  owned tool_calls with `effect` `test` / `wait`: `n` counts them, `longest` is the one with the
   longest run (to `bg_end_ms` for a background run, else `dur_ms`), `row` its tool RowRef, except that a
   main background test run shows as the gap RowRef of its first `tool`/`test` stretch (DM-52) when it has
   one. A main-transcript background run of class `wait` is no candidate for `longest` (DM-50 counts it as
@@ -31,7 +31,7 @@ GUARANTEES:
   op_id); `[]` otherwise.
 - `session_review(session)` and `scope_review(scope)` wrap `build` with `freshness` as `wire.ReviewReport`;
   a scope uses `in_scope_roots` (QRY-5, QRY-7, QRY-9: full sessions), the same sessions as `slow`'s `current`.
-EXPECTS: schema v13 filled by the load (`time_split`, `stretches`, `command_class`, `bg_end_ms`, `notice`
+ EXPECTS: schema v13 filled by the load (`time_split`, `stretches`, `effect`, `bg_end_ms`, `notice`
   events); a connection with `row_factory = sqlite3.Row`.
 FAILURE BEHAVIOR: unknown session -> `NotFound`; a stored part that is in no cause, or a session whose parts
   do not sum to `wall_ms`, asserts.
@@ -88,12 +88,12 @@ WHERE s.op_rowid IN (SELECT value FROM json_each(?))
 _CALLS = """
 SELECT o.op_id AS op_id, o.start_ms AS start_ms, o.root_rowid AS root, o.bg_end_ms AS bg_end_ms,
        o.agent_id AS agent_id, r.op_id AS session, s.session_id AS session_id,
-       NOT (o.command_class = 'wait' AND o.agent_id IS NULL AND o.bg_end_ms IS NOT NULL) AS candidate,
+       NOT (o.effect = 'wait' AND o.agent_id IS NULL AND o.bg_end_ms IS NOT NULL) AS candidate,
        CASE WHEN o.bg_end_ms IS NOT NULL THEN o.bg_end_ms - o.start_ms ELSE o.dur_ms END AS run_ms,
        t.op_id AS turn, t.display_ix AS display_ix
 FROM ops o JOIN ops r ON r.rowid = o.root_rowid JOIN sessions s ON s.op_rowid = o.root_rowid
      LEFT JOIN ops t ON t.rowid = o.attr_turn_rowid
-WHERE o.kind = 'tool_call' AND o.duplicate_of IS NULL AND o.command_class = ?
+WHERE o.kind = 'tool_call' AND o.duplicate_of IS NULL AND o.effect = ?
   AND o.root_rowid IN (SELECT value FROM json_each(?))
 """
 _NAMES = """

@@ -5,6 +5,11 @@ GUARANTEES:
   provider tool name; `verb_of(provider, tool_name)` returns that verb, or
   `other` for a tool the table does not name (the raw name is kept by the
   caller, nothing is dropped).
+- `effect_of(verb, command)` (DM-28) is the one value of `Effect` for a tool call: `read search fetch skill`
+  -> `look`; `write edit` -> `change`; `spawn` -> `run`; `ask-user answer message` -> `message`; `wait` ->
+  `wait`; `other` -> `unknown` (every tool the table does not name, MCP tools included); `run` -> the
+  whole-command classifier first (`test`, `wait`), else `shell_effect` of the command, `run` when the call
+  has no command text. `think` and `say` are no tool call and assert.
 - `unwrap`, `command_norm`, `command_key`, `command_class` (D55) are re-exported from
   `botsworth.adapters.common.commands` (D17); this module never copies them.
 - `clip(text, n)` collapses whitespace and cuts to at most n chars; empty -> None.
@@ -18,13 +23,20 @@ DOES NOT: parse provider records; decide outcomes; read files.
 
 from __future__ import annotations
 
-from botsworth.adapters.common.commands import command_class, command_key, command_norm, unwrap
-from botsworth.model import SUMMARY_MAX, Verb
+from botsworth.adapters.common.commands import (
+    command_class,
+    command_key,
+    command_norm,
+    shell_effect,
+    unwrap,
+)
+from botsworth.model import SUMMARY_MAX, Effect, Verb
 
 __all__ = [
     "VERBS",
     "clip",
     "command_class",
+    "effect_of",
     "command_key",
     "command_norm",
     "rel",
@@ -50,6 +62,9 @@ VERBS: dict[str, dict[str, Verb]] = {
         "Task": Verb.SPAWN,
         "Skill": Verb.SKILL,
         "AskUserQuestion": Verb.ASK_USER,
+        "SendMessage": Verb.MESSAGE,
+        "ScheduleWakeup": Verb.WAIT,
+        "Monitor": Verb.WAIT,
     },
     "codex": {
         "exec_command": Verb.RUN,
@@ -64,6 +79,8 @@ VERBS: dict[str, dict[str, Verb]] = {
         "web_search_call": Verb.SEARCH,
         "spawn_agent": Verb.SPAWN,
         "request_user_input": Verb.ASK_USER,
+        "send_input": Verb.MESSAGE,
+        "wait_agent": Verb.WAIT,
     },
     "omp": {
         "read": Verb.READ,
@@ -78,12 +95,40 @@ VERBS: dict[str, dict[str, Verb]] = {
         "fetch": Verb.FETCH,
         "task": Verb.SPAWN,
         "ask": Verb.ASK_USER,
+        "wait": Verb.WAIT,
     },
 }
 
 
 def verb_of(provider: str, tool_name: str | None) -> Verb:
     return VERBS[provider].get(tool_name or "", Verb.OTHER)  # FALLBACK-OK: design §4.10 unknown -> other
+
+
+_VERB_EFFECT = {
+    Verb.READ: Effect.LOOK,
+    Verb.SEARCH: Effect.LOOK,
+    Verb.FETCH: Effect.LOOK,
+    Verb.SKILL: Effect.LOOK,
+    Verb.WRITE: Effect.CHANGE,
+    Verb.EDIT: Effect.CHANGE,
+    Verb.SPAWN: Effect.RUN,
+    Verb.ASK_USER: Effect.MESSAGE,
+    Verb.ANSWER: Effect.MESSAGE,
+    Verb.MESSAGE: Effect.MESSAGE,
+    Verb.WAIT: Effect.WAIT,
+    Verb.OTHER: Effect.UNKNOWN,
+}
+
+
+def effect_of(verb: str, command: str | list | None) -> str:
+    """The `Effect` of one tool call from its step verb and, for `run`, its raw command."""
+    if verb != Verb.RUN:
+        assert verb in _VERB_EFFECT, f"verb {verb!r} is no tool call"
+        return _VERB_EFFECT[verb]
+    text = unwrap(command)
+    if not text or not text.strip():
+        return Effect.RUN
+    return command_class(command) or shell_effect(command)
 
 
 def clip(text: object, n: int) -> str | None:

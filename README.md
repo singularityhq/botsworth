@@ -190,7 +190,7 @@ groups (3):
 ```
 
 The same command with `--by slash` shows `/compact` at $129.42 over 12 turns (15% of the period). Other keys for
-`--by`: `tool`, `skill`, `command_key`, `command_class`, `verb`. `--measure` is `tokens`, `cost`, `time` or `count`.
+`--by`: `tool`, `skill`, `command_key`, `effect`, `verb`. `--measure` is `tokens`, `cost`, `time` or `count`.
 
 ### Filters
 

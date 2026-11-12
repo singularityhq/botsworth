@@ -16,7 +16,7 @@ GUARANTEES:
   `dur_ms` of 2 min or more, as `Wait` (`row` = the call, null for a stretch): per session the hit set of
   the `waits` finder (QRY-38). `waits` = the `n` longest across the sessions; `longest_wait` = the
   session's longest wait of state `you`, `agentmsg`, `limit` or `none` (not `agents` or `tool`, D55).
-  `test_runs` (D55) counts the owned tool_calls with `command_class` test: `run_ms` runs to `bg_end_ms` for a
+  `test_runs` (D55) counts the owned tool_calls with `effect` test: `run_ms` runs to `bg_end_ms` for a
   background run, else `dur_ms`; `n_failed` / `n_passed` / `n_no_result` by the test counts (DM-29)
   (`common.test_runs`). `review` (D56) is `review.build` over the same sessions (`session_breakdown`: this
   session only, no `sessions` lists), so its `test_runs` equals the block above.
@@ -29,7 +29,7 @@ GUARANTEES:
   `issuing_call_split`:
   a call's `tok_total` and `cost_usd` are divided evenly among its owned tool_calls (for `verb`, then among
   that tool_call's steps); `by=tool` also lists calls that issued no tool_call as `"no tool"`; for
-  `command_key`, `command_class` and `verb` those calls, and the share of tool_calls without a key or class,
+  `command_key`, `effect` and `verb` those calls, and the share of tool_calls without a key or effect,
   are in `unassigned`.
   `turn_split`: the attributed turn's `attr_*` and `span_wall_ms` divided evenly among the distinct skills
   loaded in it (a skill load in an agent counts for the main turn it is attributed to). `nearest_engagement`:
@@ -38,7 +38,7 @@ GUARANTEES:
   `n_unpriced` of a group counts the source units (calls; turns for `skill`/`slash`) whose cost is unknown.
   Groups sort by `measure` descending (nulls last), then key ascending; `count` sorts by `n`.
 EXPECTS: schema v13 filled by B3a/B3b (`user_wait`, `max_silence_ms`, `time_prov`, `command_key`,
-  `command_class`,
+  `effect`,
   `tests_passed`, `tests_failed`, `bg_end_ms`,
   `steps.verb`, `steps.skill_load`, `turn_origin`, `label`, `attr_*`, `span_wall_ms`, `time_split`,
   `stretches`).
@@ -70,12 +70,12 @@ from botsworth.store import timesplit
 MAX_SLOW_N = 100
 MAX_TASKS_N = 500
 WAIT_FLOOR_MS = 120_000  # SES-27, CLI-20 `longest_wait` and `waits`
-BY = ("command_key", "command_class", "tool", "verb", "skill", "agent_type", "slash")
+BY = ("command_key", "effect", "tool", "verb", "skill", "agent_type", "slash")
 MEASURES = ("tokens", "cost", "time", "count")
 BASIS = {
     "tool": "issuing_call_split",
     "command_key": "issuing_call_split",
-    "command_class": "issuing_call_split",
+    "effect": "issuing_call_split",
     "verb": "issuing_call_split",
     "skill": "turn_split",
     "agent_type": "nearest_engagement",
@@ -469,7 +469,7 @@ def session_breakdown(session: str, n: int = 10, db: Db = None) -> wire.SessionB
 _TC = f"""
 tc AS (
   SELECT t.rowid AS trow, t.op_id AS op_id, t.root_rowid AS root, t.tool_name AS tool_name,
-         t.command_key AS command_key, t.command_class AS command_class, t.dur_ms AS dur,
+         t.command_key AS command_key, t.effect AS effect, t.dur_ms AS dur,
          t.parent_rowid AS parent,
          COUNT(*) OVER (PARTITION BY t.parent_rowid) AS k
   FROM ops t
@@ -561,10 +561,8 @@ def _items_sql(by: str) -> tuple[str, str]:
         return _TC + ",\n", _TOOL_ITEMS.format(key=key, where="") + "UNION ALL" + _NO_TOOL_ITEMS
     if by == "command_key":
         return _TC + ",\n", _TOOL_ITEMS.format(key="tc.command_key", where="WHERE tc.command_key IS NOT NULL")
-    if by == "command_class":
-        return _TC + ",\n", _TOOL_ITEMS.format(
-            key="tc.command_class", where="WHERE tc.command_class IS NOT NULL"
-        )
+    if by == "effect":
+        return _TC + ",\n", _TOOL_ITEMS.format(key="tc.effect", where="WHERE tc.effect IS NOT NULL")
     if by == "verb":
         return _TC + ",\n" + _VERB_CTE + ",\n", _VERB_ITEMS
     if by == "skill":

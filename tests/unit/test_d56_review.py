@@ -35,9 +35,9 @@ def dm56_session(
     t1 = b.turn("t1", start=0, end=20 * M, turn_kind="human")
     b.llm("l1", t1, 0, 10 * M, occ=f"{sid}:l1")
     spawn = b.tool("spawn", t1, 2 * M, 3 * M, tool_name="Agent", occ=f"{sid}:spawn")  # inside model time
-    b.tool("pytest", t1, 10 * M, 17 * M, tool_name="Bash", command_class="test", occ=f"{sid}:pytest")
+    b.tool("pytest", t1, 10 * M, 17 * M, tool_name="Bash", effect="test", occ=f"{sid}:pytest")
     eng = b.engagement("e1", spawn, "a1", start=17 * M, end=20 * M, agent_name=agent_name)
-    b.tool("poll", eng, 17 * M, 20 * M, agent="a1", tool_name="Bash", command_class="wait", occ=f"{sid}:poll")
+    b.tool("poll", eng, 17 * M, 20 * M, agent="a1", tool_name="Bash", effect="wait", occ=f"{sid}:poll")
     b.turn("t2", start=120 * M, end=122 * M, turn_kind="human")
     b.event(
         "notice", ts=25 * M, task_id="t", tool_use_id="u", status=status,
@@ -147,7 +147,7 @@ def test_a_short_cause_has_no_finding(tmp_path):
     b = B("short", start=0, end=10 * M)
     t = b.turn("t", start=0, end=10 * M, turn_kind="human")
     b.llm("l", t, 0, 5 * M, occ="l")
-    b.tool("pytest", t, 5 * M, 6 * M, tool_name="Bash", command_class="test", occ="p")  # 1 min
+    b.tool("pytest", t, 5 * M, 6 * M, tool_name="Bash", effect="test", occ="p")  # 1 min
     load(c, b)
     r = R.session_review("short", db=c)
     assert r.findings == [] and r.lost_ms == 0 and causes(r)["tests"] == M
@@ -372,10 +372,10 @@ def test_dm53_waiting_subtracts_tool_test_and_wait_but_not_background(tmp_path):
     b = B("w", start=0, end=40 * M)
     t = b.turn("t", start=0, end=20 * M, turn_kind="human")
     b.llm("l", t, 0, 10 * M, occ="l")
-    b.tool("pytest", t, 10 * M, 17 * M, tool_name="Bash", command_class="test", occ="p")
+    b.tool("pytest", t, 10 * M, 17 * M, tool_name="Bash", effect="test", occ="p")
     t2 = b.turn("t2", start=20 * M, end=40 * M, turn_kind="human")
     b.llm("l2", t2, 20 * M, 25 * M, occ="l2")
-    b.tool("sleep", t2, 25 * M, 26 * M, tool_name="Bash", command_class="wait", occ="s")
+    b.tool("sleep", t2, 25 * M, 26 * M, tool_name="Bash", effect="wait", occ="s")
     b.tool("bg", t2, 26 * M, 26 * M + 1000, tool_name="Bash", bg_end_ms=T0 + 36 * M, occ="bg")
     load(c, b)
     rows = session_view.session_turns("w", db=c).items
@@ -393,10 +393,10 @@ def test_longest_polling_call_skips_a_main_background_wait_but_n_counts_it(tmp_p
     b = B("p", start=0, end=30 * M)
     t = b.turn("t", start=0, end=30 * M, turn_kind="human")
     b.llm("l", t, 0, M, occ="l")
-    b.tool("mainbg", t, M, M + 1000, tool_name="Bash", command_class="wait", bg_end_ms=T0 + 20 * M, occ="mb")
+    b.tool("mainbg", t, M, M + 1000, tool_name="Bash", effect="wait", bg_end_ms=T0 + 20 * M, occ="mb")
     spawn = b.tool("spawn", t, 0, 1000, tool_name="Agent", occ="sp")
     eng = b.engagement("e", spawn, "a", start=22 * M, end=26 * M)
-    b.tool("apoll", eng, 22 * M, 25 * M, agent="a", tool_name="Bash", command_class="wait", occ="ap")
+    b.tool("apoll", eng, 22 * M, 25 * M, agent="a", tool_name="Bash", effect="wait", occ="ap")
     load(c, b)
     (f,) = [f for f in R.session_review("p", db=c).findings if f.cause == "polling"]
     assert f.n == 2  # the main background wait counts as a call of the class
@@ -409,7 +409,7 @@ def _tie_session(tmp_path, sid, calls):
     t = b.turn("t", start=0, end=60 * M, turn_kind="human")
     b.llm("l", t, 0, M, occ="l")
     for key, start in calls:
-        b.tool(key, t, start * M, (start + 3) * M, tool_name="Bash", command_class="test", occ=key)
+        b.tool(key, t, start * M, (start + 3) * M, tool_name="Bash", effect="test", occ=key)
     load(c, b)
     (f,) = [f for f in R.session_review(sid, db=c).findings if f.cause == "tests"]
     return f
@@ -472,9 +472,7 @@ def bg_test_session(sid="bgt", with_stretch=True):
     t = b.turn("t", start=0, end=20 * M, turn_kind="human")
     l1 = b.llm("l1", t, 0, M, occ=f"{sid}:l1")
     end = 10 * M if with_stretch else M + 30_000
-    b.tool(
-        "pytest", l1, M, M + 1000, tool_name="Bash", command_class="test", bg_end_ms=T0 + end, occ=f"{sid}:p"
-    )
+    b.tool("pytest", l1, M, M + 1000, tool_name="Bash", effect="test", bg_end_ms=T0 + end, occ=f"{sid}:p")
     l2 = b.llm("l2", t, 12 * M, 13 * M, occ=f"{sid}:l2")
     b.tool("after", l2, 12 * M, 12 * M + 1000, tool_name="Bash", occ=f"{sid}:after")
     return b
@@ -516,7 +514,7 @@ def test_longest_test_of_a_main_background_run_without_a_stretch_is_the_tool_row
         14 * M,
         17 * M,
         tool_name="Bash",
-        command_class="test",
+        effect="test",
         occ="bgn:long",
     )
     load(c, b)

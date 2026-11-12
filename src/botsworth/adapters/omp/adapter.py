@@ -28,8 +28,9 @@ GUARANTEES:
   `ask` for `ask` (DM-40, D54), `occ_key` =
   `omp:tool:<id>`; timing per `records.tool_timing`; async launches keep their
   launch duration (`is_async`); bash carries `command`, `command_norm`,
-  `command_key` (D17), `command_class` (DM-28, D55) and, for a `test` command, `tests_passed`/`tests_failed`
-  (DM-29) from the text blocks of its result.
+  `command_key` (D17) and, for a `test` command, `tests_passed`/`tests_failed`
+  (DM-29) from the text blocks of its result. Every tool call carries `effect` (DM-28, `effect_of` its step
+  verb and, for bash, its command).
 - Steps per turn in file order (§4.10): thinking -> think, text -> say (the
   turn's last text -> answer), one step per tool call (a `task` call: one
   spawn step per child). `steps.skill` and op skill stay unset (D15).
@@ -73,7 +74,8 @@ from urllib.parse import quote
 
 from botsworth import pointer
 from botsworth.adapters import BundleRef
-from botsworth.adapters.common.commands import command_class, command_key, command_norm, count_tests
+from botsworth.adapters.common.commands import command_key, command_norm, count_tests
+from botsworth.adapters.common.taxonomy import effect_of
 from botsworth.adapters.omp import discover as _discover
 from botsworth.adapters.omp import events as ev
 from botsworth.adapters.omp import steps as st
@@ -99,6 +101,7 @@ from botsworth.model import (
     AdapterTitleSource,
     Bundle,
     CostBasis,
+    Effect,
     Event,
     EventKind,
     IdProv,
@@ -452,8 +455,8 @@ class _Walk:
         why = st.intent(c, args)
         summ = st.summary(name, v, tgt, why)
         command = args.get("command") if name == "bash" and isinstance(args.get("command"), str) else None
-        klass = command_class(command)
-        counts = count_tests(_result_text(tc.result)) if klass == "test" else None
+        effect = effect_of(v, command)
+        counts = count_tests(_result_text(tc.result)) if effect == Effect.TEST else None
         op = Op(
             op_id=_op_id(ctx.sid, Kind.TOOL_CALL, key),
             kind=Kind.TOOL_CALL.value,
@@ -479,7 +482,7 @@ class _Walk:
             command=command[:ARGS_JSON_MAX] if command else None,
             command_norm=command_norm(command, ctx.project),
             command_key=command_key(command),
-            command_class=klass,
+            effect=effect,
             tests_passed=counts[0] if counts else None,
             tests_failed=counts[1] if counts else None,
             file_path=st.file_path(args),

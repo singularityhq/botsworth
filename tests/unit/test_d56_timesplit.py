@@ -100,7 +100,7 @@ def _row(kind, **kw):
     base = dict(
         rowid=1, kind=kind, start_ms=0, end_ms=M, agent_id=None, segments=None, n_inverted=0,
         duplicate_of=None, user_wait=None, seq=0, pre=0, turn_kind=None, turn_origin=None,
-        display_ix=None, label=None, bg_end_ms=None, command_class=None,
+        display_ix=None, label=None, bg_end_ms=None, effect=None,
     )  # fmt: skip
     return base | kw
 
@@ -108,11 +108,11 @@ def _row(kind, **kw):
 def test_collect_sorts_calls_into_class_lists():
     rows = [
         _row("session", rowid=1, start_ms=0, end_ms=60 * M),
-        _row("tool_call", rowid=2, start_ms=0, end_ms=M, command_class="test", bg_end_ms=7 * M),
-        _row("tool_call", rowid=3, start_ms=10 * M, end_ms=11 * M, command_class="wait"),
+        _row("tool_call", rowid=2, start_ms=0, end_ms=M, effect="test", bg_end_ms=7 * M),
+        _row("tool_call", rowid=3, start_ms=10 * M, end_ms=11 * M, effect="wait"),
         _row("tool_call", rowid=4, start_ms=20 * M, end_ms=21 * M),
-        _row("tool_call", rowid=5, start_ms=30 * M, end_ms=31 * M, agent_id="a", command_class="test"),
-        _row("tool_call", rowid=6, start_ms=32 * M, end_ms=33 * M, agent_id="a", command_class="wait"),
+        _row("tool_call", rowid=5, start_ms=30 * M, end_ms=31 * M, agent_id="a", effect="test"),
+        _row("tool_call", rowid=6, start_ms=32 * M, end_ms=33 * M, agent_id="a", effect="wait"),
         _row("tool_call", rowid=7, start_ms=34 * M, end_ms=35 * M, agent_id="a"),
         _row("llm_call", rowid=8, start_ms=36 * M, end_ms=37 * M, agent_id="a"),
         _row(
@@ -121,10 +121,10 @@ def test_collect_sorts_calls_into_class_lists():
             start_ms=40 * M,
             end_ms=41 * M,
             agent_id="a",
-            command_class="test",
+            effect="test",
             bg_end_ms=45 * M,
         ),  # fmt: skip
-        _row("tool_call", rowid=10, start_ms=50 * M, end_ms=51 * M, command_class="wait", bg_end_ms=55 * M),
+        _row("tool_call", rowid=10, start_ms=50 * M, end_ms=51 * M, effect="wait", bg_end_ms=55 * M),
     ]
     c = ts.collect(rows).classes
     assert c.main_test == [(0, M)] and c.bg_test == [(0, 7 * M)]
@@ -137,8 +137,8 @@ def test_collect_sorts_calls_into_class_lists():
     assert inp.main_tool == [(0, M), (10 * M, 11 * M), (20 * M, 21 * M), (50 * M, 51 * M)]
 
 
-def test_collect_asserts_on_an_unknown_command_class():
+def test_collect_asserts_on_an_unknown_effect():
     import pytest
 
-    with pytest.raises(AssertionError, match="command_class"):
-        ts.collect([_row("tool_call", command_class="lint")])
+    with pytest.raises(AssertionError, match="effect"):
+        ts.collect([_row("tool_call", effect="lint")])

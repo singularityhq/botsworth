@@ -38,6 +38,9 @@ GUARANTEES:
   stored; the stream keeps the full values.
 - `ops.turn_kind`, `turn_origin`, `user_wait` (DM-40, D54) and `sessions.entrypoint`, `originator` are
   written from the stream.
+- `ops.effect` (DM-28): a tool_call keeps the adapter's value; an llm_call gets the sorted set of its own
+  tool_call children's effects joined by `+` (null when none), and a duplicate llm_call gets its owner's
+  value, computed from the owner's children, so refold order does not matter.
 - B3a derived columns (data-model.md §4): `ops.display_ix` (DM-24: main human/message turns numbered by
   `(start_ms, seq)`); `ops.attr_turn_rowid` on owned leaves and `attr_cost_usd`, `attr_tok_total`,
   `attr_n_llm_calls`, `attr_cost_lower_bound` on main turns (DM-45, `store.derive.attr_walk`; a revisited
@@ -109,7 +112,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass, fields
 
 from botsworth import pointer, stream
-from botsworth.model import TOKEN_FIELDS, Bundle, Event, LinkBasis, Op, SourceFile, Step
+from botsworth.model import TOKEN_FIELDS, Bundle, Event, LinkBasis, Op, SourceFile, Step, join_effects
 from botsworth.store import derive, intervals, notices, ownership, refs, schema, timesplit
 
 log = logging.getLogger(__name__)
@@ -151,6 +154,7 @@ DERIVED = (
     "incl_tok_prov",
     "incl_time_prov",
     "cost_lower_bound",
+    "effect",  # DM-28: an llm_call's set; a tool_call's is a record field and refolds unchanged
     "display_ix",  # DM-24
     "attr_turn_rowid",  # DM-45
     "attr_cost_usd",
@@ -301,6 +305,13 @@ def fold(rows: list[dict], steps_per_turn: dict[str, int]) -> tuple[dict, list[d
             r["_agents"] = parent["_agents"] if parent else ("main",)
             r["_agent_type"] = parent["_agent_type"] if parent else None
         r["path_sig"] = "/".join((*r["_agents"], r["tool_name"] or r["model"] or r["kind"]))
+    for r in order:  # DM-28: a call's effect is the set of its tool calls' effects
+        if r["kind"] == "llm_call":
+            r["effect"] = join_effects(
+                k["effect"]
+                for k in children[r["op_id"]]
+                if k["kind"] == "tool_call" and k["effect"] is not None
+            )
     for r in reversed(order):  # DM-15: post = the largest pre in the subtree
         r["post"] = max([r["pre"], *(k["post"] for k in children[r["op_id"]])])
     # post-order fold; each node collects (own-agent intervals, all intervals, segments) of its subtree
@@ -573,6 +584,32 @@ def _compact(rows: list[dict], cache: _Refs) -> None:
         r["occ_hash"] = refs.occ_hash(r["occ_key"]) if r["occ_key"] is not None else None
         for name in _PREVIEW_OP_FIELDS:
             r[name] = refs.clip_preview(r[name])
+
+
+def _carry_owner_effects(conn: sqlite3.Connection, rows: list[dict]) -> None:
+    """DM-28, DM-45: a duplicate llm_call carries the effect of its owner, read from the owner's own tool
+    calls (their effects are record fields, so the result does not depend on refold order)."""
+    here: dict[str, list[str | None]] = defaultdict(list)
+    for r in rows:
+        if r["kind"] == "tool_call":
+            here[r["parent"]].append(r["effect"])
+    ids = {r["op_id"] for r in rows}
+    for r in rows:
+        if r["kind"] != "llm_call" or r["duplicate_of"] is None:
+            continue
+        owner = r["duplicate_of"]
+        if owner in ids:
+            kid_effects = here[owner]
+        else:
+            row = conn.execute("SELECT rowid FROM ops WHERE op_id=?", (owner,)).fetchone()
+            assert row is not None, f"{r['op_id']}: owner {owner} is not in the store"
+            kid_effects = [
+                e
+                for (e,) in conn.execute(
+                    "SELECT effect FROM ops WHERE parent_rowid=? AND kind='tool_call'", (row[0],)
+                )
+            ]
+        r["effect"] = join_effects(e for e in kid_effects if e is not None)
 
 
 def _insert_ops(conn: sqlite3.Connection, rows: list[dict]) -> None:
@@ -886,6 +923,7 @@ def load_bundle(conn: sqlite3.Connection, bundle: Bundle) -> LoadResult:
         for r in rows:
             r["duplicate_of"] = decision.dup_of.get(r["op_id"])  # non-leaves and keyless leaves own
         root, order = fold(rows, steps_per_turn)
+        _carry_owner_effects(conn, rows)
         dups = {r["op_id"] for r in rows if r["duplicate_of"] is not None}
         by_id = {r["op_id"]: r for r in rows}
         cache = _Refs(conn)
@@ -944,6 +982,7 @@ def refold(conn: sqlite3.Connection, bundle: str) -> None:
         )
     )
     root, order = fold(rows, steps_per_turn)
+    _carry_owner_effects(conn, rows)
     kept = ("parent_rowid", "root_rowid", "depth", "path_sig", "pre", "post")  # the tree does not change
     cols = [c for c in DERIVED if c not in kept]
     conn.executemany(

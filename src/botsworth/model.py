@@ -14,8 +14,9 @@ GUARANTEES:
   (tool_call only), `Op.title_source`/`entrypoint`/`originator` (session only, in
   `SESSION_ONLY_FIELDS`), `SourceFile.ts_list` (sorted epoch ms, stream only, DM-13). `TurnKind` and
   `AdapterTitleSource` name the closed values; `PREVIEW_MAX` is the stored-preview cap (DM-9).
-- D55 fields (tool_call only): `Op.bg_end_ms` (DM-41), `Op.command_class` (DM-28, enum `CommandClass`),
-  `Op.tests_passed`/`tests_failed` (DM-29, counts only). `EventKind.NOTICE` is the DM-41 task notice.
+- D55 fields (tool_call only): `Op.bg_end_ms` (DM-41), `Op.tests_passed`/`tests_failed` (DM-29, counts only).
+  `Op.effect` (DM-28, enum `Effect`) is set by adapters on tool_calls; the store also writes it on llm_calls
+  (`join_effects`). `EventKind.NOTICE` is the DM-41 task notice.
 - `Bundle` is one session's records in file order plus reader counters.
 EXPECTS: callers construct records with keyword arguments.
 FAILURE BEHAVIOR: none here; validation lives in `botsworth.stream`.
@@ -28,6 +29,7 @@ KNOWN LIMITATIONS: steps have no stable `step_id` field in design §4.10; the
 from __future__ import annotations
 
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any
@@ -115,6 +117,8 @@ class Verb(StrEnum):
     SKILL = "skill"
     ASK_USER = "ask-user"
     ANSWER = "answer"
+    MESSAGE = "message"
+    WAIT = "wait"
     OTHER = "other"
 
 
@@ -141,11 +145,24 @@ class UserWait(StrEnum):
     PERMISSION = "permission"
 
 
-class CommandClass(StrEnum):
-    """DM-28 [D55]: what a shell command is, when it is one of these."""
+class Effect(StrEnum):
+    """DM-28: what one tool call did. An `llm_call` holds the set of its calls' effects (`join_effects`)."""
 
+    LOOK = "look"
+    CHANGE = "change"
+    RUN = "run"
     TEST = "test"
     WAIT = "wait"
+    MESSAGE = "message"
+    UNKNOWN = "unknown"
+
+
+def join_effects(effects: Iterable[str]) -> str | None:
+    """DM-28: the effect of a call that issued tool calls with these effects: the distinct values, sorted,
+    joined with `+`; None when it issued none."""
+    values = set(effects)
+    assert values <= set(Effect), f"unknown effects {sorted(values - set(Effect))}"
+    return "+".join(sorted(values)) or None
 
 
 class TurnKind(StrEnum):
@@ -272,9 +289,9 @@ class Op:
     command: str | None = None
     command_norm: str | None = None  # D17 full normalized command
     command_key: str | None = None  # D17 coarse grouping key
-    command_class: str | None = None  # DM-28 [D55] tool_call only: CommandClass
+    effect: str | None = None  # DM-28 tool_call (adapter) and llm_call (store fold): Effect
     bg_end_ms: int | None = None  # DM-41 [D55] tool_call only: queue time of a background command's notice
-    tests_passed: int | None = None  # DM-29 [D55] tool_call only, command_class "test"
+    tests_passed: int | None = None  # DM-29 [D55] tool_call only, effect "test"
     tests_failed: int | None = None  # DM-29 [D55] tool_call only: failed + errors
     file_path: str | None = None
     exit_code: int | None = None
