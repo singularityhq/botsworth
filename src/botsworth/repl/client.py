@@ -450,7 +450,8 @@ def stop(name: str | None = None) -> int:
         raise Exit(
             repl.EXIT_BUSY,
             f"session {name} does not answer and process {pid} cannot be verified as its server "
-            f"(no readable command line); nothing was stopped. Check it by hand: kill {pid}",
+            f"(no readable command line); nothing was stopped. Inspect process {pid} (ps -p {pid}) "
+            f"before ending it by hand: the pid may now belong to an unrelated process",
         )
     if pid is None:
         raise Exit(
