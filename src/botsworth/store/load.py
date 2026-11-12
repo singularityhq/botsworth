@@ -773,8 +773,8 @@ _EVENT_INSERT = (
 )
 
 _EVENT_COPIED = (
-    "UPDATE events SET copied = (op_id IN (SELECT op_id FROM ops WHERE root_rowid=?1"
-    " AND duplicate_of IS NOT NULL) OR coalesce(json_extract(fields, '$.in_copied_op'), 0) != 0)"
+    "UPDATE events SET copied = (coalesce(op_id IN (SELECT op_id FROM ops WHERE root_rowid=?1"
+    " AND duplicate_of IS NOT NULL), 0) OR coalesce(json_extract(fields, '$.in_copied_op'), 0) != 0)"
     " WHERE root_rowid=?1"
 )
 

@@ -214,3 +214,20 @@ def test_rollup_provenance_counts_equal_the_op_scan(tmp_path):
     assert tuple(got) == tuple(scan)
     tools = conn.execute("SELECT sum(n_tok_missing) FROM rollup_time WHERE n_llm_calls = 0").fetchone()[0]
     assert tools in (None, 0)  # counts cover llm_calls only
+
+
+def test_refold_keeps_events_without_op_id_not_copied(tmp_path):
+    # limit_state and rollback events have no op_id; refold's SQL once set their `copied` to NULL
+    # (NULL IN (...) is NULL), which raised NOT NULL on `events.copied`.
+    late = B("late", start=1000, end=2000)
+    t = late.turn("main#0", start=1000, end=2000)
+    late.llm("shared@late", t, 1600, 1700, occ="shared")
+    late.event("limit_state", ts=1650, used_percent=42.0)
+    conn = store(tmp_path)
+    put(conn, late)
+    early = B("early", start=0, end=100)
+    early.llm("shared@early", early.turn("main#0"), 10, 20, occ="shared")
+    (r,) = put(conn, early)  # flips "shared" -> refolds "late" from stored rows
+    assert r.refolded == ["claude_code/late"]
+    copied = conn.execute("SELECT copied FROM events WHERE kind='limit_state' AND op_id IS NULL").fetchall()
+    assert [c[0] for c in copied] == [0]
