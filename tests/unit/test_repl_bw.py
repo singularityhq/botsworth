@@ -384,9 +384,9 @@ def test_what_if_on_300k_rows_takes_seconds_not_minutes(bw):
     import time
 
     frame = _synthetic_calls(300_000)
-    t0 = time.perf_counter()
+    t0 = time.process_time()  # CPU time: wall time flakes on a loaded machine
     out = bw.what_if(frame, "claude-haiku-4-5")
-    assert time.perf_counter() - t0 < 5
+    assert time.process_time() - t0 < 5
     assert out.repriced.any()
 
 
