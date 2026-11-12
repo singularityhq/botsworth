@@ -158,7 +158,7 @@ def ingest_lines(data: dict[str, Any]) -> list[str]:
             parts.append(f"{_num(rep['outside_window'])} outside window")
         if rep.get("rejected"):
             parts.append(f"{len(rep['rejected'])} rejected")
-        if rep.get("unreadable"):
+        if rep["unreadable"]:
             parts.append(f"{_num(len(rep['unreadable']))} files skipped")
         lines.append(f"  {provider:<12} " + " · ".join(parts))
         adapter_rejects += [f"{provider}/{r['bundle_id']}: {r['reason']}" for r in rep["rejected"]]

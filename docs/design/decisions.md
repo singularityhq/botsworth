@@ -770,10 +770,14 @@ window is kept in `meta.ingest_since` and used again by later ingests without th
   on a skipped unit is the `live`/`settled` status of its `source_files` rows, re-evaluated from the file's current
   times (owner exception): otherwise a unit written within the live window, then aged out of the data window, would
   stay `live` for good.
-- Unreadable is skip, not crash: discovery stats every file of every unit, and a file whose stat fails with an
-  error other than absence (permission denied) skips its whole unit for this run, like an out-of-window unit, and
-  is reported in the provider's `unreadable` list (a stderr warning from the CLI). The run exits 0. A stat error
-  on a recorded path that discovery no longer lists still aborts the run (rare, deferred).
+- Unreadable is skip, not crash: a file of a unit whose stat fails with an error other than absence (permission
+  denied) skips its whole unit for this run, like an out-of-window unit, and is reported in the provider's
+  `unreadable` list (a stderr warning from the CLI). The run exits 0. With a window, plain `os.stat` mtimes decide
+  first (10k files: 28 ms against 897 ms for the hashing stat), so an out-of-window unit is never opened; only kept
+  units are opened for the hash, and an open error there also makes the unit unreadable. In an incremental run the
+  skipped unit keeps its rows. A rebuild writes a new store, so it leaves an unreadable unit out, the same as an
+  out-of-window unit; the next ingest after the file is readable loads it. A stat error on a recorded path that is
+  not a member of a discovered unit still aborts the run (rare, deferred).
 Rejected: cut by event time (above); a `--since` that deletes stored sessions (irreversible, and a wrong value
 loses data); no stored default (every cron or manual ingest would need the flag, and a forgotten flag would
 read 10 months of logs again).

@@ -18,6 +18,7 @@ REPORT = {
             "rebuilt": 24,
             "unchanged": 1180,
             "rejected": [],
+            "unreadable": [],
         },
         "codex": {
             "root": "/home/u/.codex",
@@ -25,8 +26,16 @@ REPORT = {
             "rebuilt": 0,
             "unchanged": 312,
             "rejected": [],
+            "unreadable": [],
         },
-        "omp": {"root": "/home/u/.omp", "discovered": 0, "rebuilt": 0, "unchanged": 0, "rejected": []},
+        "omp": {
+            "root": "/home/u/.omp",
+            "discovered": 0,
+            "rebuilt": 0,
+            "unchanged": 0,
+            "rejected": [],
+            "unreadable": [],
+        },
     },
     "store": {"bundles_changed": 24, "loaded": 24, "rejected": []},
     "ms": {"discover": 120.0, "build": 900.0, "store": 4100.0, "total": 12600.0},
@@ -145,6 +154,7 @@ def test_ingest_table_lists_providers_rejections_and_total():
                 "rebuilt": 2,
                 "unchanged": 2,
                 "rejected": [{"bundle_id": f"s{i}", "reason": "ValueError: bad line"} for i in range(4)],
+                "unreadable": [],
             },
             "omp": {
                 "root": "/o",
@@ -152,6 +162,7 @@ def test_ingest_table_lists_providers_rejections_and_total():
                 "rebuilt": 0,
                 "unchanged": 0,
                 "rejected": [],
+                "unreadable": [],
                 "skipped": "root missing",
             },
         },
@@ -177,7 +188,16 @@ def test_ingest_table_lists_providers_rejections_and_total():
 def test_a_noop_run_has_no_empty_store_line():
     data = {
         "mode": "incremental",
-        "providers": {"omp": {"root": "/o", "discovered": 2, "rebuilt": 0, "unchanged": 2, "rejected": []}},
+        "providers": {
+            "omp": {
+                "root": "/o",
+                "discovered": 2,
+                "rebuilt": 0,
+                "unchanged": 2,
+                "rejected": [],
+                "unreadable": [],
+            }
+        },
         "store": {"bundles_changed": 0, "loaded": 0, "rejected": []},
         "ms": {"store": 1.0, "total": 4.0},
     }

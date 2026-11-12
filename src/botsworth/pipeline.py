@@ -56,12 +56,14 @@ GUARANTEES:
   mtime and hash unchanged) when `status_of(stat, False)` from the file's current stat says so. The value
   in force is written to `meta.ingest_since` (deleted for `all`). The report
   has `window` (None, or `{since, cutoff_ms, outside_window}`) and a per-provider `outside_window`.
-- Unreadable files (CLI-12, D59): discovery stats every member file of every discovered unit once (the
-  same cache the change check uses), with or without a window. A stat error other than absence (for
-  example `PermissionError`) does not abort the run: the file goes in the provider's
+- Unreadable files (CLI-12, D59): with a window, discovery reads the mtime of every member file with plain
+  `os.stat` and drops a unit outside the window without opening its files. Every member file of a kept unit
+  goes through the hashing `stat()` cache once (the change check reuses it). A stat or open error other than
+  absence (for example `PermissionError`) does not abort the run: the file goes in the provider's
   `unreadable: [{path, error}]` (`error` = the OS error text) and its whole unit is skipped like one
   outside the window: not built, not counted as rebuilt, unchanged or outside the window, stored rows and
-  `source_files` rows untouched (its status is not re-evaluated either), never marked `source_missing`.
+  `source_files` rows untouched (its status is not re-evaluated either), never marked `source_missing`
+  (incremental run). A rebuild writes a new store, so it leaves the unit out, like one outside the window.
   A rejected bundle is a different thing: it writes reject rows.
 - Mode (DM-4, D52): when `rebuild` is set, or the store is missing, or its `meta.schema_version` differs
   from `schema.SCHEMA_VERSION` (checked read-only), the run is a rebuild: every
@@ -86,8 +88,8 @@ EXPECTS: adapters honour `adapters.Adapter`; source dirs are only read.
 FAILURE BEHAVIOR: adapter failures reject one bundle; store failures follow
   store.ingest (rejected bundle keeps old rows; `IngestLocked` propagates). A stat error on a member
   file of a discovered unit skips that unit and is reported (`unreadable`). A stat error on a recorded
-  path that discovery no longer lists (the `source_missing` check) still aborts the run; that case is
-  rare and deferred.
+  path that is not a member of a discovered unit still aborts the run, in the `source_missing` check and
+  in the change check of a kept unit (which stats recorded paths too); that case is rare and deferred.
 DOES NOT: parse provider files itself; query; resume from a byte offset;
   write progress itself (the caller renders it).
 KNOWN LIMITATIONS: a changed bundle is rebuilt from whole files (design §8
@@ -98,6 +100,7 @@ KNOWN LIMITATIONS: a changed bundle is rebuilt from whole files (design §8
 from __future__ import annotations
 
 import hashlib
+import os
 import re
 import time
 from collections.abc import Callable, Iterable, Iterator, Mapping
@@ -132,7 +135,7 @@ class StoredSinceInvalid(SinceInvalid):
     """The stored `meta.ingest_since` is not `Nd`, `YYYY-MM-DD` or `all`; `--since` was not given (CLI-12)."""
 
     def __init__(self, value: str):
-        super().__init__(f"stored ingest_since {value!r} is not valid")
+        super().__init__(f"stored ingest_since '{value}' is not valid")
         self.value = value
 
 
@@ -289,26 +292,38 @@ def _run(
             _tell(progress, "provider", provider=provider, root=str(root), skipped="root missing")
 
     def unit_state(ref: BundleRef, root: Path, rep: dict) -> str:
-        """Stat every member file once: "unreadable" (a stat error other than absence, D59; each file is
-        reported), "outside" (newest mtime before the cutoff) or "kept"."""
-        newest = 0
+        """ "unreadable", "outside" or "kept" (D59). With a window, plain `os.stat` mtimes decide first, so an
+        out-of-window unit costs no file read; only a kept unit's members go through the hashing `stat()`
+        cache that the change check reuses. A stat or open error other than absence marks the file
+        unreadable (each one is reported) and the whole unit skipped."""
+        paths = [str(Path(f).absolute()) for f in ref.files]
         unreadable = False
-        for f in ref.files:
-            path = str(Path(f).absolute())
+
+        def fail(path: str, exc: OSError) -> None:
+            nonlocal unreadable
+            assert exc.strerror is not None, f"OSError without text for {path}: {exc!r}"
+            rep["unreadable"].append({"path": path, "error": exc.strerror})
+            unreadable = True
+
+        if cutoff_ms is not None:
+            newest = 0
+            for path in paths:
+                try:
+                    newest = max(newest, os.stat(path).st_mtime_ns)
+                except FileNotFoundError:
+                    continue  # FALLBACK-OK: D59 — absent file: no mtime, unit judged by its others
+                except OSError as exc:  # FALLBACK-OK: D59 — an unreadable file skips its unit and is reported
+                    fail(path, exc)
+            if unreadable:
+                return "unreadable"
+            if newest != 0 and newest < cutoff_ms * 1_000_000:
+                return "outside"
+        for path in paths:
             try:
-                s = stat(path, root)
+                stat(path, root)
             except OSError as exc:  # FALLBACK-OK: D59 — an unreadable file skips its unit and is reported
-                assert exc.strerror is not None, f"OSError without text for {path}: {exc!r}"
-                rep["unreadable"].append({"path": path, "error": exc.strerror})
-                unreadable = True
-                continue
-            if s is not None:  # FALLBACK-OK: D59 — absent file: no mtime, unit judged by its others
-                newest = max(newest, s[1])
-        if unreadable:
-            return "unreadable"
-        if cutoff_ms is not None and newest != 0 and newest < cutoff_ms * 1_000_000:
-            return "outside"
-        return "kept"
+                fail(path, exc)
+        return "unreadable" if unreadable else "kept"
 
     def built_bundles() -> Iterator[Bundle]:
         """Discover all scanned providers, sort by session start, build the changed bundles one at a time."""

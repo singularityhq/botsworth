@@ -5,6 +5,7 @@ import os
 import shutil
 import sqlite3
 import time
+import types
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -401,10 +402,23 @@ def test_since_all_recovers_from_an_invalid_stored_window(tmp_path, monkeypatch,
     assert "ingest_since" not in meta(tmp_path)
 
 
+def _window_stat(monkeypatch, fail_with: OSError, *names: str, unit_dir: str | None = None) -> None:
+    """Make the pipeline's own `os.stat` (the window check) fail for files with these names; the adapters
+    and `_stat` keep the real one."""
+    real = os.stat
+
+    def stat(path, *args, **kwargs):
+        p = Path(path)
+        if p.name in names and (unit_dir is None or unit_dir in p.parts):
+            raise fail_with
+        return real(path, *args, **kwargs)
+
+    monkeypatch.setattr(pipeline, "os", types.SimpleNamespace(stat=stat))
+
+
 def _stat_absent(monkeypatch, *names: str) -> None:
-    """Make `_stat` report the files with these names as absent (deleted between discovery and the stat)."""
-    real = pipeline._stat
-    monkeypatch.setattr(pipeline, "_stat", lambda path: None if path.name in names else real(path))
+    """The window check finds the files with these names absent (deleted after discovery)."""
+    _window_stat(monkeypatch, FileNotFoundError(2, "No such file or directory"), *names)
 
 
 def test_unit_with_every_file_absent_at_stat_time_is_kept_not_outside(tmp_path, monkeypatch):
@@ -510,3 +524,98 @@ def test_stored_owner_stays_owner_after_it_ages_out_of_the_window(tmp_path):
         "claude_code/s2/llm_call/r1": True,
         "claude_code/s2/llm_call/r2": True,
     }
+
+
+def deny_os_stat(monkeypatch, unit_dir: str, name: str = "agent-a.jsonl") -> None:
+    """The window check's `os.stat` of one file fails with PermissionError."""
+    _window_stat(monkeypatch, PermissionError(13, "Permission denied"), name, unit_dir=unit_dir)
+
+
+def test_rebuild_leaves_an_unreadable_unit_out_and_the_next_ingest_loads_it(tmp_path, monkeypatch):
+    root = make_root(tmp_path)
+    unit = "claude_code/new"
+    run(tmp_path, root, since="all")
+    assert ops_of(tmp_path, unit) > 0
+    real = pipeline._stat
+    deny_stat(monkeypatch, "new")
+
+    rep = run(tmp_path, root, rebuild=True)
+
+    assert rep["mode"] == "rebuild"
+    bad = str(root / "pa" / "new" / "subagents" / "agent-a.jsonl")
+    assert rep["providers"]["claude_code"]["unreadable"] == [{"path": bad, "error": "Permission denied"}]
+    assert unit not in stored_sessions(tmp_path)
+    assert ops_of(tmp_path, unit) == 0
+    assert ops_of(tmp_path, "claude_code/mixed") > 0
+
+    monkeypatch.setattr(pipeline, "_stat", real)
+    rep = run(tmp_path, root)
+
+    assert rep["mode"] == "incremental"
+    assert rep["providers"]["claude_code"]["unreadable"] == []
+    assert ops_of(tmp_path, unit) > 0
+
+
+def test_unreadable_unit_older_than_the_cutoff_is_unreadable_not_outside(tmp_path, monkeypatch):
+    root = make_root(tmp_path)  # `old` (30 days) is outside the window
+    deny_os_stat(monkeypatch, "pc", "old.jsonl")
+
+    rep = run(tmp_path, root, since="10d")
+
+    claude = rep["providers"]["claude_code"]
+    assert [u["path"] for u in claude["unreadable"]] == [str(root / "pc" / "old.jsonl")]
+    assert claude["outside_window"] == 0  # `old` is older than the cutoff, yet counted as unreadable
+    assert rep["window"]["outside_window"] == claude["outside_window"]
+    assert "claude_code/old" not in stored_sessions(tmp_path)
+
+
+def test_unit_outside_the_window_is_not_opened(tmp_path, monkeypatch):
+    root = make_root(tmp_path)
+    opened: list[str] = []
+    real = pipeline._stat
+
+    def spy(path: Path):
+        opened.append(path.name)
+        return real(path)
+
+    monkeypatch.setattr(pipeline, "_stat", spy)
+
+    run(tmp_path, root, since="10d")
+
+    assert "old.jsonl" not in opened  # outside: decided by os.stat mtimes alone
+    assert "new.jsonl" in opened
+
+
+def test_unreadable_unit_keeps_its_live_status(tmp_path, monkeypatch):
+    monkeypatch.setattr(pipeline, "LIVE_WINDOW_MS", 3 * DAY * 1000)
+    root = make_root(tmp_path)
+    unit = "claude_code/new"
+    run(tmp_path, root, since="10d")
+    before = source_rows(tmp_path, unit)
+    assert {row[4] for row in before.values()} == {"live"}
+    for f in (root / "pa").rglob("*"):
+        age(f, 20)  # a readable unit would now be outside the window and become settled
+    deny_os_stat(monkeypatch, "new")
+
+    rep = run(tmp_path, root)
+
+    assert [u["error"] for u in rep["providers"]["claude_code"]["unreadable"]] == ["Permission denied"]
+    assert source_rows(tmp_path, unit) == before
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root can open any file")
+def test_file_that_stats_but_cannot_be_opened_makes_its_unit_unreadable(tmp_path):
+    root = make_root(tmp_path)
+    bad = root / "pa" / "new" / "subagents" / "agent-a.jsonl"
+    bad.chmod(0)
+    try:
+        rep = run(tmp_path, root, since="10d")
+    finally:
+        bad.chmod(0o644)
+    claude = rep["providers"]["claude_code"]
+    assert claude["unreadable"] == [{"path": str(bad), "error": "Permission denied"}]
+    assert (claude["rebuilt"], claude["outside_window"]) == (
+        1,
+        1,
+    )  # `mixed` built; `old` outside; `new` skipped
+    assert "claude_code/new" not in stored_sessions(tmp_path)
