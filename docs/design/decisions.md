@@ -754,3 +754,21 @@ DataFrames; the 11 test questions were each answered from the helpers. Rejected:
 Limits: a long pandas call in C stops at `interrupt` only when it returns; Jupyter and IPython are not used, so
 only the cell semantics (output, then the repr of the last expression) are alike; an `ops(thread_rowid)` index
 reaches an existing v13 store only by `botsworth ingest --rebuild`.
+
+## D59 — An ingest date window, cut by file mtime per unit (owner, 2026-11-12)
+The owner wants the store to hold only the last 10 days of sessions: a store of every session ever is slow to
+build and to query, and old sessions are not asked about. Chosen: `botsworth ingest --since <Nd|YYYY-MM-DD|all>`
+(interfaces.md CLI-12, DM-93). `Nd` rolls (cutoff = now - N days at each ingest); a date is fixed at 00:00 UTC. The
+window is kept in `meta.ingest_since` and used again by later ingests without the flag and by rebuilds.
+- Why by file mtime, per discovered unit, newest mtime among the unit's files: one filter in the pipeline after
+  discovery, the same for all providers, and a session is never split (a Claude session with a recent subagent file
+  is kept whole). A cut by event time would need every adapter to drop records inside a bundle, which splits
+  sessions and changes cost and ownership figures per adapter.
+- Skip is not delete: the pipeline only treats a recorded file as gone (`source_missing`) when the file is absent
+  from disk, and `store.ingest` removes nothing it is not given. A unit that discovery skips therefore keeps its
+  stored rows. Only a rebuild drops them (D52), and a rebuild with a window leaves them out.
+Rejected: cut by event time (above); a `--since` that deletes stored sessions (irreversible, and a wrong value
+loses data); no stored default (every cron or manual ingest would need the flag, and a forgotten flag would
+read 10 months of logs again).
+Limits: a log file touched without new records (backup restore, `touch`) brings its unit into the window; Codex is
+cut the same way, with no Codex-specific handling.

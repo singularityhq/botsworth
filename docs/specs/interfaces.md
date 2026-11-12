@@ -694,7 +694,7 @@ CLI-4 — Exit codes:
 
 | Command | Arguments | Function / output | Status |
 |---|---|---|---|
-| `ingest` | `--provider` (repeatable), `--force`, `--reprice`, `--rebuild` | pipeline run; JSON run report. `--rebuild` builds a new store from the provider logs and renames it over the old one (D52); not with `--provider`, exit 2. [changed] `--stream` is removed. | [exists] |
+| `ingest` | `--provider` (repeatable), `--force`, `--reprice`, `--rebuild`, `--since <Nd\|YYYY-MM-DD\|all>` (CLI-12) | pipeline run; JSON run report. `--rebuild` builds a new store from the provider logs and renames it over the old one (D52); not with `--provider`, exit 2. [changed] `--stream` is removed. | [exists] |
 | `serve` | `--host` (default 127.0.0.1), `--port` (default 8420), `--ui DIR`, `--open` | starts the HTTP server (CLI-10) | [new] |
 | `status` | — | `ingest_state` | [new] (today only HTTP) |
 | `period` | scope flags (CLI-5) | `period_summary` | [new] |
@@ -715,6 +715,15 @@ CLI-5 [D50] — Scope flags (shared): `--tz ZONE` (IANA name; unknown → exit 2
   Scenario: Given the machine zone Asia/Kolkata on 2026-10-12 (or `--tz Asia/Kolkata`), when an agent runs `botsworth sessions --since 7d --sort cost -n 5`, then stdout is one JSON object with `total` = the in-scope count for 2026-10-06 – 2026-10-12 and 5 `rows` ordered by full cost, and the exit code is 0.
 
 CLI-10 — `serve`: binds `--host:--port`; prints `botsworth UI on http://<host>:<port>` to stderr; serves the API and the UI assets. Asset directory, first found: `--ui DIR`, env `BOTSWORTH_UI_DIR`, the package's bundled `botsworth/http/ui/` (the build copies `frontend/dist` there), the repo's `frontend/dist`. With none found, it logs one warning and serves the API only (API-41). `--open` opens the browser after binding. `serve` never runs ingest (D5) and holds no write connection.
+
+CLI-12 [D59] — `ingest --since <Nd | YYYY-MM-DD | all>`: a date window on what ingest reads. Not the same flag as the scope `--since` of CLI-5.
+- `Nd` (N a whole number of days, N >= 1): rolling. The cutoff is `now - N*24h`, computed at each ingest. `YYYY-MM-DD`: fixed. The cutoff is 00:00 UTC of that date (not the machine zone). `all`: no window.
+- A discovered unit (one `BundleRef`: a session with its subagent files) is read only if the newest mtime among its files is at or after the cutoff. The cut is by file mtime, not by event time, and is the same for every provider. A unit is never split.
+- Skipping is not deleting: a unit outside the window keeps whatever the store already holds for it (its `source_files` rows and its rows stay, and it is not marked `source_missing`). A unit that is new and outside the window is simply not loaded.
+- The window is stored as given in `meta.ingest_since` (DM-93). A later `ingest` without `--since` uses the stored value (a stored `Nd` is resolved again, so it rolls). `--since all` removes the key. `--rebuild`, and the automatic rebuild after a schema change, keep the stored window unless `--since` is given.
+- The JSON report has `window`: `null` when no window is in force, else `{since, cutoff_ms, outside_window}` (`since` = the value, `outside_window` = units skipped in this run). Each provider entry has `outside_window` (skipped units); `discovered` counts all units found. `--table` prints a `window` line.
+- A value in none of the three forms exits 2 with `error: --since must be Nd (for example 10d), YYYY-MM-DD or all`.
+  Scenario: Given a claude root with one session last written 3 days ago and one 30 days ago, when an agent runs `botsworth ingest --since 10d`, then the report has `providers.claude_code.discovered` = 2, `rebuilt` = 1, `outside_window` = 1 and `window.since` = `10d`; a later `botsworth ingest` with no flag reports the same window.
 
 CLI-11 — Stability promise: within `api_version` 1, fields are only added, never renamed, removed or changed in meaning or unit; agents must ignore unknown fields. A breaking change bumps `api_version` (in `freshness`) and is listed in the release notes. `--table` output, stderr text and the order of keys are not stable. Command names and flags listed here are stable within `api_version` 1.
 

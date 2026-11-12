@@ -164,7 +164,7 @@ CREATE INDEX ops_parent_kind_start ON ops(parent_rowid, kind, start_ms);        
 CREATE INDEX ops_caused_by ON ops(caused_by_rowid) WHERE caused_by_rowid IS NOT NULL;  -- D37: agent runs per turn (DM-55); column per DM-14
 ```
 
-`meta` has no `tz` key [D50] (DM-41; the keys are `schema_version`, `parser_version`, `price_fingerprint`, `last_ingest_ms`, `n_ownership_disagreements`). `TABLES` gains `stretches`, `projects` and [D54] `time_split`.
+`meta` has no `tz` key [D50] (DM-41; the keys are `schema_version`, `parser_version`, `price_fingerprint`, `last_ingest_ms`, `n_ownership_disagreements`, and, only while a window is set, `ingest_since`; DM-93). `TABLES` gains `stretches`, `projects` and [D54] `time_split`.
 
 ### 2.3 Content references and stored previews (D39)
 
@@ -420,6 +420,7 @@ Turn boundaries stay as today (design §4.5, claude/tree.py `is_boundary`), exce
 ## 6. Later items
 
 - **DM-80 [later]** Session failure signal (deferred "Session-level failure signal"). Proposed field `sessions.end_state` from the last non-harness main turn: `interrupted` (a harness `interrupt` turn follows it, or Codex `turn_aborted`), `limit` (a `limit_hit` event after its last llm_call), `api_error` (its last llm_call has `error_kind`, or an `api_error` event follows the last call), else `ok`. Facts only; whether and how the list shows it is for the maintainer (D32 shows no error marks). Test: a fixture whose last turn ends with `[Request interrupted by user]` → `interrupted`.
+- **DM-93 [v13] [D59]** `meta.ingest_since` (TEXT, optional) is the ingest date window as the user gave it to `botsworth ingest --since`: `Nd` (for example `10d`, rolling) or `YYYY-MM-DD` (fixed, 00:00 UTC). The key is absent when no window is set. Written at the end of every ingest run with the value in force; deleted by `--since all`. It is kept across a rebuild (DM-4) unless `--since` is given. It changes which units a run reads (interfaces CLI-12); it never removes stored rows. No schema version change (a meta key, not a column). Test: ingest with `--since 10d`, then without the flag: `meta.ingest_since` = `10d` after both; `--since all`: key absent.
 - **DM-90 [later]** The pipeline rebuilds every bundle of a provider when `meta.parser_version` differs from `PARSER_VERSION` (today a bump has no effect, DM-2).
 - **DM-91 [later]** Persist rejected bundles (`source_files.status = 'rejected'`).
 
