@@ -31,8 +31,9 @@ GUARANTEES:
   `LIVE_WINDOW_MS` (10 min) of the run's start; otherwise `settled`. Files of
   unchanged bundles are re-evaluated by the mtime rule every run and their row
   is rewritten when the status changes.
-- A recorded path of a scanned provider that no longer exists is set
-  `source_missing` (D13); its bundle's rows stay in the store until a rebuild, which drops them (D52).
+- A recorded path of a scanned provider that no longer exists is set `source_missing` (D13), unless its
+  unit was skipped in this run (outside the window); its bundle's rows stay in the store until a rebuild,
+  which drops them (D52).
   Such rows are rewritten every run while the file is absent, so they survive a later reload of their
   bundle (which deletes the bundle's rows).
 - Every run reads `codex.adapter.session_overrides(<codex root>)` when `codex` was scanned (its root exists)
@@ -223,6 +224,9 @@ def _run(
     live_from_ns = (now_ms - LIVE_WINDOW_MS) * 1_000_000
     cutoff_ms = None if window is None else parse_since(window, now_ms)
     outside = 0
+    skipped_keys: set[str] = (
+        set()
+    )  # units skipped this run (D59): their recorded files are not examined again
 
     def in_window(ref: BundleRef) -> bool:
         """True when the newest mtime among the unit's files is at or after the cutoff (D59)."""
@@ -282,6 +286,10 @@ def _run(
             ms["discover"] += (time.perf_counter() - t) * 1000
             report[provider]["discovered"] = len(refs)
             kept = [ref for ref in refs if in_window(ref)]
+            kept_ids = {ref.bundle_id for ref in kept}
+            skipped_keys.update(
+                f"{provider}/{ref.bundle_id}" for ref in refs if ref.bundle_id not in kept_ids
+            )
             report[provider]["outside_window"] = len(refs) - len(kept)
             outside += len(refs) - len(kept)
             _tell(
@@ -375,7 +383,7 @@ def _run(
     for provider in scanned:  # a recorded file that is gone: its bundle's rows stay until a rebuild (D52)
         root = root_of[provider].expanduser()
         for path, r in known.items():
-            if r["provider"] == provider and stat(path, root) is None:
+            if r["provider"] == provider and r["bundle_id"] not in skipped_keys and stat(path, root) is None:
                 old = (r["size"], r["mtime_ns"], r["sha_first_4k"])
                 rows.append(
                     _row(path, provider, r["bundle_id"], old, now_ms, "source_missing", r["reject_reason"])

@@ -229,3 +229,49 @@ def test_cli_report_states_window_and_skipped_count(tmp_path, monkeypatch, capsy
     assert data["window"]["outside_window"] == 1
     text = render_table("ingest", data)
     assert "window" in text and "10d" in text and "1 outside window" in text
+
+
+def ops_of(tmp_path, unit: str) -> int:
+    conn = sqlite3.connect(tmp_path / "s.db")
+    try:
+        return conn.execute("SELECT count(*) FROM ops_v WHERE bundle = ?", (unit,)).fetchone()[0]
+    finally:
+        conn.close()
+
+
+def source_rows(tmp_path, unit: str) -> dict[str, tuple]:
+    conn = sqlite3.connect(tmp_path / "s.db")
+    try:
+        return {
+            Path(p).name: row
+            for p, *row in conn.execute(
+                "SELECT path, size, mtime_ns, sha_first_4k, ingested_at_ms, status, reject_reason"
+                " FROM source_files WHERE bundle_id = ?",
+                (unit,),
+            )
+        }
+    finally:
+        conn.close()
+
+
+def test_skipped_unit_that_lost_a_file_is_not_marked_source_missing(tmp_path):
+    root = make_root(tmp_path)
+    age(root / "pb" / "mixed.jsonl", 30)  # `mixed` is now wholly outside the 10 day window
+    run(tmp_path, root, since="all")
+    unit = "claude_code/mixed"
+    ops_before, rows_before = ops_of(tmp_path, unit), source_rows(tmp_path, unit)
+    assert ops_before > 0
+    (root / "pb" / "mixed" / "subagents" / "agent-a.jsonl").unlink()
+
+    rep = run(tmp_path, root, since="10d")
+
+    assert rep["providers"]["claude_code"]["outside_window"] == 2  # old and mixed
+    assert source_rows(tmp_path, unit) == rows_before
+    assert ops_of(tmp_path, unit) == ops_before
+
+    rep = run(tmp_path, root, since="all")
+
+    claude = rep["providers"]["claude_code"]
+    assert (rep["mode"], claude["rebuilt"], claude["unchanged"]) == ("incremental", 1, 2)
+    assert ops_of(tmp_path, unit) < ops_before
+    assert source_rows(tmp_path, unit)["agent-a.jsonl"][4] == "source_missing"
