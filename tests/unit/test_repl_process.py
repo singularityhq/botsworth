@@ -633,7 +633,9 @@ def test_a_refused_connect_to_a_live_server_is_not_proof_of_death(short, monkeyp
             pytest.skip("this OS does not refuse a connect when the queue is full")
         monkeypatch.setattr(repl, "is_server", lambda pid, name: pid == sleeper.pid)
         reply = client.call("q", {"op": "status"}, timeout=0.3)
-        assert reply == {"ok": False, "unresponsive": True, "pid": sleeper.pid}
+        assert reply == {
+            "ok": False, "unresponsive": True, "refused": True, "pid": sleeper.pid, "verified": True,
+        }  # fmt: skip
         assert (folder / "q.sock").exists() and private.exists()
         monkeypatch.setattr(repl, "is_server", lambda pid, name: False)  # now the process is not a server
         assert client.call("q", {"op": "status"}, timeout=0.3) is None
@@ -751,3 +753,106 @@ def test_a_run_request_without_code_does_not_leave_the_session_busy(tmp_path, mo
     srv.handle(b)
     assert json.loads(a.recv(65536))["ok"] is False
     assert srv.busy_since is None
+
+
+# ---- recheck 4 ----
+def stuck_listener(short, monkeypatch, name="q"):
+    """A live 'server' (a sleeping process) whose socket refuses connections because its queue is full."""
+    monkeypatch.setenv("TMPDIR", str(short))
+    sleeper = subprocess.Popen(["sleep", "30"])
+    srv, folder, private = make_listener(short, name, sleeper.pid)
+    held, refused = fill_queue(folder / f"{name}.sock")
+    if not refused:
+        sleeper.kill()
+        pytest.skip("this OS does not refuse a connect when the queue is full")
+    return sleeper, srv, folder, private, held
+
+
+def test_stop_does_not_kill_a_process_it_cannot_identify(short, monkeypatch):
+    sleeper, srv, folder, private, held = stuck_listener(short, monkeypatch)
+    try:
+        monkeypatch.setattr(repl, "is_server", lambda pid, name: None)  # no readable command line
+        with pytest.raises(client.Exit) as e:
+            client.stop("q")
+        assert (
+            e.value.code == 3
+            and str(sleeper.pid) in e.value.message
+            and "cannot be verified" in e.value.message
+        )
+        assert sleeper.poll() is None  # nothing was killed
+        assert (folder / "q.sock").exists() and private.exists()  # and nothing was removed
+    finally:
+        sleeper.kill()
+        sleeper.wait()
+
+
+def test_a_refusing_socket_gives_an_accurate_run_message(short, monkeypatch):
+    sleeper, srv, folder, private, held = stuck_listener(short, monkeypatch)
+    try:
+        monkeypatch.setattr(repl, "is_server", lambda pid, name: True)
+        with pytest.raises(client.Exit) as e:
+            client.run("1", "q", 50)
+        assert e.value.code == 3 and "not accepting connections" in e.value.message
+        assert "still running after" not in e.value.message
+    finally:
+        sleeper.kill()
+        sleeper.wait()
+
+
+def test_ps_that_fails_is_unknown_not_a_foreign_process(monkeypatch):
+    class R:
+        def __init__(self, rc, out="", err=""):
+            self.returncode, self.stdout, self.stderr = rc, out, err
+
+    pid = 2**22 + 12345  # no /proc entry on any OS
+    monkeypatch.setattr(repl.subprocess, "run", lambda *a, **k: R(2, "", "ps: boom"))
+    assert repl.cmdline(pid) is None
+    monkeypatch.setattr(repl.subprocess, "run", lambda *a, **k: R(1, "", "ps: weird"))
+    assert repl.cmdline(pid) is None
+    monkeypatch.setattr(repl.subprocess, "run", lambda *a, **k: R(1, "", ""))
+    assert repl.cmdline(pid) == ""  # ps ran and found no such process
+    monkeypatch.setattr(
+        repl.subprocess, "run", lambda *a, **k: R(0, "python -m botsworth.repl.server --name a\n")
+    )
+    assert repl.cmdline(pid).startswith("python")
+
+
+def test_replacing_a_dead_socket_also_removes_the_dead_servers_private_link(short, monkeypatch):
+    from botsworth.repl import server
+
+    monkeypatch.setenv("TMPDIR", str(short))
+    gone = subprocess.Popen(["true"])
+    gone.wait()
+    srv, folder, private = make_listener(short, "w", gone.pid, backlog=1)
+    srv.close()
+    sock, ino = server.bind(repl.sock_path("w"))
+    try:
+        assert sorted(f.name for f in folder.iterdir()) == sorted(
+            ["w.sock", repl.private_path(folder / "w.sock", os.getpid()).name]
+        )
+    finally:
+        sock.close()
+
+
+def test_reap_removes_only_the_socket_name_that_is_its_servers(short, monkeypatch):
+    monkeypatch.setenv("TMPDIR", str(short))
+    sleeper = subprocess.Popen(["sleep", "30"])
+    other = subprocess.Popen(["sleep", "30"])
+    try:
+        # a foreign live socket owns "r.sock"; the killed server's private link points elsewhere
+        srv, folder, private = make_listener(short, "r", other.pid)
+        mine = repl.private_path(folder / "r.sock", sleeper.pid)
+        mine_srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        mine_srv.bind(str(mine))
+        client.reap(sleeper, "r")
+        assert (folder / "r.sock").exists() and not mine.exists()  # the foreign public name stays
+        assert sleeper.poll() is not None
+        # when the public name is the killed server's own, both go
+        third = subprocess.Popen(["sleep", "30"])
+        (folder / "r.sock").unlink()
+        srv2, _, private2 = make_listener(short, "r", third.pid)
+        client.reap(third, "r")
+        assert not (folder / "r.sock").exists() and not private2.exists()
+    finally:
+        other.kill()
+        other.wait()

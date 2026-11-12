@@ -41,6 +41,14 @@ TRAPS = """Traps:
   - To go from tool calls to calls use bw.issued(tool_calls[...]); a plain merge repeats a call once per tool
     call.
   - local_day / local_hour are columns of calls, in the session time zone you started with.
+Column notes:
+  - gap_ms = call start minus the previous call's end in the thread; negative when calls overlap.
+  - in_tok is uncached input only; cache_read_tok / cache_write_* are separate (context_tok adds them).
+  - call_cost_share_usd (tool_calls) = the issuing call's cost split over its tool calls; calls that issued
+    none are not in tool_calls, so the shares sum to less than total call cost.
+  - sessions cost columns are NULL for a session with no LLM calls (n_calls 0).
+  - agent_type is NULL for Claude (adapter gap).
+  - bw.cache_writes(frame): calls that wrote cache and read none; works on any calls frame you pass.
 Examples:
   daily total:  bw.by(calls, "local_day")
   bash calls:   bw.issued(tool_calls[tool_calls.tool_name.str.lower() == "bash"])

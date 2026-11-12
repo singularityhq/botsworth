@@ -387,11 +387,16 @@ def bind(path: Path) -> tuple[socket.socket, int]:
                     found = os.stat(path).st_ino
                 except FileNotFoundError:
                     continue  # FALLBACK-OK: REPL-4 it vanished between the two calls: try again
+                dead_pid = repl.owner_pid(path)
                 if not repl.socket_dead(path):
                     raise Taken(path.stem) from None
                 with contextlib.suppress(FileNotFoundError):
                     if os.stat(path).st_ino == found:  # still the dead file, not a new server's link
                         path.unlink()
+                        if dead_pid is not None:  # and the dead server's private link to it
+                            old = repl.private_path(path, dead_pid)
+                            if os.stat(old).st_ino == found:
+                                old.unlink()
         else:
             raise OSError(f"cannot replace {path}")
     except Taken:

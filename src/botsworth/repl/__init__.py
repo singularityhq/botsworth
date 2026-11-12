@@ -95,7 +95,11 @@ def cmdline(pid: int) -> str | None:
         out = subprocess.run(["ps", "-o", "command=", "-p", str(pid)], capture_output=True, text=True)
     except OSError:
         return None  # FALLBACK-OK: REPL-4 no way to read a command line: the caller treats it as unknown
-    return out.stdout if out.returncode == 0 else ""
+    if out.returncode == 0:
+        return out.stdout
+    if out.returncode == 1 and not out.stdout.strip() and not out.stderr.strip():
+        return ""  # `ps` ran and found no such process
+    return None  # FALLBACK-OK: REPL-4 `ps` itself failed: identity unknown, never "not our server"
 
 
 def is_server(pid: int, name: str) -> bool | None:

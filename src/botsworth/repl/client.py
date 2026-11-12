@@ -80,10 +80,10 @@ def settle(path: Path, ino: int | None) -> dict | None:
     """After a refused connect (or a connection that ended with no answer): None when the server is gone
     (its socket names are removed), else an `unresponsive` reply with the server's pid. A full queue also
     refuses, so a refusal is checked against the server's pid before anything is removed."""
-    if not repl.refused_means_dead(path):
-        pid = repl.owner_pid(path)
-        return {"ok": False, "unresponsive": True, "pid": pid}
     pid = repl.owner_pid(path)
+    if pid is not None and (verdict := repl.is_server(pid, path.stem)) is not False:
+        # alive or not provably gone: a full queue; `verified` = the pid is known to be our server
+        return {"ok": False, "unresponsive": True, "refused": True, "pid": pid, "verified": verdict is True}
     with contextlib.suppress(FileNotFoundError):
         if ino is None or os.stat(path).st_ino == ino:
             path.unlink()
@@ -146,7 +146,12 @@ def call(name: str, req: dict, timeout: float = ANSWER_S, start: bool = False) -
                     return gone(path, ino)  # FALLBACK-OK: REPL-4 the server ended while answering
                 data += chunk
     except TimeoutError:
-        return {"ok": False, "unresponsive": True, "pid": pid}  # FALLBACK-OK: REPL-4 a server stuck in a call
+        return {
+            "ok": False,
+            "unresponsive": True,
+            "pid": pid,
+            "verified": pid is not None,
+        }  # FALLBACK-OK: REPL-4 stuck
     except OSError:
         return gone(path, ino)  # FALLBACK-OK: REPL-4 the server went away while answering
     return json.loads(data)
@@ -249,8 +254,11 @@ def reap(proc: subprocess.Popen | None, name: str) -> None:
         proc.kill()
         proc.wait()
         path = repl.sock_path(name)
-        path.unlink(missing_ok=True)
-        repl.private_path(path, proc.pid).unlink(missing_ok=True)
+        private = repl.private_path(path, proc.pid)
+        with contextlib.suppress(FileNotFoundError):
+            if os.stat(private).st_ino == os.stat(path).st_ino:  # the public name is still this server's
+                path.unlink()
+        private.unlink(missing_ok=True)
 
 
 def wait_ready(name: str, proc: subprocess.Popen | None) -> dict:
@@ -356,6 +364,12 @@ def run(code: str, name: str | None = None, wait: float = 50) -> int:
     r = call(name, {"op": "run", "code": code, "wait": wait}, timeout=wait + ANSWER_S)
     if r is None or r.get("stopping"):
         raise Exit(repl.EXIT_NO_SESSION, repl.NO_SESSION)
+    if r.get("refused"):
+        raise Exit(
+            repl.EXIT_BUSY,
+            f"session {name} is not accepting connections (its queue is full: a cell may be holding the "
+            f"interpreter). See `status --name {name}`; `stop --name {name}` ends it.",
+        )
     if r.get("unresponsive"):
         raise Exit(
             repl.EXIT_BUSY,
@@ -432,6 +446,12 @@ def stop(name: str | None = None) -> int:
     if not unresponsive and r.get("ok") is False:
         raise failed(name, r)
     pid = r.get("pid")
+    if unresponsive and pid is not None and not r.get("verified"):
+        raise Exit(
+            repl.EXIT_BUSY,
+            f"session {name} does not answer and process {pid} cannot be verified as its server "
+            f"(no readable command line); nothing was stopped. Check it by hand: kill {pid}",
+        )
     if pid is None:
         raise Exit(
             repl.EXIT_BUSY,

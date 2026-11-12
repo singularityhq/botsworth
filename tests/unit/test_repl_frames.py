@@ -321,3 +321,22 @@ def test_a_session_with_no_time_split_rows_has_zero_state_times(repl_db, fr):
     for state in frames.STATES:
         assert s.loc[SOLO, f"{state}_ms"] == 0, state
         assert str(s[f"{state}_ms"].dtype) == "Int64"
+
+
+def test_a_session_with_no_llm_calls_has_null_costs_and_zero_calls(tmp_path):
+    from test_adapter_claude import user, write
+
+    from botsworth import pipeline
+    from botsworth.pricing import Pricer
+
+    root = tmp_path / "claude"
+    write(root / "-repo" / "nocall.jsonl", [user("u", 0, "hi")])
+    roots = {"claude_code": root, "codex": tmp_path / "c", "omp": tmp_path / "o"}
+    roots["codex"].mkdir()
+    roots["omp"].mkdir()
+    db = tmp_path / "s.sqlite"
+    pipeline.run(list(roots), roots, db=db, pricer=Pricer())
+    s = frames.load(db, TZ).sessions.set_index("session_id").loc["nocall"]
+    assert s.n_calls == 0
+    for col in ("cost_usd", "cost_in_usd", "cost_out_usd", "cost_cache_read_usd", "cost_cache_write_usd"):
+        assert pd.isna(s[col]), col

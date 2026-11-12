@@ -393,3 +393,27 @@ def test_what_if_on_300k_rows_takes_seconds_not_minutes(bw):
 def test_what_if_names_a_model_no_provider_prices(bw):
     with pytest.raises(ValueError, match="claude-sonet-4-5"):
         bw.what_if(bw._frames["calls"], "claude-sonet-4-5")
+
+
+def test_help_carries_the_column_notes_and_the_spec_says_the_same(bw, capsys):
+    bw.help()
+    out = capsys.readouterr().out
+    for note in (
+        "gap_ms = call start minus the previous call's end",
+        "negative when calls overlap",
+        "in_tok is uncached input only",
+        "shares sum to less than total call cost",
+        "NULL for a session with no LLM calls",
+        "agent_type is NULL for Claude",
+        "works on any calls frame you pass",
+    ):
+        assert note in out, note
+    spec = (Path(__file__).parents[2] / "docs" / "specs" / "interfaces.md").read_text()
+    for text in (
+        "negative when calls overlap",
+        "uncached input tokens",
+        "sum to less than the total call cost",
+        "NULL for a session with no LLM calls",
+        "NULL for the main thread and for Claude engagements (adapter gap)",
+    ):
+        assert text in spec, text

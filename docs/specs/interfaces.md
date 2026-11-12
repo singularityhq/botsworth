@@ -864,7 +864,7 @@ One row per owned llm_call.
 | `start_ms` | int | epoch ms |
 | `end_ms` | int | epoch ms |
 | `dur_ms` | int | duration of the call |
-| `in_tok` | int | input tokens |
+| `in_tok` | int | uncached input tokens; cache reads and writes are the separate `cache_*_tok` columns (`context_tok` adds them) |
 | `out_tok` | int | output tokens |
 | `reasoning_tok` | int | reasoning tokens, part of `out_tok` |
 | `cache_read_tok` | int | cache read tokens |
@@ -881,7 +881,7 @@ One row per owned llm_call.
 | `stop_reason` | string | provider stop reason |
 | `error_kind` | string | error kind when the call failed |
 | `thread_pos` | int | position in the thread, 1 = first (DM-92) |
-| `gap_ms` | int | time since the previous call in the thread ended (DM-92) |
+| `gap_ms` | int | the call's `start_ms` minus the previous call's `end_ms` in the thread (DM-92); negative when calls overlap; NULL for the first call |
 | `caused_by` | string | op id of the cause (DM-92) |
 | `caused_by_kind` | string | kind of the cause: `session`, `engagement`, `turn` or `llm_call`; joins to `threads.thread_id`, `turns.turn_id` or `calls.call_id` |
 | `effect` | string | the set of its tool calls' effects, joined by `+` (`look`, `change`, `run`, `test`, `wait`, `message`, `unknown`); NULL or empty when it issued none |
@@ -919,7 +919,7 @@ One row per owned tool_call.
 | `user_wait` | string | `ask` or `permission` when the call waited for the user; else NULL |
 | `failed` | int | 1 when `is_error`, a non-zero `exit_code`, `interrupted`, or a step outcome of error, interrupted or non-zero exit |
 | `src` | string | `src://` pointer |
-| `call_cost_share_usd` | float | the issuing call's `cost_usd` divided evenly among its owned tool calls |
+| `call_cost_share_usd` | float | the issuing call's `cost_usd` divided evenly among its owned tool calls; a call that issued none has no row here, so the shares sum to less than the total call cost |
 | `local_day` | string | local day of `start_ms` |
 | `local_hour` | int | local hour of `start_ms` |
 
@@ -989,7 +989,7 @@ One row per root session.
 | `last_ms` | int | epoch ms |
 | `wall_ms` | int | wall time |
 | `active_ms` | int | active time |
-| `cost_usd` | float | stored cost including all threads |
+| `cost_usd` | float | stored cost including all threads; NULL for a session with no LLM calls (as are the other `cost_*` columns) |
 | `cost_in_usd` | float | stored part for input |
 | `cost_out_usd` | float | stored part for output |
 | `cost_cache_read_usd` | float | stored part for cache reads |
@@ -1051,7 +1051,7 @@ One row per model name the bundled `Pricer` resolves, per provider (catalog ids,
 | `cache_write_5m_per_mtok` | float | cache write rate, 5-minute tier |
 | `cache_write_1h_per_mtok` | float | cache write rate, 1-hour tier (anthropic: 2 × input) |
 
-REPL-6 — Helpers (`bw`). Each returns a DataFrame or a small record and never prints prose, except `help`. A helper that works on rows takes a frame, defaulting to the full frame; the helpers read their own copy of the frames, so a cell that rebinds `calls` does not change them. The text of `bw.help()` and of the `start` banner names these traps: cost counts once per request (the frames do it); never sum `incl_cost_usd` over nested rows; `effect` of a call is a set; join tool calls to calls only through `bw.issued`.
+REPL-6 — Helpers (`bw`). Each returns a DataFrame or a small record and never prints prose, except `help`. A helper that works on rows takes a frame, defaulting to the full frame; the helpers read their own copy of the frames, so a cell that rebinds `calls` does not change them. The text of `bw.help()` and of the `start` banner names these traps: cost counts once per request (the frames do it); never sum `incl_cost_usd` over nested rows; `effect` of a call is a set; join tool calls to calls only through `bw.issued`. They also state the column notes: `gap_ms` can be negative, `in_tok` excludes cache tokens, `call_cost_share_usd` sums to less than the total call cost, the session cost columns are NULL without LLM calls, `agent_type` is NULL for Claude, and `bw.cache_writes` works on any calls frame it is given.
 
 | Helper | Returns |
 |---|---|
