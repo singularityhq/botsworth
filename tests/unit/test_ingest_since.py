@@ -619,3 +619,23 @@ def test_file_that_stats_but_cannot_be_opened_makes_its_unit_unreadable(tmp_path
         1,
     )  # `mixed` built; `old` outside; `new` skipped
     assert "claude_code/new" not in stored_sessions(tmp_path)
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root can open any file")
+def test_live_row_of_a_skipped_unit_is_re_evaluated_without_opening_the_file(tmp_path, monkeypatch):
+    monkeypatch.setattr(pipeline, "LIVE_WINDOW_MS", 3 * DAY * 1000)
+    root = make_root(tmp_path)
+    unit = "claude_code/new"
+    run(tmp_path, root, since="10d")
+    assert {row[4] for row in source_rows(tmp_path, unit).values()} == {"live"}
+    for f in (root / "pa").rglob("*"):
+        age(f, 20)
+    bad = root / "pa" / "new" / "subagents" / "agent-a.jsonl"
+    bad.chmod(0)
+    try:
+        rep = run(tmp_path, root)
+    finally:
+        bad.chmod(0o644)
+    assert rep["providers"]["claude_code"]["unreadable"] == []
+    assert rep["providers"]["claude_code"]["outside_window"] == 2
+    assert {row[4] for row in source_rows(tmp_path, unit).values()} == {"settled"}

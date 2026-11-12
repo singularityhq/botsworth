@@ -773,7 +773,7 @@ window is kept in `meta.ingest_since` and used again by later ingests without th
 - Unreadable is skip, not crash: a file of a unit whose stat fails with an error other than absence (permission
   denied) skips its whole unit for this run, like an out-of-window unit, and is reported in the provider's
   `unreadable` list (a stderr warning from the CLI). The run exits 0. With a window, plain `os.stat` mtimes decide
-  first (10k files: 28 ms against 897 ms for the hashing stat), so an out-of-window unit is never opened; only kept
+  first (synthetic warm-cache run of 10,000 files of 50 KB: 28 ms against 897 ms for the hashing stat), so an out-of-window unit is never opened; only kept
   units are opened for the hash, and an open error there also makes the unit unreadable. In an incremental run the
   skipped unit keeps its rows. A rebuild writes a new store, so it leaves an unreadable unit out, the same as an
   out-of-window unit; the next ingest after the file is readable loads it. A stat error on a recorded path that is

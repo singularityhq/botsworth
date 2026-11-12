@@ -53,7 +53,8 @@ GUARANTEES:
   is before the cutoff (`Nd`: now - N*24h; date: 00:00 UTC). Such a unit is not built, not counted as
   rebuilt or unchanged, and its stored rows and `source_files` rows keep their values, so it is never marked
   `source_missing`; the one exception is the status of a `live` row, which is set `settled` (stored size,
-  mtime and hash unchanged) when `status_of(stat, False)` from the file's current stat says so. The value
+  mtime and hash unchanged) when `status_of(stat, False)` from the file's current mtime (`os.stat`; the
+  file is not opened) says so; an absent or unreadable file keeps its stored status. The value
   in force is written to `meta.ingest_since` (deleted for `all`). The report
   has `window` (None, or `{since, cutoff_ms, outside_window}`) and a per-provider `outside_window`.
 - Unreadable files (CLI-12, D59): with a window, discovery reads the mtime of every member file with plain
@@ -259,6 +260,15 @@ def _run(
     def status_of(s: Stat, partial: bool) -> str:
         return "live" if partial or s[1] >= live_from_ns else "settled"
 
+    def status_of_mtime(full: Path) -> str:
+        """The status a skipped unit's file has now, from its mtime alone: the file is not opened (D59)."""
+        try:
+            return status_of((0, os.stat(full).st_mtime_ns, ""), False)
+        except (
+            OSError
+        ):  # FALLBACK-OK: D59 — a skipped unit's absent or unreadable file keeps its stored status
+            return "live"
+
     ms = {"discover": 0.0, "build": 0.0}
     report: dict[str, dict] = {}
     rows: list[dict] = []
@@ -437,12 +447,7 @@ def _run(
                 continue
             old = (r["size"], r["mtime_ns"], r["sha_first_4k"])
             if key in outside_keys:
-                # FALLBACK-OK: D59 — a skipped unit's absent file is left as stored, never `source_missing`
-                if (
-                    r["status"] == "live"
-                    and (s := stat(path, root)) is not None
-                    and status_of(s, False) != "live"
-                ):
+                if r["status"] == "live" and status_of_mtime(root / path) != "live":
                     rows.append(
                         _row(path, provider, key, old, r["ingested_at_ms"], "settled", r["reject_reason"])
                     )
