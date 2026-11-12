@@ -728,3 +728,29 @@ Limits: store rejections are known only after the run, so the live count include
 while the summary lists both; a run stopped by Ctrl-C leaves only the cleared line (exit 130 unchanged).
 CLI-4's "stderr nothing on success" now means no error line: on a terminal, ingest owns stderr while it
 runs (CLI-11 already treats stderr text as unstable).
+
+## D58 — A persistent analysis REPL for agents (maintainer, 2026-11-12)
+Agents asked questions the fixed commands do not cover (cost of the cache rebuilds after a compaction, what a
+session would have cost on another model, subagent against main at any depth). Chosen: `botsworth repl`
+(interfaces.md §5.3, REPL-1..7). One detached Python process per named session holds the store as seven
+pandas DataFrames (`calls`, `tool_calls`, `threads`, `turns`, `sessions`, `events`, `prices`) and a helper library
+`bw` of proven helpers; the agent loads once and runs short cells (`start`, `run`, `status`, `interrupt`, `stop`).
+- The frames are read by `query/frames.py` (the only reader of the store; `mode=ro`, connection closed after the
+  load). The server, client and helpers are `botsworth.repl`; `cli/repl.py` only parses arguments. pandas is the
+  optional extra `botsworth[repl]`; the base package does not import it.
+- There is no SQL interface and no database connection in the namespace. A cell is Python, so this is not
+  enforced.
+- `what_if` uses the one `Pricer`; `prices` holds every name the `Pricer` resolves, so a call's model finds one row.
+- The session socket is `$TMPDIR/botsworth-repl/<name>.sock` (0700 folder, 0600 socket). The server writes nothing
+  else (D52). Idle stop after 20 minutes. No cell time limit: `run --wait` (default 50 s, under the usual 60-120 s
+  tool-call limit) and exit 3; a cell that must end is ended by `interrupt` or `stop`.
+- Codex's default sandbox cannot bind the socket: `start` exits 5 with the reason. Claude Code can.
+- Added index `ops_thread` on `ops(thread_rowid)` (schema 13, no column change); without it the per-thread rollup
+  query ran for more than 400 s on a week of data.
+Why: a persistent namespace with a library of helpers lets a cheap model answer new questions by composing
+DataFrames; the 11 test questions were each answered from the helpers. Rejected: the frames-and-scripts design
+(`botsworth frames`, a guide, DuckDB: every script reloads the data and writes files); widening
+`botsworth query` by one field per question; a free SQL interface (a second dialect to learn, no count-once rule).
+Limits: a long pandas call in C stops at `interrupt` only when it returns; Jupyter and IPython are not used, so
+only the cell semantics (output, then the repr of the last expression) are alike; an `ops(thread_rowid)` index
+reaches an existing v13 store only by `botsworth ingest --rebuild`.

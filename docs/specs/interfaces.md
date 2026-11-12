@@ -709,6 +709,7 @@ CLI-4 — Exit codes:
 | `find` | `SESSION`, `--kind`, `--measure`, `--text`, `-n` | `find` | [new] |
 | `outline`, `query`, `top`, `children`, `show`, `steps`, `timeline`, `source`, `stats`, `outliers`, `trend`, `limits`, `skills` | as today (spec-inventory §3) | as today | [exists]; `outline`/`steps`/`show` display ids per QRY-2 [changed] |
 | `slow`, `breakdown`, `tasks` | §5.2 | §5.2 | [new] |
+| `repl start`, `run`, `status`, `interrupt`, `stop` | §5.3 | a persistent pandas session over the store; text output; own exit codes 0–5 (REPL-2) | [new] |
 
 CLI-5 [D50] — Scope flags (shared): `--tz ZONE` (IANA name; unknown → exit 2); `--from DAY --to DAY` or `--since <n>d|w` (days back from today in the CLI zone, inclusive of today; `--since 1d` = today; the CLI zone is `--tz` or, when absent, the machine's zone, and the CLI sends it as `tz`) [D50] or neither (all time); `--q TEXT`; `--provider`, `--model`, `--branch`, `--project` (each repeatable); `--automated` (include automated sessions). `--since` with `--from`/`--to` is a usage error (exit 2). The `<n>h` form of today's `--since` remains only on the existing commands that take it.
   Scenario: Given the machine zone Asia/Kolkata on 2026-10-12 (or `--tz Asia/Kolkata`), when an agent runs `botsworth sessions --since 7d --sort cost -n 5`, then stdout is one JSON object with `total` = the in-scope count for 2026-10-06 – 2026-10-12 and 5 `rows` ordered by full cost, and the exit code is 0.
@@ -775,6 +776,291 @@ CLI-23 — Output size: each use-case command's JSON for `-n 10` on the real v7 
 CLI-24 — Latency on the real v7 store, p95 warm: `slow --since 7d --project <largest project>` ≤ 1.5 s; `breakdown b2c3d4e6` ≤ 1.5 s; `tasks --since 30d --by command_key` ≤ 2 s. Measured by Q4 (TST-5). No target in `make check`.
 
 TST-7 — Use-case tests on the TST-1 fixture, one per rule: CLI-20's scenario; `previous` is null for all time; calls with `user_wait` set are not in `tools` or `slowest_tools`; CLI-21's invariant against `session_detail`, `session_turns` and `find`; CLI-22's scenario; the partition for `issuing_call_split` and `nearest_engagement`; `skill` splits a turn that loaded two skills evenly; `slash` keys `/mad:bootstrap ARGS` as `/mad:bootstrap`; `--by bogus` → exit 2; the JSON output equals `asdict` of the function's result.
+
+### 5.3 The analysis REPL (`botsworth repl`)
+
+Added for T1080 B1, 2026-11-12 (D58). An agent that must answer questions the fixed commands do not cover needs the
+data in a form it can compose. `botsworth repl` keeps one background Python session with the store loaded as pandas
+DataFrames and a small helper library, so the agent loads once and then runs short cells against it. It is an analysis
+cut beside the query layer, not a replacement: `botsworth query` and the HTTP API are unchanged. The frames
+are read through `botsworth.query.frames` (the only reader of the store); the server, the client and the helpers are
+`botsworth.repl`; `cli/repl.py` only parses arguments. pandas is the optional extra `botsworth[repl]`.
+
+REPL-1 — Commands. `--db` (global) selects the store as for every command; the REPL never writes it (D52).
+
+| Command | Arguments | What it does |
+|---|---|---|
+| `repl start` | `--tz ZONE` (default: this machine's), `--name NAME`, `--since DAY`, `--until DAY`, `--sessions ID…`, `--idle MIN` (default 20), `--max-rss MB` (default 2000) | Lists the sessions already running (name, RSS), then loads the frames once in a detached server process and returns when they are loaded. Prints the session name, scope, load time, row counts and RSS, then the traps text (REPL-6). |
+| `repl run` | `CODE` or `-` (stdin), `--name NAME`, `--wait S` (default 50) | Runs the code in the session namespace. Prints what the code prints, then the repr of its last expression (like IPython). |
+| `repl status` | `--name NAME`, `--last` | Bare: lists every running session with RSS, idle time and state. `--name`: scope, load time, uptime, RSS, idle time, names the user defined, busy or idle with the running time, and how the last cell ended. `--last`: the output of the last cell (for a cell whose `run` exited 3). |
+| `repl interrupt` | `--name NAME` | Raises `KeyboardInterrupt` in the running cell at its next Python step; a long pandas call in C stops when it returns. |
+| `repl stop` | `--name NAME` | Ends the session: interrupt, then kill after 5 s. Returns when the process has ended. |
+
+`--since` and `--until` are local days (`YYYY-MM-DD`, inclusive, in `--tz`) and limit the sessions to those that started in the range; `--sessions` limits to those ids. They differ from CLI-5's `--since <n>d`.
+A session name is 1–32 letters, digits, `-` or `_`. Without `--name`, `start` makes a short name and prints it.
+`run`, `status --last`, `interrupt` and `stop` without `--name` use the only running session. Parallel agents each start their own name: every name has its own namespace and its own load.
+The same name is one shared namespace: one cell runs at a time, a `run` on a busy session exits 3 at once.
+`start --name X` on a running X with the same store, zone and scope reports its status (exit 0, no second load); with different values it exits 4 and names the differences.
+
+REPL-2 — Exit codes. stdout carries the result; one reason line goes to stderr.
+
+| Code | Meaning |
+|---|---|
+| 0 | success |
+| 1 | the cell raised (traceback printed; the namespace keeps every name set before the error), or `status --last` shows a cell that raised |
+| 2 | no session running: "no session running: all session state is lost and must be rebuilt; start one with botsworth repl start" |
+| 3 | the cell is still running after `--wait` (it goes on; output kept for `status --last`), the session is busy with an earlier cell, or it is still loading |
+| 4 | `start --name X` with values that differ from running X; or `run`/`status --last`/`interrupt`/`stop` without `--name` while several sessions run (the list is printed) |
+| 5 | `start` could not create the session; the reason is printed (pandas missing, with the install line `pip install 'botsworth[repl]'`; socket folder unusable; the socket could not be bound, e.g. a sandbox forbids it; no store; store of another schema version, with the store's message; unknown session id) |
+
+REPL-3 — Process model. `start` launches one detached server (`sys.executable -m botsworth.repl.server`, the interpreter that runs the client). It binds a Unix socket `$TMPDIR/botsworth-repl/<name>.sock` (folder mode 0700, socket mode 0600), opens the store read-only (`mode=ro`), loads the frames, closes the connection and keeps none. The server writes nothing else: no store, no cache, no log. It stops by `stop`, or after `--idle` minutes without a `run` (never during a cell). A cell runs on the server's main thread; `status`, `interrupt` and `stop` are answered by other threads while it runs. `run` waits at most `--wait` seconds; there is no cell time limit, a cell that must end is ended by `interrupt` or `stop`. A client of the Codex default sandbox cannot bind the socket and gets exit 5.
+
+REPL-4 — Failure behavior.
+
+| Case | What happens |
+|---|---|
+| Cell raises | traceback printed, exit 1, the session keeps its state |
+| Cell runs longer than `--wait` | `run` exits 3, the cell continues, `status` shows busy, `interrupt` sends SIGINT, `stop` kills if needed |
+| Caller's tool call killed during `run` | the cell continues; its output is kept for `status --last` |
+| Output longer than 20,000 characters | cut, with a line `[output cut: N more characters]`; pandas shows at most 60 rows |
+| Memory above `--max-rss` after a cell | the output ends with a warning naming the biggest frames the user defined; nothing is deleted |
+| Server process died (killed, out of memory) | `run` prints the REPL-2 code 2 message and exits 2; the stale socket file is removed |
+| Store schema is not the current version | `start` exits 5 with the store's message; nothing loads |
+| `start` cannot bind the socket or use the folder | exit 5 with the reason; no process is left |
+| Server idle for `--idle` minutes | the process ends and removes its socket; the next `run` exits 2 |
+
+REPL-5 — Namespace. The cell namespace holds the frames `calls`, `tool_calls`, `threads`, `turns`, `sessions`, `events`, `prices` (pandas DataFrames), `bw` (REPL-6), `pd` and `np`. No database connection and no SQL helper is offered; this is not enforced, a cell is Python. Frames hold stored facts only, counted once (D39, 1.4): `calls` and `tool_calls` hold owned rows (`duplicate_of` NULL), so cost and usage count once per requestId group; `events` holds no copies. `local_day` (`YYYY-MM-DD`) and `local_hour` (0–23) are the local day and hour of the row's first time column (`start_ms`; `sessions`: `first_ms`; `events`: `ts_ms`) in the zone given to `start`. Every row of a frame except `prices` has `src`, a `src://` pointer (DM-8) for `bw.text`. Money columns are USD, `float`; token and time columns are nullable integers. A fact a provider does not record is NULL. The frames never hold prompt, output or tool text (D39). Nesting is taken from `threads.parent_thread_id` (`threads.depth`), not from `spawn_depth`, which reads 0 for Claude engagements started by an agent.
+Scope: a session is in scope when it started in the `--since`/`--until` range and is listed in `--sessions` (when given); a frame then holds every row of those sessions, so per-session sums equal the stored rollups and `thread_pos` and `gap_ms` are never cut.
+The columns of each frame:
+
+#### Frame `calls`
+
+One row per owned llm_call.
+
+| Column | Type | Meaning |
+|---|---|---|
+| `call_id` | string | op id |
+| `session_id` | string | session |
+| `provider` | string | `claude_code`, `codex` or `omp` |
+| `project` | string | project key of the session |
+| `account` | string | account name |
+| `automated` | int | 1 for an automated session |
+| `thread_id` | string | the thread the call runs in: `threads.thread_id` |
+| `is_main` | bool | the thread is the session's main thread |
+| `agent_id` | string | provider agent id; NULL on the main thread |
+| `agent_type` | string | agent type of the thread; NULL for the main thread and for Claude engagements (adapter gap) |
+| `parent_turn_id` | string | turn op that holds the call: `turns.turn_id` |
+| `turn_id` | string | the turn the call is attributed to (DM-45): `turns.turn_id` |
+| `model` | string | model id as the provider reported it |
+| `start_ms` | int | epoch ms |
+| `end_ms` | int | epoch ms |
+| `dur_ms` | int | duration of the call |
+| `in_tok` | int | input tokens |
+| `out_tok` | int | output tokens |
+| `reasoning_tok` | int | reasoning tokens, part of `out_tok` |
+| `cache_read_tok` | int | cache read tokens |
+| `cache_write_tok` | int | cache write tokens (flat; Claude also gives the tiers) |
+| `cache_write_5m_tok` | int | cache write tokens, 5-minute tier |
+| `cache_write_1h_tok` | int | cache write tokens, 1-hour tier |
+| `context_tok` | int | `in_tok + cache_read_tok + cache_write_tok`, a NULL counted as 0 |
+| `cost_usd` | float | cost of the call; NULL when `cost_basis` is `missing` |
+| `cost_in_usd` | float | part of `cost_usd` for input |
+| `cost_out_usd` | float | part for output |
+| `cost_cache_read_usd` | float | part for cache reads |
+| `cost_cache_write_usd` | float | part for cache writes |
+| `cost_basis` | string | `reported` (the provider's figure), `computed` (the `Pricer`), or `missing` |
+| `stop_reason` | string | provider stop reason |
+| `error_kind` | string | error kind when the call failed |
+| `thread_pos` | int | position in the thread, 1 = first (DM-92) |
+| `gap_ms` | int | time since the previous call in the thread ended (DM-92) |
+| `caused_by` | string | op id of the cause (DM-92) |
+| `caused_by_kind` | string | kind of the cause: `session`, `engagement`, `turn` or `llm_call`; joins to `threads.thread_id`, `turns.turn_id` or `calls.call_id` |
+| `effect` | string | the set of its tool calls' effects, joined by `+` (`look`, `change`, `run`, `test`, `wait`, `message`, `unknown`); NULL or empty when it issued none |
+| `n_tools` | int | owned tool calls the call issued |
+| `src` | string | `src://` pointer |
+| `local_day` | string | local day of `start_ms` |
+| `local_hour` | int | local hour of `start_ms` |
+
+#### Frame `tool_calls`
+
+One row per owned tool_call.
+
+| Column | Type | Meaning |
+|---|---|---|
+| `tool_id` | string | op id |
+| `call_id` | string | issuing call: `calls.call_id` |
+| `session_id` | string | session |
+| `thread_id` | string | thread |
+| `is_main` | bool | main thread |
+| `agent_type` | string | agent type of the thread |
+| `turn_id` | string | attributed turn |
+| `model` | string | model of the issuing call |
+| `tool_name` | string | tool name as recorded (case varies: `Bash`, `bash`) |
+| `command_key` | string | stored command key (DM-28); NULL for tools without a command |
+| `command_norm` | string | stored normalised command |
+| `command` | string | stored command preview (D39) |
+| `file_path` | string | file the tool touched |
+| `effect` | string | one of `look`, `change`, `run`, `test`, `wait`, `message`, `unknown` |
+| `start_ms` | int | epoch ms |
+| `dur_ms` | int | duration |
+| `is_error` | int | 1 when the result was an error |
+| `exit_code` | int | exit code of a command |
+| `interrupted` | int | 1 when interrupted |
+| `result_bytes` | int | size of the result |
+| `user_wait` | string | `ask` or `permission` when the call waited for the user; else NULL |
+| `failed` | int | 1 when `is_error`, a non-zero `exit_code`, `interrupted`, or a step outcome of error, interrupted or non-zero exit |
+| `src` | string | `src://` pointer |
+| `call_cost_share_usd` | float | the issuing call's `cost_usd` divided evenly among its owned tool calls |
+| `local_day` | string | local day of `start_ms` |
+| `local_hour` | int | local hour of `start_ms` |
+
+#### Frame `threads`
+
+One row per main thread and per engagement (a sub-agent run).
+
+| Column | Type | Meaning |
+|---|---|---|
+| `thread_id` | string | op id of the engagement, or of the session for the main thread |
+| `session_id` | string | session |
+| `is_main` | bool | the main thread |
+| `parent_thread_id` | string | the thread that started it; NULL for a main thread |
+| `agent_id` | string | provider agent id |
+| `agent_type` | string | agent type; NULL for Claude engagements (adapter gap) |
+| `agent_name` | string | agent name |
+| `engagement_ix` | int | index of the engagement |
+| `is_fork` | int | 1 for a fork |
+| `start_ms` | int | epoch ms |
+| `end_ms` | int | epoch ms |
+| `wall_ms` | int | wall time |
+| `n_calls` | int | owned calls in the thread |
+| `cost_usd` | float | sum of the thread's own calls, children not included |
+| `incl_cost_usd` | float | stored cost including child threads (do not sum over nested rows) |
+| `n_tools` | int | owned tool calls in the thread |
+| `src` | string | `src://` pointer |
+| `depth` | int | 0 main, 1 started from the main thread, 2 started from a depth-1 agent, … (from `parent_thread_id`) |
+| `local_day` | string | local day of `start_ms` |
+| `local_hour` | int | local hour of `start_ms` |
+
+#### Frame `turns`
+
+One row per turn op (main-thread and agent turns).
+
+| Column | Type | Meaning |
+|---|---|---|
+| `turn_id` | string | op id |
+| `session_id` | string | session |
+| `thread_id` | string | thread |
+| `is_main` | bool | main thread |
+| `turn_kind` | string | turn kind |
+| `turn_origin` | string | turn origin |
+| `display_ix` | int | number shown in the UI; NULL for harness turns |
+| `start_ms` | int | epoch ms |
+| `end_ms` | int | epoch ms |
+| `n_calls` | int | owned calls directly under the turn |
+| `cost_usd` | float | sum of those calls |
+| `attr_cost_usd` | float | stored attributed cost (DM-45) |
+| `src` | string | `src://` pointer |
+| `local_day` | string | local day of `start_ms` |
+| `local_hour` | int | local hour of `start_ms` |
+
+#### Frame `sessions`
+
+One row per root session.
+
+| Column | Type | Meaning |
+|---|---|---|
+| `session_id` | string | session id |
+| `provider` | string | `claude_code`, `codex` or `omp` |
+| `project` | string | project key |
+| `account` | string | account |
+| `title` | string | display title |
+| `automated` | int | 1 for an automated session |
+| `main_thread_id` | string | `threads.thread_id` of the main thread |
+| `first_ms` | int | epoch ms |
+| `last_ms` | int | epoch ms |
+| `wall_ms` | int | wall time |
+| `active_ms` | int | active time |
+| `cost_usd` | float | stored cost including all threads |
+| `cost_in_usd` | float | stored part for input |
+| `cost_out_usd` | float | stored part for output |
+| `cost_cache_read_usd` | float | stored part for cache reads |
+| `cost_cache_write_usd` | float | stored part for cache writes |
+| `n_calls` | int | owned llm_calls |
+| `n_tools` | int | owned tool calls |
+| `n_human_turns` | int | human asks |
+| `n_agents` | int | engagements |
+| `src` | string | `src://` pointer |
+| `model_ms` | int | stored time split (DM-50) in state `model`; 0 when none |
+| `tool_ms` | int | state `tool` |
+| `agents_ms` | int | state `agents` |
+| `you_ms` | int | state `you` |
+| `agentmsg_ms` | int | state `agentmsg` |
+| `limit_ms` | int | state `limit` |
+| `none_ms` | int | state `none` |
+| `local_day` | string | local day of `first_ms` |
+| `local_hour` | int | local hour of `first_ms` |
+
+#### Frame `events`
+
+One row per event; copies are excluded.
+
+| Column | Type | Meaning |
+|---|---|---|
+| `event_id` | string | event id |
+| `kind` | string | event kind (`compaction`, `api_error`, `skill_invocation`, `limit_hit`, …) |
+| `session_id` | string | session |
+| `provider` | string | provider |
+| `project` | string | project key |
+| `ts_ms` | int | epoch ms |
+| `call_id` | string | the llm_call the event hangs on; NULL when it hangs on no call |
+| `thread_id` | string | thread of the op the event hangs on; NULL when none |
+| `is_main` | bool | main thread |
+| `trigger` | string | compaction trigger |
+| `pre_tokens` | int | tokens before a compaction |
+| `post_tokens` | int | tokens after a compaction |
+| `duration_ms` | int | duration of the event |
+| `error_kind` | string | error kind of an `api_error` |
+| `status` | any | status field as recorded |
+| `skill` | string | skill name of a `skill_invocation` |
+| `via` | string | how it was invoked |
+| `src` | string | `src://` pointer |
+| `local_day` | string | local day of `ts_ms` |
+| `local_hour` | int | local hour of `ts_ms` |
+
+#### Frame `prices`
+
+One row per model name the bundled `Pricer` resolves, per provider (catalog ids, alias names, and the `[1m]` form of each). `calls.provider` and `calls.model` find exactly one row by equality. USD per million tokens. omp has no rows: it reports its own cost.
+
+| Column | Type | Meaning |
+|---|---|---|
+| `provider` | string | `claude_code` or `codex` |
+| `model` | string | the model name a call can carry |
+| `price_id` | string | the catalog id it resolves to |
+| `in_per_mtok` | float | input rate |
+| `out_per_mtok` | float | output rate |
+| `cache_read_per_mtok` | float | cache read rate |
+| `cache_write_5m_per_mtok` | float | cache write rate, 5-minute tier |
+| `cache_write_1h_per_mtok` | float | cache write rate, 1-hour tier (anthropic: 2 × input) |
+
+REPL-6 — Helpers (`bw`). Each returns a DataFrame or a small record and never prints prose, except `help`. A helper that works on rows takes a frame, defaulting to the full frame; the helpers read their own copy of the frames, so a cell that rebinds `calls` does not change them. The text of `bw.help()` and of the `start` banner names these traps: cost counts once per request (the frames do it); never sum `incl_cost_usd` over nested rows; `effect` of a call is a set; join tool calls to calls only through `bw.issued`.
+
+| Helper | Returns |
+|---|---|
+| `bw.help()` | prints the helpers, the frame names and the traps |
+| `bw.schema(frame=None)` | a frame name or DataFrame → `dtype`, `non_null` per column; no argument → row counts of all frames |
+| `bw.session(id_prefix)` | a `Session` with `.calls`, `.threads`, `.split` (main against subagents at any depth: `n_calls`, `cost_usd`), `.cost`, `.n_calls`, `.sub_cost`, `.sub_calls`, `.nested` (threads deeper than 1); `ValueError` unless exactly one session matches |
+| `bw.by(frame, *cols)` | rows grouped by `cols` (NULL keys kept): `n` and the sum of each of `cost_usd`, `cost_in_usd`, `cost_out_usd`, `cost_cache_read_usd`, `cost_cache_write_usd`, `call_cost_share_usd` the frame has, largest first; never `incl_cost_usd` |
+| `bw.issued(tc=None)` | the `calls` rows that issued at least one tool call of `tc` (default all of `tool_calls`), once each |
+| `bw.prev(frame=None)` | the rows of `frame` (default `calls`) plus `prev_call_id`, `prev_model`, `prev_effect`, `prev_gap_ms` of the previous call in the same thread (by `thread_pos`); NULL for the first |
+| `bw.first_after(event_kind, frame=None)` | the first call of `frame` (default `calls`) that starts after an event of that kind in the same thread, each call once, plus `event_id` and `event_ts_ms` of the earliest such event |
+| `bw.cache_writes(frame=None)` | the calls of `frame` (default `calls`) with cache written and none read (read 0 or NULL), plus `first_in_thread` (`thread_pos` = 1) |
+| `bw.what_if(frame, model, where=None)` | the rows of `frame` plus `new_cost_usd`, `delta_usd` (`new_cost_usd − cost_usd`) and `repriced`: the same tokens priced at `model` through `botsworth.pricing.Pricer`. A row with no price for `model` at its provider, or `where` False, keeps its cost (`repriced` False) |
+| `bw.text(src, part=None, max_bytes=4000)` | the source text behind a `src://` pointer (a `src` column), read on demand through `pointer.resolve` |
+| `bw.reload()` | reloads the frames from the store after an ingest; names the user defined stay (they are not recomputed) |
+
+Scenario: Given a store with calls on two local days, when the agent runs `botsworth repl run 'bw.by(calls, "local_day")'`, then it prints one row per `local_day` with `n` and the cost columns, and the exit code is 0; a following `run` that reads a name set by an earlier `run` sees it.
+
+REPL-7 — Tests (`tests/unit/test_repl_*.py`). One test per row of REPL-4 and per exit code that a test can produce (5 by an unusable socket folder and by a socket path over the AF_UNIX limit); a real-process test of start, run with state kept, run without `--name`, two parallel named sessions, busy, interrupt, stop and run after stop; the partition of calls and cost by provider, `caused_by_kind`, `effect` and thread; the frame columns of each frame against the tables of REPL-5; frame rollups against the stored values; `what_if` at a call's own model against the stored `computed` cost, and one `prices` row for each such call; the frames total against `query` on a store with duplicate rows; the `ops(thread_rowid)` index; one test per `bw` helper against a value computed without the helper.
 
 ## 6. Frontend wiring
 
