@@ -24,6 +24,10 @@ dependencies = [
     "platformdirs>=4.13.0",
 ]
 
+[project.optional-dependencies]
+# `botsworth repl` (D58): the analysis REPL keeps the store's frames as pandas DataFrames.
+repl = ["pandas>=2.2"]
+
 [project.urls]
 Homepage = "https://github.com/singularityhq/botsworth"
 Repository = "https://github.com/singularityhq/botsworth"
@@ -34,7 +38,7 @@ Changelog = "https://github.com/singularityhq/botsworth/blob/main/CHANGELOG.md"
 botsworth = "botsworth.cli.main:main"
 
 [dependency-groups]
-dev = ["pytest>=8", "ruff>=0.6"]
+dev = ["pytest>=8", "ruff>=0.6", "pandas>=2.2"]
 
 [build-system]
 requires = ["hatchling"]

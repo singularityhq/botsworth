@@ -25,7 +25,9 @@ GUARANTEES:
 - v12 (D56): no column changes. `time_split` and `stretches` rows carry the substates `test` and `wait` under
   `tool` and `agents` (DM-50, DM-52), so a v11 store is rebuilt.
 - v13 (DM-92, DM-45): `ops.thread_rowid`, `thread_pos` (every op) and `gap_ms` (llm_call only); an llm_call
-  also gets `caused_by_rowid` with `caused_by_basis` `order`. A v12 store is rebuilt.
+  also gets `caused_by_rowid` with `caused_by_basis` `order`. A v12 store is rebuilt. Index `ops_thread` on
+  `ops(thread_rowid)` serves the REPL's per-thread rollups (D58); it changes no column, so a v13 store built
+  before it is rebuilt by `botsworth ingest --rebuild` to gain it.
 - `ensure(conn)` creates the schema on an empty database and, when `meta.schema_version` differs from
   `SCHEMA_VERSION`, drops every table and view (also the v6 `op_closure`) and recreates them (the store
   is a disposable cache over the provider logs, D52). It sets WAL mode. The swap
@@ -196,6 +198,7 @@ CREATE UNIQUE INDEX owner_key ON ops(provider, kind, occ_hash)
 CREATE INDEX ops_attr_turn ON ops(attr_turn_rowid) WHERE attr_turn_rowid IS NOT NULL;
 CREATE INDEX ops_parent_kind_start ON ops(parent_rowid, kind, start_ms);
 CREATE INDEX ops_caused_by ON ops(caused_by_rowid) WHERE caused_by_rowid IS NOT NULL;
+CREATE INDEX ops_thread ON ops(thread_rowid);
 
 CREATE TABLE steps({_STEP_COLUMNS});
 CREATE UNIQUE INDEX steps_turn ON steps(turn_rowid, ordinal);

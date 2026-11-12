@@ -4,6 +4,7 @@ import os
 import time
 
 from qstore import qroots, qstore  # noqa: F401  (fixtures registered by import)
+from repl_store import repl_db  # noqa: F401  (T1080 REPL fixture store)
 
 # The suite expects the maintainer's zone. The default zone is the machine's zone (resolve_tz reads
 # BOTSWORTH_TZ, then TZ), so pin TZ here, at import, before any test or child process reads it.
