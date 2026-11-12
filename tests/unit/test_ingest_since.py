@@ -125,8 +125,11 @@ def test_stored_rolling_window_is_resolved_again(tmp_path):
     age(root / "pa" / "new.jsonl", 20)  # time passes: the session is now outside the 10 days
     for f in (root / "pa" / "new").rglob("*.jsonl"):
         age(f, 20)
+    ops_before = ops_of(tmp_path, "claude_code/new")
     again = run(tmp_path, root)
     assert again["providers"]["claude_code"]["outside_window"] == 2
+    assert "claude_code/new" in stored_sessions(tmp_path)  # aged out, not deleted
+    assert ops_before > 0 and ops_of(tmp_path, "claude_code/new") == ops_before
 
 
 def test_since_all_brings_old_units_in_and_clears_the_window(tmp_path):
@@ -396,3 +399,58 @@ def test_since_all_recovers_from_an_invalid_stored_window(tmp_path, monkeypatch,
     assert code == 0
     assert json.loads(out)["window"] is None
     assert "ingest_since" not in meta(tmp_path)
+
+
+def _stat_absent(monkeypatch, *names: str) -> None:
+    """Make `_stat` report the files with these names as absent (deleted between discovery and the stat)."""
+    real = pipeline._stat
+    monkeypatch.setattr(pipeline, "_stat", lambda path: None if path.name in names else real(path))
+
+
+def test_unit_with_every_file_absent_at_stat_time_is_kept_not_outside(tmp_path, monkeypatch):
+    # unit_state: newest stays 0 when no file has an mtime; "outside" needs a real mtime older than the cutoff
+    root = make_root(tmp_path)
+    _stat_absent(monkeypatch, "old.jsonl")
+    rep = run(tmp_path, root, since="10d")
+    claude = rep["providers"]["claude_code"]
+    assert (claude["discovered"], claude["outside_window"], claude["rebuilt"]) == (3, 0, 3)
+    assert ops_of(tmp_path, "claude_code/old") > 0
+
+
+@pytest.mark.parametrize(
+    ("absent", "outside"),
+    [
+        ("mixed.jsonl", 2),  # the 30 day subagent file is all that is left: mixed joins old outside
+        ("agent-a.jsonl", 1),  # the 1 day main file is left: mixed is kept
+    ],
+)
+def test_absent_member_file_leaves_the_unit_judged_by_its_other_files(tmp_path, monkeypatch, absent, outside):
+    # unit_state: an absent member (stat None) adds no mtime; the others decide
+    root = make_root(tmp_path)
+    _stat_absent(monkeypatch, absent)
+    rep = run(tmp_path, root, since="10d")
+    assert rep["providers"]["claude_code"]["outside_window"] == outside
+    assert rep["providers"]["claude_code"]["unreadable"] == []
+
+
+def test_plain_ingest_keeps_stored_window(tmp_path, monkeypatch, capsys):
+    root = make_root(tmp_path)
+    assert _cli_ingest(tmp_path, monkeypatch, capsys, root, "--since", "10d")[0] == 0
+    code, out, _ = _cli_ingest(tmp_path, monkeypatch, capsys, root)
+    assert code == 0
+    data = json.loads(out)
+    assert data["window"]["since"] == "10d"
+    assert data["window"]["outside_window"] == 1
+    assert meta(tmp_path)["ingest_since"] == "10d"
+
+
+def test_since_all_clears_stored_window(tmp_path, monkeypatch, capsys):
+    root = make_root(tmp_path)
+    _cli_ingest(tmp_path, monkeypatch, capsys, root, "--since", "10d")
+    assert "claude_code/old" not in stored_sessions(tmp_path)
+    code, out, _ = _cli_ingest(tmp_path, monkeypatch, capsys, root, "--since", "all")
+    assert code == 0
+    data = json.loads(out)
+    assert data["window"] is None
+    assert "ingest_since" not in meta(tmp_path)
+    assert "claude_code/old" in stored_sessions(tmp_path)  # the old unit is read now

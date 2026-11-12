@@ -117,6 +117,10 @@ the logs and replaces the old one when it is done; a running `serve` keeps worki
 cannot be combined with `--provider`. Piped or redirected, ingest prints nothing but the JSON report; add
 `--table` for the readable summary on stdout instead of JSON.
 
+`--since <Nd|YYYY-MM-DD|all>` limits ingest to sessions written recently, for example `botsworth ingest --since 10d`.
+The window is stored in the store and reused by later ingests and rebuilds without the flag; `--since all` clears
+it. Sessions outside the window that are already in the store are kept but not read again.
+
 The UI opens on the last 7 days. To find your most expensive sessions, choose "All time" in the period picker and
 click the Cost column.
 
@@ -269,8 +273,8 @@ The folder holds `botsworth.sqlite` and SQLite's own `-wal`, `-shm` and `.lock` 
 other files. To use another location, pass `--db PATH` to any command, or set `BOTSWORTH_DB` (the store file) or
 `BOTSWORTH_HOME` (the folder). Order: `--db`, then `BOTSWORTH_DB`, then `BOTSWORTH_HOME`, then the default. The store
 is a cache over your provider logs: you can delete it and run `botsworth ingest` again. If you delete a provider
-log, the sessions it held stay in the store (marked `source_missing`) until the next `botsworth ingest --rebuild`,
-which drops them.
+log, the sessions it held stay in the store (marked `source_missing`, except sessions outside the `--since`
+window, which are not touched) until the next `botsworth ingest --rebuild`, which drops them.
 
 ## Supported providers
 
