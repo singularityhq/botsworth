@@ -14,7 +14,7 @@ First public release. Alpha: commands, output and the store schema can change be
 - Local SQLite store with tokens, cost and time for each session, turn and call. Cost and usage count once per
   requestId group. The store holds no prompt, output, thinking or tool text; long text is read from the original log
   on request. Times are stored as epoch milliseconds, and the time zone is chosen per request.
-- Prices from a bundled models.dev snapshot (2026-11-03) with an alias table; unpriced models show cost as a lower bound.
+- Prices from a bundled models.dev snapshot (2026-11-12) with an alias table; unpriced models show cost as a lower bound.
 - Explicit ingest (`botsworth ingest`), incremental by file, with `--rebuild` to build a fresh store and swap it in.
   In a terminal it shows one live progress line and a per-provider summary; `--table` prints that summary instead of
   the JSON report.

@@ -125,3 +125,12 @@ def test_snapshot_main_passes_date_to_fetch(monkeypatch, capsys):
     snapshot.main([])
     assert calls == ["v9", None]
     assert capsys.readouterr().out == "x.json\nx.json\n"
+
+
+def test_fable_5_2_call_gets_non_null_cost(real):
+    rates = real.resolve("claude-fable-5-2", "claude_code")
+    assert rates is not None
+    tokens = {"in_tok": 1000, "out_tok": 1000, "cache_read_tok": 1000, "cache_write_tok": 1000}
+    cost = real.cost(tokens, rates)
+    assert cost is not None
+    assert cost.cost_usd > 0
