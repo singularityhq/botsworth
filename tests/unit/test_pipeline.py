@@ -411,6 +411,7 @@ def test_progress_events_describe_the_run(tmp_path):
             "event": "discovered",
             "provider": "claude_code",
             "bundles": report["providers"]["claude_code"]["discovered"],
+            "outside_window": 0,
         }
     ]
     assert events[-2] == {

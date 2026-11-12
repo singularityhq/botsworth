@@ -340,7 +340,9 @@ def test_ingest_runs_the_pipeline(tmp_path, capsys, monkeypatch):
     db = str(tmp_path / "s.sqlite")
     code, out, _ = real(capsys, "--db", db, "ingest", "--provider", "omp", "--force")
     assert code == 0 and json.loads(out) == {"providers": {}, "store": {}, "ms": {}}
-    assert calls == [(["omp"], {"force": True, "reprice": False, "rebuild": False, "db": Path(db)})]
+    assert calls == [
+        (["omp"], {"force": True, "reprice": False, "rebuild": False, "since": None, "db": Path(db)})
+    ]
     code, out, err = real(capsys, "--db", db, "ingest")
     assert (code, out, err) == (1, "", "error: another ingest holds x.lock\n")
     code, out, err = real(capsys, "--db", db, "ingest", "--rebuild", "--provider", "omp")
@@ -348,7 +350,7 @@ def test_ingest_runs_the_pipeline(tmp_path, capsys, monkeypatch):
     code, _, _ = real(capsys, "--db", db, "ingest", "--rebuild")
     assert code == 0 and calls[2] == (
         None,
-        {"force": False, "reprice": False, "rebuild": True, "db": Path(db)},
+        {"force": False, "reprice": False, "rebuild": True, "since": None, "db": Path(db)},
     )
 
 

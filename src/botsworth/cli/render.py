@@ -8,7 +8,8 @@ GUARANTEES:
   and leaves out the raw number it belongs to (D50, `cli.timefmt`).
 - `slow` and `breakdown` print `review` first (CLI-20, CLI-21 [D56]): a header (wall, lost
   time, sessions), then one line per finding (cause, time, n, longest), so the 2 KB budget shows it.
-- `ingest` prints one line per provider (`N bundles · N rebuilt · N unchanged`), the store line, up to
+- `ingest` prints a `window` line when a window is in force (CLI-12), one line per provider
+  (`N bundles · N rebuilt · N unchanged`, `N outside window` when non-zero), the store line, up to
   three rejection reasons with a `... N more` tail, and the total time (D57); `cli.progress` reuses the
   same block for the live stderr summary.
 - A `TimeSplit` (`{parts: [...]}`, D54) prints as `key=[state/substate=duration ...]`; the substate `none` of
@@ -22,6 +23,7 @@ from __future__ import annotations
 import json
 import time
 from dataclasses import asdict, is_dataclass
+from datetime import UTC, datetime
 from typing import Any
 
 TABLE_BYTES = 2048
@@ -137,6 +139,11 @@ def _bundles(n: int) -> str:
 def ingest_lines(data: dict[str, Any]) -> list[str]:
     """The readable run report of `ingest` (D57): providers, store cost, rejections, total time."""
     lines = [f"ingest: {data.get('mode', 'incremental')}"]
+    if win := data.get("window"):
+        cutoff = datetime.fromtimestamp(win["cutoff_ms"] / 1000, UTC).strftime("%Y-%m-%d %H:%M UTC")
+        lines.append(
+            f"  {'window':<12} {win['since']} (from {cutoff}) · {_num(win['outside_window'])} outside window"
+        )
     adapter_rejects: list[str] = []
     for provider, rep in (data.get("providers") or {}).items():
         if rep.get("skipped"):
@@ -147,6 +154,8 @@ def ingest_lines(data: dict[str, Any]) -> list[str]:
             f"{_num(rep.get('rebuilt', 0))} rebuilt",
             f"{_num(rep.get('unchanged', 0))} unchanged",
         ]
+        if rep.get("outside_window"):
+            parts.append(f"{_num(rep['outside_window'])} outside window")
         if rep.get("rejected"):
             parts.append(f"{len(rep['rejected'])} rejected")
         lines.append(f"  {provider:<12} " + " · ".join(parts))

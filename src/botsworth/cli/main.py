@@ -18,6 +18,8 @@ GUARANTEES:
   store (`pipeline.run(rebuild=True)`; D52); on failure the old store stays and the temp file is removed.
   It cannot be combined with `--provider` (a partial rebuild would drop the other providers; exit 2).
   `--force` re-reads every bundle into the existing store. Ingest writes nothing but the store file.
+- `ingest --since Nd|YYYY-MM-DD|all` is the ingest date window (CLI-12, D59), passed to
+  `pipeline.run(since=)`; a value in none of the forms exits 2.
 - `ingest` draws its run on stderr when stderr is a terminal (D57): one line rewritten in place
   (`scanning`, then `N/M bundles · N rebuilt · N unchanged`), cleared before the run ends, then the
   `--table` summary. `--table` prints that summary on stdout instead of the report and suppresses the
@@ -377,6 +379,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--force", action="store_true", help="re-read every bundle into the existing store")
     p.add_argument("--rebuild", action="store_true", help="build a fresh store from the logs and swap it in")
     p.add_argument("--reprice", action="store_true")
+    p.add_argument(
+        "--since",
+        metavar="Nd|YYYY-MM-DD|all",
+        help="read only logs written in the last N days or since a UTC date; kept for later runs; all = off",
+    )
     return ap
 
 
@@ -476,6 +483,11 @@ def run(args: argparse.Namespace, api: Any, db: Any) -> Any:
 
         if args.rebuild and args.provider:
             raise UsageError("--rebuild rebuilds every provider; drop --provider")
+        if args.since is not None:
+            try:
+                pipeline.parse_since(args.since, 0)
+            except pipeline.SinceInvalid as e:
+                raise UsageError(str(e)) from None
         progress = IngestProgress()
         try:
             data = pipeline.run(
@@ -483,6 +495,7 @@ def run(args: argparse.Namespace, api: Any, db: Any) -> Any:
                 force=args.force,
                 reprice=args.reprice,
                 rebuild=args.rebuild,
+                since=args.since,
                 db=db,
                 progress=progress,
             )

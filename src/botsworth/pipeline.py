@@ -43,20 +43,29 @@ GUARANTEES:
   `meta.price_fingerprint`. No zone is resolved or passed (DM-41).
   `PARSER_VERSION` is one constant for all adapters (they report no version);
   bump it when any adapter's canonical output changes.
+- Window (CLI-12, DM-93, D59): `run(..., since=)` takes `Nd`, `YYYY-MM-DD` or `all`, else raises
+  `SinceInvalid` (a ValueError) before the lock is taken. `since=None` uses `meta.ingest_since` of the
+  existing store (also when the run is a rebuild), `all` means no window. With a window, a discovered unit
+  (one `BundleRef`, every provider alike) is dropped from the run when the newest mtime among its files
+  is before the cutoff (`Nd`: now - N*24h; date: 00:00 UTC). Such a unit is not built, not counted as
+  rebuilt or unchanged, and none of its stored rows or `source_files` rows is touched, so it is never marked
+  `source_missing`. The value in force is written to `meta.ingest_since` (deleted for `all`). The report
+  has `window` (None, or `{since, cutoff_ms, outside_window}`) and a per-provider `outside_window`.
 - Mode (DM-4, D52): when `rebuild` is set, or the store is missing, or its `meta.schema_version` differs
   from `schema.SCHEMA_VERSION` (checked read-only), the run is a rebuild: every
   read and write targets `<db>.rebuild`, no `source_files` row is known (every
   bundle is rebuilt), and `store.ingest.finish_rebuild` swaps it onto `<db>`
   at the end. Any exception discards `<db>.rebuild*` and re-raises; `<db>` is
   untouched. Otherwise the run is incremental, in place.
-- Returns `{mode: "rebuild"|"incremental", providers: {p: {root, discovered,
+- Returns `{mode: "rebuild"|"incremental", window, providers: {p: {root, discovered, outside_window,
   rebuilt, unchanged, rejected: [{bundle_id, reason}]}}, store:
   IngestResult.to_dict(), ms: {...}}`.
 - `progress` (optional, D57) is called with one dict per step, in order after the lock is taken:
   `start {mode, store}` (`store` is the resolved `<db>`, never `<db>.rebuild`),
   `provider {provider, root, skipped}` for a provider whose root is missing,
-  `scanning {provider}`, `discovered {provider, bundles}`,
-  `bundle {done, total, rebuilt, unchanged, rejected}` after each bundle is processed (adapter
+  `scanning {provider}`, `discovered {provider, bundles, outside_window}`,
+  `bundle {done, total, rebuilt, unchanged, rejected}` (`total` excludes units outside the window) after each
+  bundle is processed (adapter
   rejections count in `rejected`; store rejections are known only after the run), and
   `store {bundles}` when the bundle stream is exhausted, before the run returns. Calls happen
   outside adapter error handling and under the ingest lock; an exception from `progress`
@@ -74,8 +83,11 @@ KNOWN LIMITATIONS: a changed bundle is rebuilt from whole files (design §8
 from __future__ import annotations
 
 import hashlib
+import os
+import re
 import time
 from collections.abc import Callable, Iterable, Iterator, Mapping
+from datetime import UTC, date, datetime
 from pathlib import Path
 
 from botsworth import adapters, pointer
@@ -93,6 +105,32 @@ LIVE_WINDOW_MS = 10 * 60 * 1000
 _NO_START = 2**62  # design §4.6: a bundle with no timestamp sorts last
 
 Stat = tuple[int, int, str]  # size, mtime_ns, sha_first_4k
+
+_DAY_MS = 86_400_000
+_SINCE_FORMS = "Nd (for example 10d), YYYY-MM-DD or all"
+
+
+class SinceInvalid(ValueError):
+    """A `--since` value that is not `Nd`, `YYYY-MM-DD` or `all`."""
+
+
+def parse_since(value: str, now_ms: int) -> int | None:
+    """The cutoff (epoch ms) of an ingest window value; None for `all` (CLI-12)."""
+    if value == "all":
+        return None
+    if m := re.fullmatch(r"([0-9]+)d", value):
+        n = int(m[1])
+        if n >= 1:
+            return now_ms - n * _DAY_MS
+    elif re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}", value):
+        try:
+            day = date.fromisoformat(value)
+        except ValueError:
+            pass  # falls through to the error below
+        else:
+            return int(datetime(day.year, day.month, day.day, tzinfo=UTC).timestamp() * 1000)
+    raise SinceInvalid(f"--since must be {_SINCE_FORMS}, not {value!r}")
+
 
 # One event per step of a run: start, provider (with `skipped`), discovered, bundle, store.
 Progress = Callable[[dict], None]
@@ -139,16 +177,25 @@ def run(
     db: Path | str | None = None,
     pricer: Pricer | None = None,
     progress: Progress | None = None,
+    since: str | None = None,
 ) -> dict:
     db_path = location.resolve_db(db)
+    if since is not None:
+        parse_since(since, 0)  # refuse a bad value before any store work
     with ingest.lock(db_path):
+        # the window in force: the given value, else the stored one (read before a rebuild replaces the store)
+        window = since if since is not None else ingest.meta_value(db_path, "ingest_since")
+        if window == "all":
+            window = None
         if not rebuild and not ingest.needs_rebuild(db_path):
             _tell(progress, "start", mode="incremental", store=str(db_path))
-            return {"mode": "incremental"} | _run(providers, roots, force, reprice, db_path, pricer, progress)
+            return {"mode": "incremental"} | _run(
+                providers, roots, force, reprice, db_path, pricer, progress, window
+            )
         _tell(progress, "start", mode="rebuild", store=str(db_path))
         target = ingest.rebuild_target(db_path)
         try:
-            report = _run(providers, roots, force, reprice, target, pricer, progress)
+            report = _run(providers, roots, force, reprice, target, pricer, progress, window)
             ingest.finish_rebuild(db_path)
         except BaseException:
             ingest.discard_rebuild(db_path)
@@ -156,7 +203,16 @@ def run(
         return {"mode": "rebuild"} | report
 
 
-def _run(providers, roots, force, reprice, store: Path, pricer, progress: Progress | None = None) -> dict:
+def _run(
+    providers,
+    roots,
+    force,
+    reprice,
+    store: Path,
+    pricer,
+    progress: Progress | None = None,
+    window: str | None = None,
+) -> dict:
     """One run against `store` (= the db, or `<db>.rebuild`)."""
     t_start = time.perf_counter()
     pricer = pricer or Pricer()
@@ -165,6 +221,20 @@ def _run(providers, roots, force, reprice, store: Path, pricer, progress: Progre
     known = ingest.source_files(store)
     now_ms = int(time.time() * 1000)
     live_from_ns = (now_ms - LIVE_WINDOW_MS) * 1_000_000
+    cutoff_ms = None if window is None else parse_since(window, now_ms)
+    outside = 0
+
+    def in_window(ref: BundleRef) -> bool:
+        """True when the newest mtime among the unit's files is at or after the cutoff (D59)."""
+        if cutoff_ms is None:
+            return True
+        newest = 0
+        for f in ref.files:
+            try:
+                newest = max(newest, os.stat(f).st_mtime_ns)
+            except FileNotFoundError:
+                continue  # FALLBACK-OK: D59 — a vanished file has no mtime; the unit is judged by the others
+        return newest == 0 or newest >= cutoff_ms * 1_000_000
 
     def status_of(s: Stat, partial: bool) -> str:
         return "live" if partial or s[1] >= live_from_ns else "settled"
@@ -185,7 +255,14 @@ def _run(providers, roots, force, reprice, store: Path, pricer, progress: Progre
 
     for provider in wanted:
         root = root_of[provider].expanduser()
-        rep: dict = {"root": str(root), "discovered": 0, "rebuilt": 0, "unchanged": 0, "rejected": []}
+        rep: dict = {
+            "root": str(root),
+            "discovered": 0,
+            "outside_window": 0,
+            "rebuilt": 0,
+            "unchanged": 0,
+            "rejected": [],
+        }
         report[provider] = rep
         if root.is_dir():
             scanned.append(provider)
@@ -195,6 +272,7 @@ def _run(providers, roots, force, reprice, store: Path, pricer, progress: Progre
 
     def built_bundles() -> Iterator[Bundle]:
         """Discover all scanned providers, sort by session start, build the changed bundles one at a time."""
+        nonlocal outside
         found: list[tuple[int, str, str, BundleRef]] = []
         recorded: dict[str, dict[str, list[str]]] = {}  # provider -> bundle key -> recorded paths
         for provider in scanned:
@@ -203,7 +281,16 @@ def _run(providers, roots, force, reprice, store: Path, pricer, progress: Progre
             refs = list(adapters.get(provider).discover(root_of[provider].expanduser()))
             ms["discover"] += (time.perf_counter() - t) * 1000
             report[provider]["discovered"] = len(refs)
-            _tell(progress, "discovered", provider=provider, bundles=len(refs))
+            kept = [ref for ref in refs if in_window(ref)]
+            report[provider]["outside_window"] = len(refs) - len(kept)
+            outside += len(refs) - len(kept)
+            _tell(
+                progress,
+                "discovered",
+                provider=provider,
+                bundles=len(refs),
+                outside_window=len(refs) - len(kept),
+            )
             by_key = recorded[provider] = {}
             for path, r in known.items():
                 if r["provider"] == provider and r["status"] != "source_missing":
@@ -211,7 +298,7 @@ def _run(providers, roots, force, reprice, store: Path, pricer, progress: Progre
             # D23/design §4.6: oldest first, a bundle with no timestamp last; ties by provider and bundle id,
             # so ownership order never depends on directory listing order
             found += [
-                (adapters.session_start_ms(ref) or _NO_START, provider, ref.bundle_id, ref) for ref in refs
+                (adapters.session_start_ms(ref) or _NO_START, provider, ref.bundle_id, ref) for ref in kept
             ]
         found.sort(key=lambda x: x[:3])
         total, done = len(found), 0
@@ -279,6 +366,7 @@ def _run(providers, roots, force, reprice, store: Path, pricer, progress: Progre
         locked=True,
         overrides=overrides,
         roots={p: str(root_of[p].expanduser()) for p in scanned},
+        meta={"ingest_since": window},
     )
     ms["store"] = (time.perf_counter() - t) * 1000 - ms["discover"] - ms["build"]
     for rej in result.rejected:  # the store refused this bundle: do not rebuild it until a file changes
@@ -294,4 +382,10 @@ def _run(providers, roots, force, reprice, store: Path, pricer, progress: Progre
                 )
     ingest.record_source_files(store, rows)
     ms["total"] = (time.perf_counter() - t_start) * 1000
-    return {"providers": report, "store": result.to_dict(), "ms": {k: round(v, 1) for k, v in ms.items()}}
+    win = None if window is None else {"since": window, "cutoff_ms": cutoff_ms, "outside_window": outside}
+    return {
+        "window": win,
+        "providers": report,
+        "store": result.to_dict(),
+        "ms": {k: round(v, 1) for k, v in ms.items()},
+    }

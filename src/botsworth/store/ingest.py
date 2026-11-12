@@ -19,7 +19,9 @@ GUARANTEES:
   `meta.price_fingerprint` = the Pricer's fingerprint (the Pricer new bundles
   were priced with; rows from earlier runs keep their own `ops.price_fingerprint`
   until `reprice`), `meta.parser_version` = the `parser_version` argument
-  when given, `meta.source_roots` = JSON `{provider: root}` merged with the `roots` argument.
+  when given, `meta.source_roots` = JSON `{provider: root}` merged with the `roots` argument; each
+  `meta` argument entry is set to its value, or its key deleted when the value is None (the pipeline's
+  `ingest_since`, DM-93).
   The store holds no zone: there is no `meta.tz` and no zone re-fold (DM-41, DM-43).
   `ANALYZE` runs when the run changed a bundle or repriced (DM-5).
 - `projects` is rewritten by `projects.refresh` after the loads and overrides of every run, also a run that
@@ -48,6 +50,8 @@ GUARANTEES:
   a second concurrent call raises `IngestLocked`. `lock(db)` is that lock as a
   context manager for a caller (the ingest pipeline) that must hold it across
   more than one store call; inside it, call `ingest(..., locked=True)`.
+- `meta_value(db, key)` returns one `meta` value read-only: None when there is no store, no `meta` table
+  (any schema version) or no such key.
 - `source_files(db)` returns `{path: row}` from `source_files` (row keys
   provider, bundle_id, size, mtime_ns, sha_first_4k, status, reject_reason); `{}` when no
   store or a store of another schema version (opened read-only, never
@@ -151,18 +155,27 @@ def ingest(
     locked: bool = False,
     overrides: Mapping[str, Mapping[str, str]] | None = None,
     roots: Mapping[str, str] | None = None,
+    meta: Mapping[str, str | None] | None = None,
 ) -> IngestResult:
     """Load `bundles` (consumed lazily, in order) into the store.
 
     `locked=True`: the caller already holds `lock(db)`. `roots` = `{provider: root}` of the scanned providers.
     `overrides` = `{provider: {session_id: name}}` renames from outside the bundles (DM-12).
+    `meta` = extra `meta` entries to set at the end of the run (None deletes the key).
     """
     path = location.resolve_db(db)
     with nullcontext() if locked else lock(path):
         conn = open_store(path)
         try:
             return _run(
-                conn, bundles, reprice, pricer or Pricer(), parser_version, overrides or {}, roots or {}
+                conn,
+                bundles,
+                reprice,
+                pricer or Pricer(),
+                parser_version,
+                overrides or {},
+                roots or {},
+                meta or {},
             )
         finally:
             conn.close()
@@ -189,6 +202,21 @@ def store_version(db: Path | str | None = None) -> int | None:
     conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
     try:
         return schema._version(conn)
+    finally:
+        conn.close()
+
+
+def meta_value(db: Path | str | None, key: str) -> str | None:
+    """One `meta` value of the store at `db`, read-only; None when no store, no `meta` table or no key."""
+    path = location.resolve_db(db)
+    if not path.exists():
+        return None
+    conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    try:
+        if conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='meta'").fetchone() is None:
+            return None  # FALLBACK-OK: DM-93 — a store without `meta` holds no window
+        row = conn.execute("SELECT value FROM meta WHERE key=?", (key,)).fetchone()
+        return None if row is None else row[0]  # FALLBACK-OK: DM-93 — no key = no window
     finally:
         conn.close()
 
@@ -262,7 +290,7 @@ def apply_overrides(conn: sqlite3.Connection, provider: str, overrides: Mapping[
     return changed
 
 
-def _run(conn, bundles, reprice, pricer, parser_version, overrides, roots) -> IngestResult:
+def _run(conn, bundles, reprice, pricer, parser_version, overrides, roots, extra_meta) -> IngestResult:
     result = IngestResult(started_ms=int(time.time() * 1000))
     seen: set[str] = set()
     for bundle in bundles:
@@ -299,8 +327,10 @@ def _run(conn, bundles, reprice, pricer, parser_version, overrides, roots) -> In
                 ("price_fingerprint", pricer.fingerprint),
                 *([("parser_version", parser_version)] if parser_version is not None else []),
                 *([("source_roots", json.dumps(_merged_roots(conn, roots)))] if roots else []),
+                *((k, v) for k, v in extra_meta.items() if v is not None),
             ],
         )
+        conn.executemany("DELETE FROM meta WHERE key=?", [(k,) for k, v in extra_meta.items() if v is None])
     if result.bundles_changed or result.repriced:
         conn.execute("ANALYZE")  # DM-5
     return result
