@@ -397,7 +397,8 @@ _SOURCE_COLS = (
 
 
 def source_files(db: Path | str | None = None) -> dict[str, dict]:
-    """Provider-file manifest: `{path: {provider, bundle_id, size, mtime_ns, sha_first_4k, status, ...}}`."""
+    """Provider-file manifest: `{path: {provider, bundle_id, size, mtime_ns, sha_first_4k, ingested_at_ms,
+    status, reject_reason}}`."""
     path = location.resolve_db(db)
     if not path.exists():
         return {}
@@ -406,10 +407,19 @@ def source_files(db: Path | str | None = None) -> dict[str, dict]:
         if schema._version(conn) != schema.SCHEMA_VERSION:
             return {}  # FALLBACK-OK: DM-4 — a store of another version is rebuilt, never opened for writing
         rows = conn.execute(
-            "SELECT path, provider, bundle_id, size, mtime_ns, sha_first_4k, status, reject_reason"
-            " FROM source_files"
+            "SELECT path, provider, bundle_id, size, mtime_ns, sha_first_4k, ingested_at_ms, status,"
+            " reject_reason FROM source_files"
         )
-        keys = ("provider", "bundle_id", "size", "mtime_ns", "sha_first_4k", "status", "reject_reason")
+        keys = (
+            "provider",
+            "bundle_id",
+            "size",
+            "mtime_ns",
+            "sha_first_4k",
+            "ingested_at_ms",
+            "status",
+            "reject_reason",
+        )
         return {r[0]: dict(zip(keys, r[1:], strict=True)) for r in rows}
     finally:
         conn.close()

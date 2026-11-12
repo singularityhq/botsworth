@@ -330,3 +330,25 @@ def test_cli_warns_on_stderr_for_an_unreadable_file_and_exits_0(tmp_path, monkey
     data = json.loads(captured.out)
     assert data["providers"]["claude_code"]["unreadable"][0]["error"] == "Permission denied"
     assert "1 files skipped" in render_table("ingest", data)
+
+
+def test_live_unit_that_leaves_the_window_becomes_settled_and_nothing_else_changes(tmp_path, monkeypatch):
+    monkeypatch.setattr(pipeline, "LIVE_WINDOW_MS", 3 * DAY * 1000)  # the 1 day old files count as live
+    root = make_root(tmp_path)
+    unit = "claude_code/new"
+    run(tmp_path, root, since="10d")
+    before = source_rows(tmp_path, unit)
+    assert {row[4] for row in before.values()} == {"live"}
+    ops_before = ops_of(tmp_path, unit)
+    for f in (root / "pa").rglob("*"):
+        age(f, 20)  # the unit is now outside the 10 day window and older than the live window
+
+    rep = run(tmp_path, root)
+
+    assert rep["providers"]["claude_code"]["outside_window"] == 2  # old and new
+    after = source_rows(tmp_path, unit)
+    assert {row[4] for row in after.values()} == {"settled"}
+    assert {name: [*row[:4], "-", row[5]] for name, row in after.items()} == {
+        name: [*row[:4], "-", row[5]] for name, row in before.items()
+    }  # size, mtime, hash, ingested_at and reject_reason are as stored
+    assert ops_of(tmp_path, unit) == ops_before

@@ -49,16 +49,18 @@ GUARANTEES:
   existing store (also when the run is a rebuild), `all` means no window. With a window, a discovered unit
   (one `BundleRef`, every provider alike) is dropped from the run when the newest mtime among its files
   is before the cutoff (`Nd`: now - N*24h; date: 00:00 UTC). Such a unit is not built, not counted as
-  rebuilt or unchanged, and none of its stored rows or `source_files` rows is touched, so it is never marked
-  `source_missing`. The value in force is written to `meta.ingest_since` (deleted for `all`). The report
+  rebuilt or unchanged, and its stored rows and `source_files` rows keep their values, so it is never marked
+  `source_missing`; the one exception is the status of a `live` row, which is set `settled` (stored size,
+  mtime and hash unchanged) when `status_of(stat, False)` from the file's current stat says so. The value
+  in force is written to `meta.ingest_since` (deleted for `all`). The report
   has `window` (None, or `{since, cutoff_ms, outside_window}`) and a per-provider `outside_window`.
 - Unreadable files (CLI-12, D59): discovery stats every member file of every discovered unit once (the
   same cache the change check uses), with or without a window. A stat error other than absence (for
   example `PermissionError`) does not abort the run: the file goes in the provider's
   `unreadable: [{path, error}]` (`error` = the OS error text) and its whole unit is skipped like one
   outside the window: not built, not counted as rebuilt, unchanged or outside the window, stored rows and
-  `source_files` rows untouched, never marked `source_missing`. A rejected bundle is a different thing: it
-  writes reject rows.
+  `source_files` rows untouched (its status is not re-evaluated either), never marked `source_missing`.
+  A rejected bundle is a different thing: it writes reject rows.
 - Mode (DM-4, D52): when `rebuild` is set, or the store is missing, or its `meta.schema_version` differs
   from `schema.SCHEMA_VERSION` (checked read-only), the run is a rebuild: every
   read and write targets `<db>.rebuild`, no `source_files` row is known (every
@@ -233,9 +235,8 @@ def _run(
     live_from_ns = (now_ms - LIVE_WINDOW_MS) * 1_000_000
     cutoff_ms = None if window is None else parse_since(window, now_ms)
     outside = 0
-    skipped_keys: set[str] = (
-        set()
-    )  # units skipped this run (D59): their recorded files are not examined again
+    outside_keys: set[str] = set()  # units skipped for the window (D59)
+    unreadable_keys: set[str] = set()  # units skipped for an unreadable file (D59)
 
     def status_of(s: Stat, partial: bool) -> str:
         return "live" if partial or s[1] >= live_from_ns else "settled"
@@ -309,7 +310,8 @@ def _run(
             states = {ref.bundle_id: unit_state(ref, root, rep) for ref in refs}
             kept = [ref for ref in refs if states[ref.bundle_id] == "kept"]
             n_outside = sum(st == "outside" for st in states.values())
-            skipped_keys.update(f"{provider}/{b}" for b, st in states.items() if st != "kept")
+            outside_keys.update(f"{provider}/{b}" for b, st in states.items() if st == "outside")
+            unreadable_keys.update(f"{provider}/{b}" for b, st in states.items() if st == "unreadable")
             rep["discovered"] = len(refs)
             rep["outside_window"] = n_outside
             outside += n_outside
@@ -395,14 +397,27 @@ def _run(
     for rej in result.rejected:  # the store refused this bundle: do not rebuild it until a file changes
         for row in rows_of[rej["bundle"]]:
             row["reject_reason"] = rej["error"]
-    for provider in scanned:  # a recorded file that is gone: its bundle's rows stay until a rebuild (D52)
+    # A recorded file that is gone: its bundle's rows stay until a rebuild (D52). A skipped unit (D59) keeps
+    # its rows and is never marked gone; a window-skipped one only has `live` re-evaluated by file time.
+    for provider in scanned:
         root = root_of[provider].expanduser()
         for path, r in known.items():
-            if r["provider"] == provider and r["bundle_id"] not in skipped_keys and stat(path, root) is None:
-                old = (r["size"], r["mtime_ns"], r["sha_first_4k"])
-                rows.append(
-                    _row(path, provider, r["bundle_id"], old, now_ms, "source_missing", r["reject_reason"])
-                )
+            key = r["bundle_id"]
+            if r["provider"] != provider or key in unreadable_keys:
+                continue
+            old = (r["size"], r["mtime_ns"], r["sha_first_4k"])
+            if key in outside_keys:
+                # FALLBACK-OK: D59 — a skipped unit's absent file is left as stored, never `source_missing`
+                if (
+                    r["status"] == "live"
+                    and (s := stat(path, root)) is not None
+                    and status_of(s, False) != "live"
+                ):
+                    rows.append(
+                        _row(path, provider, key, old, r["ingested_at_ms"], "settled", r["reject_reason"])
+                    )
+            elif stat(path, root) is None:
+                rows.append(_row(path, provider, key, old, now_ms, "source_missing", r["reject_reason"]))
     ingest.record_source_files(store, rows)
     ms["total"] = (time.perf_counter() - t_start) * 1000
     win = None if window is None else {"since": window, "cutoff_ms": cutoff_ms, "outside_window": outside}

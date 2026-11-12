@@ -766,7 +766,10 @@ window is kept in `meta.ingest_since` and used again by later ingests without th
   sessions and changes cost and ownership figures per adapter.
 - Skip is not delete: the pipeline only treats a recorded file as gone (`source_missing`) when the file is absent
   from disk, and `store.ingest` removes nothing it is not given. A unit that discovery skips therefore keeps its
-  stored rows. Only a rebuild drops them (D52), and a rebuild with a window leaves them out.
+  stored rows. Only a rebuild drops them (D52), and a rebuild with a window leaves them out. The one thing that changes
+  on a skipped unit is the `live`/`settled` status of its `source_files` rows, re-evaluated from the file's current
+  times (owner exception): otherwise a unit written within the live window, then aged out of the data window, would
+  stay `live` for good.
 - Unreadable is skip, not crash: discovery stats every file of every unit, and a file whose stat fails with an
   error other than absence (permission denied) skips its whole unit for this run, like an out-of-window unit, and
   is reported in the provider's `unreadable` list (a stderr warning from the CLI). The run exits 0. A stat error
