@@ -12,14 +12,16 @@ GUARANTEES:
   `--table` prints a table of at most 2 KB (`cli.render`); `--json` is accepted and changes nothing.
 - Every call gets `db=` = `store.location.resolve_db(--db)` (D20).
 - Exit codes (CLI-4): 0 success; 1 `QueryError`/`NotFound`, `SourceMissing`, `IngestLocked`, a view not
-  built yet; 2 argparse and flag-combination errors, no store, schema mismatch; 3 `serve` cannot bind;
-  130 Ctrl-C. stderr is one line `error: <message>`.
+  built yet; 2 argparse and flag-combination errors, no store, schema mismatch, invalid stored
+  ingest_since; 3 `serve` cannot bind; 130 Ctrl-C. stderr is one line `error: <message>`.
 - `ingest --rebuild` builds a fresh store from the provider logs into `<db>.rebuild` and swaps it over the
   store (`pipeline.run(rebuild=True)`; D52); on failure the old store stays and the temp file is removed.
   It cannot be combined with `--provider` (a partial rebuild would drop the other providers; exit 2).
   `--force` re-reads every bundle into the existing store. Ingest writes nothing but the store file.
 - `ingest --since Nd|YYYY-MM-DD|all` is the ingest date window (CLI-12, D59), passed to
-  `pipeline.run(since=)`; a value in none of the forms exits 2.
+  `pipeline.run(since=)`; a value in none of the forms exits 2. A stored `ingest_since` that is not valid
+  (`pipeline.StoredSinceInvalid`) and no `--since` exits 2 with two stderr lines naming the stored value and
+  `Run: botsworth ingest --since all`.
 - `ingest` prints `warning: skipped <path> (<error>)` on stderr for each file in the report's
   `unreadable` list; the exit code stays 0 (CLI-12).
 - `ingest` draws its run on stderr when stderr is a terminal (D57): one line rewritten in place
@@ -395,6 +397,12 @@ def build_parser() -> argparse.ArgumentParser:
 # ── dispatch ────────────────────────────────────────────────────────────────
 
 
+class StoredWindowInvalid(UsageError):
+    """The stored ingest window is not valid (CLI-12): exit 2, `hint` is printed as a second stderr line."""
+
+    hint = "Run: botsworth ingest --since all"
+
+
 class CliError(Exception):
     """A failure the CLI reports as one line with exit 1 (e.g. a concurrent ingest)."""
 
@@ -504,6 +512,9 @@ def run(args: argparse.Namespace, api: Any, db: Any) -> Any:
         except ingest.IngestLocked as e:
             progress.abort()
             raise CliError(str(e)) from None
+        except pipeline.StoredSinceInvalid as e:
+            progress.abort()
+            raise StoredWindowInvalid(f"{e}.") from None
         except BaseException:
             progress.abort()
             raise
@@ -535,6 +546,8 @@ def _json_line(data: Any) -> bytes:
 def _fail(msg: object) -> None:
     text = str(msg).splitlines()[0] if str(msg) else type(msg).__name__
     print(f"error: {text}", file=sys.stderr)
+    if isinstance(msg, StoredWindowInvalid):
+        print(msg.hint, file=sys.stderr)
 
 
 def main(argv: list[str] | None = None, api: Any = query_api) -> int:

@@ -686,7 +686,7 @@ CLI-4 — Exit codes:
 |---|---|---|
 | 0 | success (including empty results) | nothing |
 | 1 | the query layer rejected the request: bad argument value, unknown or ambiguous id (`NotFound`, QRY-6), source file missing, ingest already running (`IngestLocked`) | `error: <message>` |
-| 2 | usage error (argparse), no store (D22), schema mismatch (QRY-22) | `error: <message>` naming `botsworth ingest` where relevant |
+| 2 | usage error (argparse), no store (D22), schema mismatch (QRY-22), an invalid stored `ingest_since` (CLI-12) | `error: <message>` naming `botsworth ingest` where relevant |
 | 3 | `serve` could not bind its port | `error: port <n> in use` |
 | 130 | interrupted (Ctrl-C) | nothing |
 
@@ -724,6 +724,7 @@ CLI-12 [D59] — `ingest --since <Nd | YYYY-MM-DD | all>`: a date window on what
 - The JSON report has `window`: `null` when no window is in force, else `{since, cutoff_ms, outside_window}` (`since` = the value, `outside_window` = units skipped in this run). Each provider entry has `outside_window` (skipped units); `discovered` counts all units found. `--table` prints a `window` line.
 - A file of a discovered unit that cannot be examined (its stat fails with an error other than the file being absent, for example permission denied) does not stop the run, with or without a window. The unit is skipped for this run like a unit outside the window (rows and `source_files` rows untouched, not marked `source_missing`, status not re-evaluated, not counted in `outside_window`). Each provider entry has `unreadable`: a list of `{path, error}` (`error` = the OS error text, for example `Permission denied`; the list is empty when there are none). `ingest` prints `warning: skipped <path> (<error>)` on stderr for each entry, and `--table` adds `N files skipped` to the provider line. The exit code stays 0.
 - A value in none of the three forms exits 2 with `error: --since must be Nd (for example 10d), YYYY-MM-DD or all`.
+- A stored `meta.ingest_since` in none of the three forms, with no `--since` given, exits 2 before any store change, with two stderr lines: `error: stored ingest_since '<value>' is not valid.` and `Run: botsworth ingest --since all`. Any valid `--since` replaces the stored value, as before.
   Scenario: Given a claude root with one session last written 3 days ago and one 30 days ago, when an agent runs `botsworth ingest --since 10d`, then the report has `providers.claude_code.discovered` = 2, `rebuilt` = 1, `outside_window` = 1 and `window.since` = `10d`; a later `botsworth ingest` with no flag reports the same window.
 
 CLI-11 — Stability promise: within `api_version` 1, fields are only added, never renamed, removed or changed in meaning or unit; agents must ignore unknown fields. A breaking change bumps `api_version` (in `freshness`) and is listed in the release notes. `--table` output, stderr text and the order of keys are not stable. Command names and flags listed here are stable within `api_version` 1.

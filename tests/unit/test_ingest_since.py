@@ -352,3 +352,47 @@ def test_live_unit_that_leaves_the_window_becomes_settled_and_nothing_else_chang
         name: [*row[:4], "-", row[5]] for name, row in before.items()
     }  # size, mtime, hash, ingested_at and reject_reason are as stored
     assert ops_of(tmp_path, unit) == ops_before
+
+
+def _cli_ingest(tmp_path, monkeypatch, capsys, root, *flags):
+    monkeypatch.setattr(
+        pipeline, "DEFAULT_ROOTS", {"claude_code": root, "codex": tmp_path / "x1", "omp": tmp_path / "x2"}
+    )
+    code = cli.main(["--db", str(tmp_path / "s.db"), "ingest", *flags])
+    captured = capsys.readouterr()
+    return code, captured.out, captured.err
+
+
+def _corrupt_stored_window(tmp_path, value: str) -> None:
+    conn = sqlite3.connect(tmp_path / "s.db")
+    try:
+        conn.execute("UPDATE meta SET value = ? WHERE key = 'ingest_since'", (value,))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def test_invalid_stored_window_exits_2_with_two_lines_and_changes_nothing(tmp_path, monkeypatch, capsys):
+    root = make_root(tmp_path)
+    assert _cli_ingest(tmp_path, monkeypatch, capsys, root, "--since", "10d")[0] == 0
+    _corrupt_stored_window(tmp_path, "soon")
+    before = (tmp_path / "s.db").read_bytes()
+    code, out, err = _cli_ingest(tmp_path, monkeypatch, capsys, root)
+    assert code == 2
+    assert err.splitlines() == [
+        "error: stored ingest_since 'soon' is not valid.",
+        "Run: botsworth ingest --since all",
+    ]
+    assert "Traceback" not in err and out == ""
+    assert meta(tmp_path)["ingest_since"] == "soon"
+    assert (tmp_path / "s.db").read_bytes() == before
+
+
+def test_since_all_recovers_from_an_invalid_stored_window(tmp_path, monkeypatch, capsys):
+    root = make_root(tmp_path)
+    _cli_ingest(tmp_path, monkeypatch, capsys, root, "--since", "10d")
+    _corrupt_stored_window(tmp_path, "soon")
+    code, out, _ = _cli_ingest(tmp_path, monkeypatch, capsys, root, "--since", "all")
+    assert code == 0
+    assert json.loads(out)["window"] is None
+    assert "ingest_since" not in meta(tmp_path)

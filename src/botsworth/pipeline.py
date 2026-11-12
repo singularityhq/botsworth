@@ -46,7 +46,9 @@ GUARANTEES:
   bump it when any adapter's canonical output changes.
 - Window (CLI-12, DM-93, D59): `run(..., since=)` takes `Nd`, `YYYY-MM-DD` or `all`, else raises
   `SinceInvalid` (a ValueError) before the lock is taken. `since=None` uses `meta.ingest_since` of the
-  existing store (also when the run is a rebuild), `all` means no window. With a window, a discovered unit
+  existing store (also when the run is a rebuild), `all` means no window. A stored value that is not valid
+  raises `StoredSinceInvalid` (a SinceInvalid, `.value` = the stored text) under the lock, before any
+  store write or rebuild; `since=` of any valid form recovers. With a window, a discovered unit
   (one `BundleRef`, every provider alike) is dropped from the run when the newest mtime among its files
   is before the cutoff (`Nd`: now - N*24h; date: 00:00 UTC). Such a unit is not built, not counted as
   rebuilt or unchanged, and its stored rows and `source_files` rows keep their values, so it is never marked
@@ -126,6 +128,14 @@ class SinceInvalid(ValueError):
     """A `--since` value that is not `Nd`, `YYYY-MM-DD` or `all`."""
 
 
+class StoredSinceInvalid(SinceInvalid):
+    """The stored `meta.ingest_since` is not `Nd`, `YYYY-MM-DD` or `all`; `--since` was not given (CLI-12)."""
+
+    def __init__(self, value: str):
+        super().__init__(f"stored ingest_since {value!r} is not valid")
+        self.value = value
+
+
 def parse_since(value: str, now_ms: int) -> int | None:
     """The cutoff (epoch ms) of an ingest window value; None for `all` (CLI-12)."""
     if value == "all":
@@ -199,6 +209,11 @@ def run(
         window = since if since is not None else ingest.meta_value(db_path, "ingest_since")
         if window == "all":
             window = None
+        elif since is None and window is not None:
+            try:
+                parse_since(window, 0)
+            except SinceInvalid:  # FALLBACK-OK: CLI-12 — an invalid stored window is reported with its value
+                raise StoredSinceInvalid(window) from None
         if not rebuild and not ingest.needs_rebuild(db_path):
             _tell(progress, "start", mode="incremental", store=str(db_path))
             return {"mode": "incremental"} | _run(
@@ -287,7 +302,7 @@ def _run(
                 rep["unreadable"].append({"path": path, "error": exc.strerror})
                 unreadable = True
                 continue
-            if s is not None:  # an absent file has no mtime; the unit is judged by the others (D59)
+            if s is not None:  # FALLBACK-OK: D59 — absent file: no mtime, unit judged by its others
                 newest = max(newest, s[1])
         if unreadable:
             return "unreadable"

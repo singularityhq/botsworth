@@ -457,7 +457,7 @@ One entry point `botsworth` (D35). Global `--db PATH` (precedence: flag > `confi
 - Scope flags (CLI-5), shared: `--from/--to DAY` or `--since <n>d\|w` (request zone: `--tz`, else the machine zone, today included; D50), `--tz`, `--q`, `--provider`, `--model`, `--branch`, `--project`, `--automated`.
 - **Project resolution (D49).** Each `--project` value resolves to a project key: an exact key, else an exact `projects.name` (ASCII case-insensitive), else a unique key suffix
   on a `/` boundary. Several matches or none is exit 1 with up to 5 candidate keys and names (`views/projects.py`). Other filters (`--model`, `--branch`) still return an empty result silently.
-- Exit codes (CLI-4): 0 success; 1 rejected request (bad value, unknown or ambiguous id, missing source, ingest running); 2 usage error, no store, schema mismatch; 3 `serve` could not bind; 130 interrupted.
+- Exit codes (CLI-4): 0 success; 1 rejected request (bad value, unknown or ambiguous id, missing source, ingest running); 2 usage error, no store, schema mismatch, invalid stored `ingest_since`; 3 `serve` could not bind; 130 interrupted.
 - `slow`, `breakdown`, `tasks` end their `--help` with the definitions of their output fields (`time_split`, `time_prov`, `user_waits`, `waits`, `basis`, `unassigned`, `before_first`).
 
 ### 6.3 HTTP (UI)
