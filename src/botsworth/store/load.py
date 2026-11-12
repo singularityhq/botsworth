@@ -52,12 +52,14 @@ GUARANTEES:
 - Thread columns (schema v13, DM-92, `derive.thread_facts`), written by the same code on load and on refold,
   so a refold gives the load's values and an appended call never changes an earlier call's: `ops.thread_rowid`
   and `thread_pos` on every op, `gap_ms` on llm_calls. Every llm_call also gets `caused_by_rowid` (and
-  `caused_by`) = the latest of its thread's opener, its main turn when that started after the previous call,
-  and the previous call, with `caused_by_basis` `order` (DM-45). An engagement's cause stays a tool_call; a
-  call's cause is an earlier op. `derive.check_call_edges` runs on the folded rows: a call without a cause, a
-  cause that is not an ancestor or an earlier call of the thread, or a cause outside the thread that is not
-  its opener raises `BundleInvalid`. A duplicate (`duplicate_of` set) takes its owner's five values
-  (thread, position, gap, cause, basis) after every load and refold of the owner's or the copy's bundle.
+  `caused_by`) = its thread's opener for the first call of the thread, else its turn when that started after
+  the previous call, else the previous call, with `caused_by_basis` `order` (DM-45). An engagement's cause
+  stays a tool_call; a call's cause is an earlier op.
+  `derive.check_call_edges` runs on the folded rows: a call without a cause, a cause that is not an
+  ancestor or an earlier call of the thread, or a cause outside the thread that is not its opener
+  raises `BundleInvalid`.
+  A duplicate (`duplicate_of` set) takes its owner's five values (thread, position, gap, cause, basis) after
+  every load and refold of the owner's or the copy's bundle.
 - B3b columns (`store.timesplit`), written by the same code on load and on refold (DM-43), so a load and a
   later refold of the same rows give the same figures: the root's `time_split` rows are deleted and
   inserted: scope `session` on the session op (DM-51), scope `window` on each main turn that holds a window

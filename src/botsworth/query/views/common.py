@@ -24,7 +24,7 @@ GUARANTEES:
 - `test_runs(conn, roots)` (CLI-20 `test_runs`, D55) counts the owned tool_calls with `command_class` test of
   `roots`; `run_ms` runs to `bg_end_ms` for a background run, else `dur_ms`. `slow`, `breakdown` and the
   Review (QRY-42) all use it, so their blocks are equal.
-EXPECTS: a connection from `botsworth.query._conn` (schema v12) with `row_factory = sqlite3.Row`.
+EXPECTS: a connection from `botsworth.query._conn` (schema v13) with `row_factory = sqlite3.Row`.
 FAILURE BEHAVIOR: as above. A session with no `projects` row, or a null `project_name`, is an ingest
   bug (DM-60 names every project): `session_name` and `project_ref` assert.
 DOES NOT: build wire views, paginate, or filter by scope.

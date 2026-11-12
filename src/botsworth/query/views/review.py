@@ -31,7 +31,7 @@ GUARANTEES:
   op_id); `[]` otherwise.
 - `session_review(session)` and `scope_review(scope)` wrap `build` with `freshness` as `wire.ReviewReport`;
   a scope uses `in_scope_roots` (QRY-5, QRY-7, QRY-9: full sessions), the same sessions as `slow`'s `current`.
-EXPECTS: schema v12 filled by the load (`time_split`, `stretches`, `command_class`, `bg_end_ms`, `notice`
+EXPECTS: schema v13 filled by the load (`time_split`, `stretches`, `command_class`, `bg_end_ms`, `notice`
   events); a connection with `row_factory = sqlite3.Row`.
 FAILURE BEHAVIOR: unknown session -> `NotFound`; a stored part that is in no cause, or a session whose parts
   do not sum to `wall_ms`, asserts.

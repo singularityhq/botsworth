@@ -37,7 +37,7 @@ GUARANTEES:
   none above it -> `(main)`. `turn_attr`: whole turn figures. `unassigned` = `scope_totals` - Σ all groups.
   `n_unpriced` of a group counts the source units (calls; turns for `skill`/`slash`) whose cost is unknown.
   Groups sort by `measure` descending (nulls last), then key ascending; `count` sorts by `n`.
-EXPECTS: schema v12 filled by B3a/B3b (`user_wait`, `max_silence_ms`, `time_prov`, `command_key`,
+EXPECTS: schema v13 filled by B3a/B3b (`user_wait`, `max_silence_ms`, `time_prov`, `command_key`,
   `command_class`,
   `tests_passed`, `tests_failed`, `bg_end_ms`,
   `steps.verb`, `steps.skill_load`, `turn_origin`, `label`, `attr_*`, `span_wall_ms`, `time_split`,

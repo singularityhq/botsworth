@@ -27,10 +27,9 @@ GUARANTEES:
   `(start_ms, rowid)`, a null `start_ms` last. `thread_pos` = how many of them come at or before the op in
   that order (a call: its 1-based index; a `tool_call` under an llm_call: the index of that call).
   `gap_ms` (llm_call only) = the call's start minus the previous call's end (its start when the end is
-  null); null for the first call or when a start is null. `cause` (llm_call only) = the latest of the
-  thread's opener, the call's turn (its parent when that is a main turn) when it started after the previous
-  call, and the previous call: the turn for a first call that has one, the opener for a first call that has
-  none. An agent turn is not a cause: the engagement that opened the run is.
+  null); null for the first call or when a start is null. `cause` (llm_call only): the thread's opener for
+  the first call; for a later call its turn (its parent, when that is a turn) when the turn started after
+  the previous call's start, else the previous call. One rule for every thread.
 - `check_call_edges(rows)` (DM-45) asserts the edge invariant on rows that carry `caused_by`: every llm_call
   has one cause; the cause is an ancestor of the call or an earlier call of its thread; the cause is in the
   call's thread or is the thread's opener.
@@ -229,11 +228,10 @@ def thread_facts(order: Sequence[Mapping]) -> dict[str, ThreadFacts]:
         opener = by_rowid[tid]
         for prev, cur in zip([None, *rows], rows, strict=False):
             f = facts[cur["op_id"]]
-            turn = by_id[cur["parent"]]
-            if turn["kind"] != "turn" or turn["agent_id"] is not None:
-                turn = None
+            parent = by_id[cur["parent"]]
+            turn = parent if parent["kind"] == "turn" else None
             if prev is None:
-                f.cause = (opener if turn is None else turn)["op_id"]
+                f.cause = opener["op_id"]
                 continue
             # FALLBACK-OK: data-model.md §2.2 gap_ms — the previous start stands in for a missing end, and
             # the gap is null when a start is missing

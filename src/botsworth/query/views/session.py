@@ -28,7 +28,7 @@ GUARANTEES:
 - `model_lines(conn, where_sql, args)` (QRY-33): `where_sql` is a condition over `ops` (alias `o`) with `?`
   placeholders in `args`; it is combined with owned llm_calls (`kind = 'llm_call'`, `duplicate_of IS NULL`).
   One line per model, most costly first, then by model.
-EXPECTS: schema v12 filled by B3a (`turn_kind`, `turn_origin`, `display_ix`, `attr_*`, `skill_load`) and B3b
+EXPECTS: schema v13 filled by B3a (`turn_kind`, `turn_origin`, `display_ix`, `attr_*`, `skill_load`) and B3b
   (`span_wall_ms`, `time_split`, `stretches`).
 FAILURE BEHAVIOR: unknown session -> NotFound; ambiguous or short session key -> QueryError (QRY-6);
   `min_gap_ms` under 60000 -> QueryError; an id that names no row, or a row that belongs to no turn

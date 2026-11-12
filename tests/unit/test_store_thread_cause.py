@@ -122,13 +122,20 @@ def test_calls_without_a_start_come_last_and_have_no_gap(tmp_path):
 # --- cause edge -------------------------------------------------------------------------------------
 
 
-def test_cause_target_is_the_turn_for_the_first_call_of_a_turn(tmp_path):
+def test_first_call_of_the_main_thread_is_caused_by_the_session_not_its_turn(tmp_path):
     conn = store(tmp_path)
     b = thread_session()
     put(conn, b)
-    for key, turn in (("c1", "t1"), ("c3", "t2")):  # c3: t2 started after c2
-        r = facts(conn, b.id("llm_call", key))
-        assert (r["caused_by"], r["caused_by_basis"]) == (b.id("turn", turn), "order")
+    r = facts(conn, b.id("llm_call", "c1"))  # t1 started before c1, but position 1 goes to the opener
+    assert (r["caused_by"], r["caused_by_basis"]) == (b.session, "order")
+
+
+def test_first_call_after_a_new_turn_is_caused_by_that_turn(tmp_path):
+    conn = store(tmp_path)
+    b = thread_session()
+    put(conn, b)
+    r = facts(conn, b.id("llm_call", "c3"))  # t2 started after c2
+    assert (r["caused_by"], r["caused_by_basis"]) == (b.id("turn", "t2"), "order")
 
 
 def test_cause_target_is_the_previous_call_inside_a_turn(tmp_path):
@@ -144,8 +151,9 @@ def test_cause_target_is_the_engagement_for_the_first_call_of_an_agent_run(tmp_p
     conn = store(tmp_path)
     b = thread_session()
     put(conn, b)
-    r = facts(conn, b.id("llm_call", "a1"))
+    r = facts(conn, b.id("llm_call", "a1"))  # turn `ta` starts with the engagement; the opener wins
     assert (r["caused_by"], r["caused_by_basis"]) == (b.id("engagement", "e1"), "order")
+    assert row(conn, b.id("turn", "ta"))["start_ms"] == row(conn, b.id("engagement", "e1"))["start_ms"]
 
 
 def test_cause_target_is_the_session_when_the_call_has_no_turn(tmp_path):
