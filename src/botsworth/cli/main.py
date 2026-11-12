@@ -25,6 +25,8 @@ GUARANTEES:
   terminal) sees no progress at all.
 - `paths` prints `{data_dir, store}` (the resolved store file and its folder) and runs without a store; it
   creates nothing.
+- `repl` is `cli.repl`: the client of the persistent analysis session (REPL-1, D58). It has its own exit codes
+  (REPL-2, 0-5) and prints text, not JSON; only `repl start` needs a store.
 - `status` and `serve` run without a store: `status` reports `store_state` (like its HTTP route), `serve`
   answers 503 until a store exists.
 DOES NOT: contain query logic or SQL, open the store, or print source text other than `source`.
@@ -44,6 +46,7 @@ from dataclasses import asdict, is_dataclass
 from pathlib import Path
 from typing import Any
 
+from botsworth.cli import repl as repl_cmd
 from botsworth.cli import serve as serve_cmd
 from botsworth.cli import timefmt
 from botsworth.cli.progress import IngestProgress
@@ -356,6 +359,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     _add_v4_commands(cmd)
 
+    p = sub.add_parser(
+        "repl", help="a persistent pandas session over the store, for analysis by agents (D58)"
+    )
+    repl_cmd.add_arguments(p)
+
     p = cmd("serve", "serve the UI and the API (never ingests)")
     serve_cmd.add_arguments(p)
 
@@ -514,6 +522,8 @@ def _fail(msg: object) -> None:
 def main(argv: list[str] | None = None, api: Any = query_api) -> int:
     args = build_parser().parse_args(argv)
     db = resolve_db(args.db)
+    if args.cmd == "repl":
+        return repl_cmd.run(args, db)
     if args.cmd not in ("ingest", "serve", "status", "paths") and not Path(db).is_file():
         print(f"error: no store at {db} — run 'botsworth ingest'", file=sys.stderr)
         return 2
