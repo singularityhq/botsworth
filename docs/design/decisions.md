@@ -778,4 +778,7 @@ Rejected: cut by event time (above); a `--since` that deletes stored sessions (i
 loses data); no stored default (every cron or manual ingest would need the flag, and a forgotten flag would
 read 10 months of logs again).
 Limits: a log file touched without new records (backup restore, `touch`) brings its unit into the window; Codex is
-cut the same way, with no Codex-specific handling.
+cut the same way, with no Codex-specific handling. Ownership of a copied session
+is decided among the units in the store: when the owner was never loaded (it is outside the window), the copy
+in the window owns the cost; an owner already stored stays the owner after it ages out; `--since all` (or a
+rebuild without a window) loads both and gives the usual result.

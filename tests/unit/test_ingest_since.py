@@ -454,3 +454,59 @@ def test_since_all_clears_stored_window(tmp_path, monkeypatch, capsys):
     assert data["window"] is None
     assert "ingest_since" not in meta(tmp_path)
     assert "claude_code/old" in stored_sessions(tmp_path)  # the old unit is read now
+
+
+def _copy_owner_root(tmp_path):
+    """F5: `s1` owns two calls that `s2` repeats. `s2` is 1 day old, `s1` 30 days."""
+    root = tmp_path / "claude"
+    (root / "p").mkdir(parents=True)
+    for name, days in (("s1", 30), ("s2", 1)):
+        shutil.copy(FIXTURES / "F5" / "project" / f"{name}.jsonl", root / "p" / f"{name}.jsonl")
+        age(root / "p" / f"{name}.jsonl", days)
+    return root
+
+
+def _llm_calls(tmp_path) -> dict[str, bool]:
+    """op_id -> is a duplicate (has an owner elsewhere)."""
+    conn = sqlite3.connect(tmp_path / "s.db")
+    try:
+        return {
+            op_id: dup
+            for op_id, dup in conn.execute(
+                "SELECT op_id, duplicate_of IS NOT NULL FROM ops WHERE kind='llm_call'"
+            )
+        }
+    finally:
+        conn.close()
+
+
+def test_copy_in_window_owns_the_cost_when_its_owner_was_never_loaded(tmp_path):
+    # D59 limit: ownership is decided among the units the store holds
+    root = _copy_owner_root(tmp_path)
+    run(tmp_path, root, since="10d")
+    assert _llm_calls(tmp_path) == {
+        "claude_code/s2/llm_call/r1": False,
+        "claude_code/s2/llm_call/r2": False,
+    }
+    run(tmp_path, root, since="all")
+    assert _llm_calls(tmp_path) == {
+        "claude_code/s1/llm_call/r1": False,
+        "claude_code/s1/llm_call/r2": False,
+        "claude_code/s2/llm_call/r1": True,
+        "claude_code/s2/llm_call/r2": True,
+    }
+
+
+def test_stored_owner_stays_owner_after_it_ages_out_of_the_window(tmp_path):
+    root = _copy_owner_root(tmp_path)
+    age(root / "p" / "s1.jsonl", 1)
+    run(tmp_path, root, since="10d")
+    age(root / "p" / "s1.jsonl", 30)
+    again = run(tmp_path, root)
+    assert again["providers"]["claude_code"]["outside_window"] == 1
+    assert _llm_calls(tmp_path) == {
+        "claude_code/s1/llm_call/r1": False,
+        "claude_code/s1/llm_call/r2": False,
+        "claude_code/s2/llm_call/r1": True,
+        "claude_code/s2/llm_call/r2": True,
+    }
