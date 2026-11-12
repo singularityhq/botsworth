@@ -20,6 +20,8 @@ GUARANTEES:
   `--force` re-reads every bundle into the existing store. Ingest writes nothing but the store file.
 - `ingest --since Nd|YYYY-MM-DD|all` is the ingest date window (CLI-12, D59), passed to
   `pipeline.run(since=)`; a value in none of the forms exits 2.
+- `ingest` prints `warning: skipped <path> (<error>)` on stderr for each file in the report's
+  `unreadable` list; the exit code stays 0 (CLI-12).
 - `ingest` draws its run on stderr when stderr is a terminal (D57): one line rewritten in place
   (`scanning`, then `N/M bundles · N rebuilt · N unchanged`), cleared before the run ends, then the
   `--table` summary. `--table` prints that summary on stdout instead of the report and suppresses the
@@ -506,6 +508,9 @@ def run(args: argparse.Namespace, api: Any, db: Any) -> Any:
             progress.abort()
             raise
         progress.finish(data, summary=args.fmt != "table")
+        for rep in data["providers"].values():
+            for u in rep["unreadable"]:  # CLI-12: the unit was skipped; the run itself succeeded
+                print(f"warning: skipped {u['path']} ({u['error']})", file=sys.stderr)
         return data
     raise AssertionError(f"unhandled subcommand {c}")
 

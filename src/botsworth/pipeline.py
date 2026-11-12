@@ -52,6 +52,13 @@ GUARANTEES:
   rebuilt or unchanged, and none of its stored rows or `source_files` rows is touched, so it is never marked
   `source_missing`. The value in force is written to `meta.ingest_since` (deleted for `all`). The report
   has `window` (None, or `{since, cutoff_ms, outside_window}`) and a per-provider `outside_window`.
+- Unreadable files (CLI-12, D59): discovery stats every member file of every discovered unit once (the
+  same cache the change check uses), with or without a window. A stat error other than absence (for
+  example `PermissionError`) does not abort the run: the file goes in the provider's
+  `unreadable: [{path, error}]` (`error` = the OS error text) and its whole unit is skipped like one
+  outside the window: not built, not counted as rebuilt, unchanged or outside the window, stored rows and
+  `source_files` rows untouched, never marked `source_missing`. A rejected bundle is a different thing: it
+  writes reject rows.
 - Mode (DM-4, D52): when `rebuild` is set, or the store is missing, or its `meta.schema_version` differs
   from `schema.SCHEMA_VERSION` (checked read-only), the run is a rebuild: every
   read and write targets `<db>.rebuild`, no `source_files` row is known (every
@@ -59,7 +66,7 @@ GUARANTEES:
   at the end. Any exception discards `<db>.rebuild*` and re-raises; `<db>` is
   untouched. Otherwise the run is incremental, in place.
 - Returns `{mode: "rebuild"|"incremental", window, providers: {p: {root, discovered, outside_window,
-  rebuilt, unchanged, rejected: [{bundle_id, reason}]}}, store:
+  rebuilt, unchanged, rejected: [{bundle_id, reason}], unreadable: [{path, error}]}}, store:
   IngestResult.to_dict(), ms: {...}}`.
 - `progress` (optional, D57) is called with one dict per step, in order after the lock is taken:
   `start {mode, store}` (`store` is the resolved `<db>`, never `<db>.rebuild`),
@@ -73,7 +80,10 @@ GUARANTEES:
   propagates and aborts the run like any other failure, so a caller must not raise.
 EXPECTS: adapters honour `adapters.Adapter`; source dirs are only read.
 FAILURE BEHAVIOR: adapter failures reject one bundle; store failures follow
-  store.ingest (rejected bundle keeps old rows; `IngestLocked` propagates).
+  store.ingest (rejected bundle keeps old rows; `IngestLocked` propagates). A stat error on a member
+  file of a discovered unit skips that unit and is reported (`unreadable`). A stat error on a recorded
+  path that discovery no longer lists (the `source_missing` check) still aborts the run; that case is
+  rare and deferred.
 DOES NOT: parse provider files itself; query; resume from a byte offset;
   write progress itself (the caller renders it).
 KNOWN LIMITATIONS: a changed bundle is rebuilt from whole files (design §8
@@ -84,7 +94,6 @@ KNOWN LIMITATIONS: a changed bundle is rebuilt from whole files (design §8
 from __future__ import annotations
 
 import hashlib
-import os
 import re
 import time
 from collections.abc import Callable, Iterable, Iterator, Mapping
@@ -228,18 +237,6 @@ def _run(
         set()
     )  # units skipped this run (D59): their recorded files are not examined again
 
-    def in_window(ref: BundleRef) -> bool:
-        """True when the newest mtime among the unit's files is at or after the cutoff (D59)."""
-        if cutoff_ms is None:
-            return True
-        newest = 0
-        for f in ref.files:
-            try:
-                newest = max(newest, os.stat(f).st_mtime_ns)
-            except FileNotFoundError:
-                continue  # FALLBACK-OK: D59 — a vanished file has no mtime; the unit is judged by the others
-        return newest == 0 or newest >= cutoff_ms * 1_000_000
-
     def status_of(s: Stat, partial: bool) -> str:
         return "live" if partial or s[1] >= live_from_ns else "settled"
 
@@ -266,6 +263,7 @@ def _run(
             "rebuilt": 0,
             "unchanged": 0,
             "rejected": [],
+            "unreadable": [],
         }
         report[provider] = rep
         if root.is_dir():
@@ -273,6 +271,28 @@ def _run(
         else:
             rep["skipped"] = "root missing"
             _tell(progress, "provider", provider=provider, root=str(root), skipped="root missing")
+
+    def unit_state(ref: BundleRef, root: Path, rep: dict) -> str:
+        """Stat every member file once: "unreadable" (a stat error other than absence, D59; each file is
+        reported), "outside" (newest mtime before the cutoff) or "kept"."""
+        newest = 0
+        unreadable = False
+        for f in ref.files:
+            path = str(Path(f).absolute())
+            try:
+                s = stat(path, root)
+            except OSError as exc:  # FALLBACK-OK: D59 — an unreadable file skips its unit and is reported
+                assert exc.strerror is not None, f"OSError without text for {path}: {exc!r}"
+                rep["unreadable"].append({"path": path, "error": exc.strerror})
+                unreadable = True
+                continue
+            if s is not None:  # an absent file has no mtime; the unit is judged by the others (D59)
+                newest = max(newest, s[1])
+        if unreadable:
+            return "unreadable"
+        if cutoff_ms is not None and newest != 0 and newest < cutoff_ms * 1_000_000:
+            return "outside"
+        return "kept"
 
     def built_bundles() -> Iterator[Bundle]:
         """Discover all scanned providers, sort by session start, build the changed bundles one at a time."""
@@ -282,23 +302,18 @@ def _run(
         for provider in scanned:
             t = time.perf_counter()
             _tell(progress, "scanning", provider=provider)
-            refs = list(adapters.get(provider).discover(root_of[provider].expanduser()))
+            root = root_of[provider].expanduser()
+            refs = list(adapters.get(provider).discover(root))
             ms["discover"] += (time.perf_counter() - t) * 1000
-            report[provider]["discovered"] = len(refs)
-            kept = [ref for ref in refs if in_window(ref)]
-            kept_ids = {ref.bundle_id for ref in kept}
-            skipped_keys.update(
-                f"{provider}/{ref.bundle_id}" for ref in refs if ref.bundle_id not in kept_ids
-            )
-            report[provider]["outside_window"] = len(refs) - len(kept)
-            outside += len(refs) - len(kept)
-            _tell(
-                progress,
-                "discovered",
-                provider=provider,
-                bundles=len(refs),
-                outside_window=len(refs) - len(kept),
-            )
+            rep = report[provider]
+            states = {ref.bundle_id: unit_state(ref, root, rep) for ref in refs}
+            kept = [ref for ref in refs if states[ref.bundle_id] == "kept"]
+            n_outside = sum(st == "outside" for st in states.values())
+            skipped_keys.update(f"{provider}/{b}" for b, st in states.items() if st != "kept")
+            rep["discovered"] = len(refs)
+            rep["outside_window"] = n_outside
+            outside += n_outside
+            _tell(progress, "discovered", provider=provider, bundles=len(refs), outside_window=n_outside)
             by_key = recorded[provider] = {}
             for path, r in known.items():
                 if r["provider"] == provider and r["status"] != "source_missing":

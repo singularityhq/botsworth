@@ -767,6 +767,10 @@ window is kept in `meta.ingest_since` and used again by later ingests without th
 - Skip is not delete: the pipeline only treats a recorded file as gone (`source_missing`) when the file is absent
   from disk, and `store.ingest` removes nothing it is not given. A unit that discovery skips therefore keeps its
   stored rows. Only a rebuild drops them (D52), and a rebuild with a window leaves them out.
+- Unreadable is skip, not crash: discovery stats every file of every unit, and a file whose stat fails with an
+  error other than absence (permission denied) skips its whole unit for this run, like an out-of-window unit, and
+  is reported in the provider's `unreadable` list (a stderr warning from the CLI). The run exits 0. A stat error
+  on a recorded path that discovery no longer lists still aborts the run (rare, deferred).
 Rejected: cut by event time (above); a `--since` that deletes stored sessions (irreversible, and a wrong value
 loses data); no stored default (every cron or manual ingest would need the flag, and a forgotten flag would
 read 10 months of logs again).

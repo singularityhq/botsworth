@@ -275,3 +275,58 @@ def test_skipped_unit_that_lost_a_file_is_not_marked_source_missing(tmp_path):
     assert (rep["mode"], claude["rebuilt"], claude["unchanged"]) == ("incremental", 1, 2)
     assert ops_of(tmp_path, unit) < ops_before
     assert source_rows(tmp_path, unit)["agent-a.jsonl"][4] == "source_missing"
+
+
+def deny_stat(monkeypatch, unit_dir: str, name: str = "agent-a.jsonl") -> None:
+    """Make one file's stat fail with PermissionError; every other file stats normally."""
+    real = pipeline._stat
+
+    def stat(path: Path):
+        if path.name == name and unit_dir in path.parts:
+            raise PermissionError(13, "Permission denied", str(path))
+        return real(path)
+
+    monkeypatch.setattr(pipeline, "_stat", stat)
+
+
+@pytest.mark.parametrize("since", [None, "10d"], ids=["no-window", "window"])
+def test_unreadable_file_skips_its_unit_and_the_run_continues(tmp_path, monkeypatch, since):
+    root = make_root(tmp_path)
+    unit = "claude_code/new"
+    run(tmp_path, root, since="all")
+    ops_before, rows_before = ops_of(tmp_path, unit), source_rows(tmp_path, unit)
+    assert ops_before > 0
+    deny_stat(monkeypatch, "new")
+
+    rep = run(tmp_path, root, since=since, force=True)
+
+    claude = rep["providers"]["claude_code"]
+    bad = str(root / "pa" / "new" / "subagents" / "agent-a.jsonl")
+    assert claude["unreadable"] == [{"path": bad, "error": "Permission denied"}]
+    assert claude["discovered"] == 3
+    assert claude["rebuilt"] == (1 if since else 2)  # `mixed` (and `old`, without a window); `new` not built
+    assert source_rows(tmp_path, unit) == rows_before
+    assert ops_of(tmp_path, unit) == ops_before
+    assert all(row[4] != "source_missing" for row in source_rows(tmp_path, unit).values())
+
+
+def test_no_unreadable_file_gives_an_empty_list(tmp_path):
+    rep = run(tmp_path, make_root(tmp_path), since="10d")
+    assert rep["providers"]["claude_code"]["unreadable"] == []
+
+
+def test_cli_warns_on_stderr_for_an_unreadable_file_and_exits_0(tmp_path, monkeypatch, capsys):
+    root = make_root(tmp_path)
+    roots = {"claude_code": root, "codex": tmp_path / "x1", "omp": tmp_path / "x2"}
+    monkeypatch.setattr(pipeline, "DEFAULT_ROOTS", roots)
+    deny_stat(monkeypatch, "new")
+
+    code = cli.main(["--db", str(tmp_path / "s.db"), "ingest"])
+
+    captured = capsys.readouterr()
+    bad = root / "pa" / "new" / "subagents" / "agent-a.jsonl"
+    assert code == 0
+    assert f"warning: skipped {bad} (Permission denied)" in captured.err.splitlines()
+    data = json.loads(captured.out)
+    assert data["providers"]["claude_code"]["unreadable"][0]["error"] == "Permission denied"
+    assert "1 files skipped" in render_table("ingest", data)
