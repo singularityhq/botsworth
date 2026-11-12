@@ -74,6 +74,7 @@ class LinkBasis(StrEnum):
     NAME = "name"
     TIME_HEURISTIC = "time-heuristic"
     NONE = "none"
+    ORDER = "order"  # an llm_call's cause, read from thread order; no provider recorded it (store fold only)
 
 
 CYCLE_SUFFIX = "+cycle"

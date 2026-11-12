@@ -37,8 +37,8 @@ def columns(conn, table):
 def test_ensure_creates_v10_tables_and_indexes(tmp_path):
     conn = sqlite3.connect(tmp_path / "s.db")
     schema.ensure(conn)
-    assert schema.SCHEMA_VERSION == 12
-    assert conn.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0] == "12"
+    assert schema.SCHEMA_VERSION == 13
+    assert conn.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0] == "13"
     for table in schema.TABLES:
         n = conn.execute(f"SELECT count(*) FROM {table}").fetchone()[0]
         assert n == (1 if table == "meta" else 0), table  # only meta.schema_version
@@ -83,7 +83,7 @@ def test_ensure_upgrades_a_v6_store_in_place(tmp_path):
     conn.commit()
     schema.ensure(conn)
     assert not {"op_closure", "stream_files"} & names(conn, "table")
-    assert conn.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0] == "12"
+    assert conn.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0] == "13"
 
 
 def full_bundle():
@@ -97,7 +97,7 @@ def full_bundle():
     t2 = b.turn("a#0", e, start=110, end=800, agent="a", **common)
     b.llm("ra", t2, 110, 400, agent="a", model="m2", **common)
     b.tool("tb", t2, 410, 450, agent="a", tool_name="Bash", command="ls", **common)
-    b.llm("r1", t, 950, 1000, caused_by=spawn, **common)
+    b.llm("r1", t, 950, 1000, **common)
     for i, o in enumerate(b.ops):
         o.src = f"src://claude_code/proj/v.jsonl#L{i + 1}-L{i + 2}" + (f"?h={HASH}" if i % 2 else "")
     return b
@@ -114,9 +114,13 @@ def test_ops_v_reproduces_stream_fields(tmp_path):
         got_fields = tuple(
             r[k] for k in ("parent", "caused_by", "session_id", "project", "cwd", "account", "src")
         )
-        assert got_fields == (o.parent, o.caused_by, o.session_id, "/repo", o.cwd, o.account, o.src)
+        cause = got[o.op_id]["caused_by"] if o.kind == "llm_call" else o.caused_by  # the fold sets a call's
+        assert got_fields == (o.parent, cause, o.session_id, "/repo", o.cwd, o.account, o.src)
         assert r["bundle"] == "claude_code/v"
-    assert sum(r["caused_by"] is not None for r in got.values()) == 2  # the links the fixture sets
+    calls = [r for r in got.values() if r["kind"] == "llm_call"]
+    assert all(r["caused_by"] is not None and r["caused_by_basis"] == "order" for r in calls)
+    stream_links = [r for r in got.values() if r["kind"] != "llm_call" and r["caused_by"] is not None]
+    assert len(stream_links) == 1  # the engagement's link
     assert got["claude_code/v/engagement/a#0"]["path_sig"] == "main/coder/engagement"
     assert got["claude_code/v/llm_call/ra"]["path_sig"] == "main/coder/m2"
     assert got["claude_code/v/session/-"]["parent"] is None
@@ -124,7 +128,10 @@ def test_ops_v_reproduces_stream_fields(tmp_path):
     t = conn.execute(
         "SELECT parent_rowid, caused_by_rowid, cwd_id FROM ops WHERE op_id=?", ("claude_code/v/llm_call/r1",)
     )
-    parent_rowid, caused_rowid, cwd_id = t.fetchone()
+    parent_rowid, _, cwd_id = t.fetchone()
+    caused_rowid = conn.execute(
+        "SELECT caused_by_rowid FROM ops WHERE op_id=?", ("claude_code/v/engagement/a#0",)
+    ).fetchone()[0]
     assert (
         conn.execute("SELECT op_id FROM ops WHERE rowid=?", (parent_rowid,))
         .fetchone()[0]

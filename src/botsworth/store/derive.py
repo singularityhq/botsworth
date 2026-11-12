@@ -20,17 +20,37 @@ GUARANTEES:
   `duplicate_of` None): walk up `parent` to the nearest main turn (`kind == "turn"`, `agent_id` None) ->
   its `rowid`; at an engagement continue from its `caused_by` tool_call; an engagement with `caused_by`
   None, or reaching the session root, gives None.
+- `thread_facts(order)` (DM-92) -> `{op_id: ThreadFacts}` for every row of `order` (the op tree in
+  pre-order, parents first). `thread_rowid` = the rowid of the nearest `engagement` ancestor, else of the
+  session root (the root is its own thread); an engagement therefore belongs to the thread of the call that
+  started it and opens the thread of its descendants. A thread's calls are its `llm_call` rows ordered by
+  `(start_ms, rowid)`, a null `start_ms` last. `thread_pos` = how many of them come at or before the op in
+  that order (a call: its 1-based index; a `tool_call` under an llm_call: the index of that call).
+  `gap_ms` (llm_call only) = the call's start minus the previous call's end (its start when the end is
+  null); null for the first call or when a start is null. `cause` (llm_call only) = the latest of the
+  thread's opener, the call's turn (its parent when that is a main turn) when it started after the previous
+  call, and the previous call: the turn for a first call that has one, the opener for a first call that has
+  none. An agent turn is not a cause: the engagement that opened the run is.
+- `check_call_edges(rows)` (DM-45) asserts the edge invariant on rows that carry `caused_by`: every llm_call
+  has one cause; the cause is an ancestor of the call or an earlier call of its thread; the cause is in the
+  call's thread or is the thread's opener.
 - `bucket15(ms)` (DM-41) -> `ms - ms % 900000`: the epoch-aligned 15-minute bucket start; no zone is used.
-EXPECTS: `attr_walk` rows carry `op_id, rowid, kind, parent, caused_by, agent_id, duplicate_of`.
+EXPECTS: `attr_walk` rows carry `op_id, rowid, kind, parent, caused_by, agent_id, duplicate_of`;
+  `thread_facts` rows carry `op_id, rowid, kind, parent, start_ms, end_ms, agent_id` and are in pre-order;
+  `check_call_edges` rows carry `op_id, rowid, kind, pre, post, start_ms, thread_rowid, caused_by`.
 FAILURE BEHAVIOR: `attr_walk` raises `AttributionError` when a walk revisits an engagement, when a
-  `caused_by` is not a `tool_call` or is not among the rows, or when a parent is missing.
+  `caused_by` is not a `tool_call` or is not among the rows, or when a parent is missing. `check_call_edges`
+  raises `EdgeError` for a call with no cause, a cause not among the rows, a cause that is not an ancestor
+  or an earlier call of the thread, and a cause outside the call's thread that is not its opener.
 DOES NOT: read or write the store, compute time splits (`timesplit`) or projects.
 """
 
 from __future__ import annotations
 
+import bisect
 import re
 from collections.abc import Iterable, Mapping, Sequence
+from dataclasses import dataclass
 
 from botsworth.store import refs
 
@@ -153,3 +173,104 @@ def attr_walk(rows: Iterable[Mapping]) -> dict[str, int | None]:
 
 def bucket15(ms: int) -> int:
     return ms - ms % BUCKET_MS
+
+
+class EdgeError(ValueError):
+    """An llm_call whose cause edge breaks the edge invariant."""
+
+
+@dataclass(slots=True)
+class ThreadFacts:
+    thread_rowid: int
+    thread_pos: int
+    gap_ms: int | None = None  # llm_call only
+    cause: str | None = None  # llm_call only: op_id of the cause
+
+
+def _order_key(row: Mapping) -> tuple:
+    # FALLBACK-OK: design §4.6 — time may be missing; a null start ranks last (the ownership order)
+    return (row["start_ms"] is None, row["start_ms"] or 0, row["rowid"])
+
+
+def thread_facts(order: Sequence[Mapping]) -> dict[str, ThreadFacts]:
+    by_id = {r["op_id"]: r for r in order}
+    thread: dict[str, int] = {}
+    for r in order:
+        parent = by_id[r["parent"]] if r["parent"] is not None else None
+        if parent is None:
+            thread[r["op_id"]] = r["rowid"]
+        elif parent["kind"] == "engagement":
+            thread[r["op_id"]] = parent["rowid"]
+        else:
+            thread[r["op_id"]] = thread[parent["op_id"]]
+    calls: dict[int, list[Mapping]] = {}
+    for r in order:
+        if r["kind"] == "llm_call":
+            calls.setdefault(thread[r["op_id"]], []).append(r)
+    keys: dict[int, list[tuple]] = {}
+    index: dict[str, int] = {}  # llm_call op_id -> 1-based position in its thread
+    for tid, rows in calls.items():
+        rows.sort(key=_order_key)
+        keys[tid] = [_order_key(c) for c in rows]
+        index.update({c["op_id"]: i for i, c in enumerate(rows, 1)})
+    facts: dict[str, ThreadFacts] = {}
+    for r in order:
+        tid = thread[r["op_id"]]
+        if r["kind"] == "llm_call":
+            facts[r["op_id"]] = ThreadFacts(tid, index[r["op_id"]])
+        elif r["kind"] == "tool_call" and by_id[r["parent"]]["kind"] == "llm_call":
+            facts[r["op_id"]] = ThreadFacts(tid, index[r["parent"]])
+        else:
+            # FALLBACK-OK: DM-92 — a thread with no llm_call has position 0; DM-46 — a tool_call not under its
+            # call (hand-built streams) is placed by order
+            facts[r["op_id"]] = ThreadFacts(tid, bisect.bisect_right(keys.get(tid, []), _order_key(r)))
+    by_rowid = {r["rowid"]: r for r in order}
+    for tid, rows in calls.items():
+        opener = by_rowid[tid]
+        for prev, cur in zip([None, *rows], rows, strict=False):
+            f = facts[cur["op_id"]]
+            turn = by_id[cur["parent"]]
+            if turn["kind"] != "turn" or turn["agent_id"] is not None:
+                turn = None
+            if prev is None:
+                f.cause = (opener if turn is None else turn)["op_id"]
+                continue
+            # FALLBACK-OK: data-model.md §2.2 gap_ms — the previous start stands in for a missing end, and
+            # the gap is null when a start is missing
+            end = prev["end_ms"] if prev["end_ms"] is not None else prev["start_ms"]
+            f.gap_ms = None if cur["start_ms"] is None or end is None else cur["start_ms"] - end
+            # FALLBACK-OK: data-model.md §2.2 caused_by — a turn or call without a start cannot be ordered, so
+            # the previous call is the cause
+            new_turn = (
+                turn is not None
+                and turn["start_ms"] is not None
+                and prev["start_ms"] is not None
+                and turn["start_ms"] > prev["start_ms"]
+            )
+            f.cause = (turn if new_turn else prev)["op_id"]
+    return facts
+
+
+def check_call_edges(rows: Sequence[Mapping]) -> None:
+    by_id = {r["op_id"]: r for r in rows}
+    seen: dict[tuple[int, str], int] = {}  # (thread, op_id) -> order among the thread's calls
+    for tid in {r["thread_rowid"] for r in rows if r["kind"] == "llm_call"}:
+        in_thread = (r for r in rows if r["kind"] == "llm_call" and r["thread_rowid"] == tid)
+        mine = sorted(in_thread, key=_order_key)
+        seen.update({(tid, r["op_id"]): i for i, r in enumerate(mine)})
+    for r in rows:
+        if r["kind"] != "llm_call":
+            continue
+        op_id, cause = r["op_id"], r["caused_by"]
+        if cause is None:
+            raise EdgeError(f"{op_id}: llm_call has no cause")
+        if cause not in by_id:
+            raise EdgeError(f"{op_id}: cause {cause} is not among the rows")
+        target = by_id[cause]
+        tid = r["thread_rowid"]
+        if target["thread_rowid"] != tid and target["rowid"] != tid:
+            raise EdgeError(f"{op_id}: cause {cause} is outside thread {tid} and is not its opener")
+        ancestor = target["pre"] < r["pre"] <= target["post"]
+        earlier_call = target["kind"] == "llm_call" and seen[(tid, cause)] < seen[(tid, op_id)]
+        if not (ancestor or earlier_call):
+            raise EdgeError(f"{op_id}: cause {cause} does not come before the call")

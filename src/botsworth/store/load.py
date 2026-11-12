@@ -41,13 +41,23 @@ GUARANTEES:
 - B3a derived columns (data-model.md §4): `ops.display_ix` (DM-24: main human/message turns numbered by
   `(start_ms, seq)`); `ops.attr_turn_rowid` on owned leaves and `attr_cost_usd`, `attr_tok_total`,
   `attr_n_llm_calls`, `attr_cost_lower_bound` on main turns (DM-45, `store.derive.attr_walk`; a revisited
-  engagement or a `caused_by` that is not a tool_call raises `BundleInvalid`); `steps.skill_load` from
+  engagement or an engagement `caused_by` that is not a tool_call raises `BundleInvalid`); `steps.skill_load`
+  from
   `skill_invocation` events that name a `step_id` (DM-30; an unknown `step_id` raises `BundleInvalid`);
   `sessions.title` (the stream title), `title_source`, `display_title` (DM-10 levels 1-4, `derive.title`),
   `n_human_asks`, `is_automated` (DM-25), `activity_bin_ms`, `activity_tok` (DM-44); `sessions.first_ms` and
   `last_ms` equal the session op's widened `start_ms`/`end_ms`, which cover every leaf (DM-62).
   `refold` recomputes display_ix, attribution, bins, bounds and rollup_time; it keeps titles, human-ask
   counts and `skill_load` (they do not depend on ownership).
+- Thread columns (schema v13, DM-92, `derive.thread_facts`), written by the same code on load and on refold,
+  so a refold gives the load's values and an appended call never changes an earlier call's: `ops.thread_rowid`
+  and `thread_pos` on every op, `gap_ms` on llm_calls. Every llm_call also gets `caused_by_rowid` (and
+  `caused_by`) = the latest of its thread's opener, its main turn when that started after the previous call,
+  and the previous call, with `caused_by_basis` `order` (DM-45). An engagement's cause stays a tool_call; a
+  call's cause is an earlier op. `derive.check_call_edges` runs on the folded rows: a call without a cause, a
+  cause that is not an ancestor or an earlier call of the thread, or a cause outside the thread that is not
+  its opener raises `BundleInvalid`. A duplicate (`duplicate_of` set) takes its owner's five values
+  (thread, position, gap, cause, basis) after every load and refold of the owner's or the copy's bundle.
 - B3b columns (`store.timesplit`), written by the same code on load and on refold (DM-43), so a load and a
   later refold of the same rows give the same figures: the root's `time_split` rows are deleted and
   inserted: scope `session` on the session op (DM-51), scope `window` on each main turn that holds a window
@@ -97,7 +107,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass, fields
 
 from botsworth import pointer, stream
-from botsworth.model import TOKEN_FIELDS, Bundle, Event, Op, SourceFile, Step
+from botsworth.model import TOKEN_FIELDS, Bundle, Event, LinkBasis, Op, SourceFile, Step
 from botsworth.store import derive, intervals, notices, ownership, refs, schema, timesplit
 
 log = logging.getLogger(__name__)
@@ -145,6 +155,11 @@ DERIVED = (
     "attr_tok_total",
     "attr_n_llm_calls",
     "attr_cost_lower_bound",
+    "thread_rowid",  # DM-92
+    "thread_pos",
+    "gap_ms",
+    "caused_by_rowid",  # an llm_call's cause (DM-45); every other op keeps the stream's
+    "caused_by_basis",
 )
 OP_FIELDS = tuple(f.name for f in fields(Op))
 # Op fields that live on `sessions` only (the store has no `ops` column for them)
@@ -377,9 +392,27 @@ def fold(rows: list[dict], steps_per_turn: dict[str, int]) -> tuple[dict, list[d
             or any(k["cost_lower_bound"] for k in kids)
         )
         r["owned"] = owned
+    _threads(order)
     _display_ix(order)
     _attribute(order)
     return root, order
+
+
+def _threads(order: list[dict]) -> None:
+    """DM-92: thread, position and gap of every op, and the `order` cause edge of every llm_call. Also sets
+    `caused_by_rowid` of every op from its `caused_by`."""
+    facts = derive.thread_facts(order)
+    by_id = {r["op_id"]: r for r in order}
+    for r in order:
+        f = facts[r["op_id"]]
+        r["thread_rowid"], r["thread_pos"], r["gap_ms"] = f.thread_rowid, f.thread_pos, f.gap_ms
+        if r["kind"] == "llm_call":
+            r["caused_by"], r["caused_by_basis"] = f.cause, LinkBasis.ORDER.value
+        r["caused_by_rowid"] = by_id[r["caused_by"]]["rowid"] if r["caused_by"] is not None else None
+    try:
+        derive.check_call_edges(order)
+    except derive.EdgeError as exc:
+        raise BundleInvalid(str(exc)) from exc
 
 
 def _display_ix(order: list[dict]) -> None:
@@ -530,14 +563,12 @@ class _Refs:
 
 def _compact(rows: list[dict], cache: _Refs) -> None:
     """Replace each row's v6 text columns by their v7 ids, hashes and previews (DM-8, DM-9, DM-14)."""
-    by_id = {r["op_id"]: r for r in rows}
     for r in rows:
         r["src_file"], r["src_loc"], r["src_h"] = cache.src(r["src"])
         r["cwd_id"] = cache.name(r["cwd"])
         r["account_id"] = cache.name(r["account"])
         r["path_sig_id"] = cache.name(r["path_sig"])
         r["occ_hash"] = refs.occ_hash(r["occ_key"]) if r["occ_key"] is not None else None
-        r["caused_by_rowid"] = by_id[r["caused_by"]]["rowid"] if r["caused_by"] is not None else None
         for name in _PREVIEW_OP_FIELDS:
             r[name] = refs.clip_preview(r[name])
 
@@ -701,6 +732,23 @@ def _write_max_silence(conn: sqlite3.Connection, bundle: Bundle, order: list[dic
     )
 
 
+_CARRIED = ("thread_rowid", "thread_pos", "gap_ms", "caused_by_rowid", "caused_by_basis")
+_CARRY = (
+    f"UPDATE ops SET {','.join(f'{c}=o.{c}' for c in _CARRIED)}"
+    " FROM ops o WHERE ops.duplicate_of = o.op_id AND o.duplicate_of IS NULL AND {where}"
+)
+
+
+def _carry_owner_values(conn: sqlite3.Connection, root_rowid: int) -> None:
+    """DM-92: a duplicate takes its owner's thread, position, gap and cause. Covers the copies in this bundle
+    and the copies elsewhere whose owner is in this bundle, so a later fold of the owner refreshes them."""
+    conn.execute(_CARRY.format(where="ops.root_rowid = ?1"), (root_rowid,))
+    conn.execute(
+        _CARRY.format(where="ops.occ_hash = o.occ_hash AND o.root_rowid = ?1 AND ops.root_rowid != ?1"),
+        (root_rowid,),
+    )
+
+
 def _skill_loads(bundle: Bundle) -> dict[str, str]:
     """DM-30: `{step_id: skill}` from the bundle's `skill_invocation` events that name a step."""
     steps = {f"{s.turn_id}#{s.ordinal}" for s in bundle.steps}
@@ -845,6 +893,7 @@ def load_bundle(conn: sqlite3.Connection, bundle: Bundle) -> LoadResult:
         _write_session(conn, _session_row(root, key, status, bundle.n_malformed, derived))
         conn.executemany(_ROLLUP_INSERT, _rollup_rows(root, order))
         conn.executemany(_EVENT_INSERT, [_event_row(e, root, dups, cache) for e in bundle.events])
+        _carry_owner_values(conn, root["rowid"])
         _write_time(conn, root, order)  # reads the root's `notice` events (DM-41)
         _write_max_silence(conn, bundle, order)
         conn.executemany(
@@ -899,6 +948,7 @@ def refold(conn: sqlite3.Connection, bundle: str) -> None:
         f"UPDATE ops SET {','.join(c + '=?' for c in cols)} WHERE rowid=?",
         [[r[c] for c in cols] + [r["rowid"]] for r in rows],
     )
+    _carry_owner_values(conn, root["rowid"])
     conn.execute(_EVENT_COPIED, (root["rowid"],))
     conn.execute("DELETE FROM rollup_time WHERE root_rowid=?", (root["rowid"],))
     conn.executemany(_ROLLUP_INSERT, _rollup_rows(root, order))

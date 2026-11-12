@@ -34,7 +34,8 @@ GUARANTEES:
   `source_file.ts_list` that is not a sorted int list), `kind_field`
   (`turn_kind`/`turn_origin` off a turn op, `user_wait` off a tool_call; D55: `command_class`,
   `bg_end_ms`, `tests_passed`, `tests_failed` off a tool_call, test counts on a call whose
-  `command_class` is not `test`, or only one of the two counts set); `command_class` is an enum
+  `command_class` is not `test`, or only one of the two counts set; `caused_by` on an llm_call, which
+  the store fold writes with basis `order`, DM-45); `command_class` is an enum
   (`test`, `wait`), `notice` is an event kind.
   `title_source`, `entrypoint` and `originator` are session-only fields.
 - `write_bundle(bundle, out_dir)` writes `<bundle_id>.jsonl` via temp file +
@@ -370,6 +371,8 @@ def defects(bundle: Bundle) -> list[Defect]:
             )
         if o.caused_by_basis is not None and not is_link_basis(o.caused_by_basis):
             out.append(Defect("bad_enum", o.op_id, f"caused_by_basis={o.caused_by_basis!r}"))
+        if o.kind == Kind.LLM_CALL and o.caused_by is not None:
+            out.append(Defect("kind_field", o.op_id, "an llm_call's caused_by is written by the store fold"))
         _long(out, o.op_id, "label", o.label, LABEL_MAX)
         _long(out, o.op_id, "args_json", o.args_json, ARGS_JSON_MAX)
     ordinals: dict[str, list[int]] = defaultdict(list)

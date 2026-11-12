@@ -497,7 +497,7 @@ def schema_ok(db: Path) -> tuple[bool, str]:
     except sqlite3.DatabaseError:
         version = None
     conn.close()
-    return version == "12", f"store {db} has schema {version}, bench-api needs 12"
+    return version == "13", f"store {db} has schema {version}, bench-api needs 13"
 
 
 def index_report(db: Path) -> dict[str, bool]:
