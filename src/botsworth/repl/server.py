@@ -25,7 +25,8 @@ GUARANTEES:
   returns); a signal that arrives outside a cell is ignored. `stop` interrupts, then ends the process after 5
     s.
   The process also ends after `--idle` minutes without a `run`, never during a cell.
-- It publishes its socket by hard-linking a listening socket from a private name, never replaces a live socket
+- It publishes its socket by hard-linking a listening socket from a private name `<name>.<pid base 36>`
+  (kept as a second link, so the pid can be found even when the queue is full), never replaces a live socket
   (a second server on the same name ends with exit 17), and on exit removes the socket only if it is still its
   own. Once it has decided to stop, a `run` is refused. `interrupt` of a cell that has not started cancels it.
   It writes nothing else.
@@ -181,6 +182,7 @@ class Server:
         return reply
 
     def op_run(self, req: dict) -> dict:
+        code, wait = req["code"], float(req["wait"])  # a bad request fails here, before the session is busy
         with self.lock:
             if self.stopping:
                 return {"ok": True, "stopping": True}
@@ -190,10 +192,10 @@ class Server:
                 return {"ok": True, "busy": True}
             self.busy_since = self.last_use = time.time()
             done = threading.Event()
-            job = {"code": req["code"], "done": done, "started": False}
+            job = {"code": code, "done": done, "started": False}
             self.job = job
             self.jobs.put(job)
-        if done.wait(float(req["wait"])):
+        if done.wait(wait):
             return {"ok": True, **job["result"]}
         return {"ok": True, "pending": True}
 
@@ -234,7 +236,8 @@ class Server:
         return {"ok": True, "pid": os.getpid()}
 
     def unlink_own(self) -> None:
-        """Remove the socket file only if it is still this server's (a later server may own the name)."""
+        """Remove the socket names only if they are still this server's (a later server may own the name)."""
+        repl.private_path(self.path, os.getpid()).unlink(missing_ok=True)
         try:
             if os.stat(self.path).st_ino == self.ino:
                 self.path.unlink()
@@ -344,47 +347,51 @@ class Taken(Exception):
     """A live server already owns the socket name."""
 
 
-def probe_live(path: Path) -> bool:
-    """True when something accepts connections on `path`."""
-    c = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    c.settimeout(2)
-    try:
-        c.connect(str(path))
-    except (ConnectionRefusedError, FileNotFoundError):
-        return False
-    except OSError:
-        return True  # a busy or odd socket is not ours to remove
-    finally:
-        c.close()
-    return True
-
-
 def bind(path: Path) -> tuple[socket.socket, int]:
     """Create the socket folder (0700), then publish a listening socket (0600) under `path` atomically.
 
-    The socket is bound and listening under a private name first and then hard-linked to `path`, so `path`
-    never names a socket that is not yet listening. A live socket at `path` is never replaced (`Taken`);
-    a dead one is. Returns the socket and the inode that is this server's.
+    The socket is bound and listening under a private name (`repl.private_path`, kept for the server's life,
+    so a client can find the server's pid even when the queue is full) and then hard-linked to `path`: `path`
+    never names a socket that is not yet listening. A live socket at `path` is never replaced (`Taken`); a
+    dead one is, only while it is still the file that was found dead. Returns the socket and its inode.
     """
     os.umask(0o077)
-    tmp = path.with_name(f".{path.stem}.{os.getpid()}.bind")
+    tmp = repl.private_path(path, os.getpid())
+    at = path.parent
     try:
         path.parent.mkdir(mode=0o700, exist_ok=True)
         os.chmod(path.parent, 0o700)
         sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         tmp.unlink(missing_ok=True)
+        at = tmp
         sock.bind(str(tmp))
         os.chmod(tmp, 0o600)
-        sock.listen(8)
+        sock.listen(128)
         ino = os.stat(tmp).st_ino
-        for _ in range(3):
+        at = path
+        for _ in range(8):
             try:
                 os.link(tmp, path)
+                # a link has no length limit but a connect has: the name must be usable by a client
+                probe = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+                try:
+                    probe.connect(str(path))
+                except OSError:
+                    path.unlink()
+                    raise
+                finally:
+                    probe.close()
                 break
             except FileExistsError:
-                if probe_live(path):
+                try:
+                    found = os.stat(path).st_ino
+                except FileNotFoundError:
+                    continue  # FALLBACK-OK: REPL-4 it vanished between the two calls: try again
+                if not repl.socket_dead(path):
                     raise Taken(path.stem) from None
-                path.unlink(missing_ok=True)  # dead: the server that made it is gone
+                with contextlib.suppress(FileNotFoundError):
+                    if os.stat(path).st_ino == found:  # still the dead file, not a new server's link
+                        path.unlink()
         else:
             raise OSError(f"cannot replace {path}")
     except Taken:
@@ -393,8 +400,7 @@ def bind(path: Path) -> tuple[socket.socket, int]:
         sys.exit(repl.EXIT_SERVER_TAKEN)
     except OSError as e:
         tmp.unlink(missing_ok=True)
-        fail(f"cannot create the session socket {path}: {e}")
-    tmp.unlink(missing_ok=True)
+        fail(f"cannot create the session socket {at}: {e}")
     return sock, ino
 
 

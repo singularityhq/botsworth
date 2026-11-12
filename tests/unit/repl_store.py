@@ -56,6 +56,14 @@ def nested_session(root: Path) -> None:
         agent.with_suffix(".meta.json").write_text(json.dumps({}))
 
 
+SOLO = "solo"
+
+
+def solo_session(root: Path) -> None:
+    """A session of one assistant record: the pipeline stores no time_split rows for it."""
+    write(root / "-repo" / f"{SOLO}.jsonl", [assistant("so1", 1, model="claude-opus-4-5")])
+
+
 def late_session(root: Path) -> str:
     """Add one more Claude session to `root` (for a test that ingests again while a REPL runs)."""
     path = write(
@@ -79,6 +87,7 @@ def build_roots(base: Path) -> dict[str, Path]:
         }
         f.write_text("\n".join([lines[0], json.dumps(meta), *lines[1:]]) + "\n")
     nested_session(roots["claude_code"])
+    solo_session(roots["claude_code"])
     return roots
 
 

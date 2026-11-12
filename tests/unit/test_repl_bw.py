@@ -132,7 +132,7 @@ def test_by_groups_counts_and_cost_columns_and_never_incl_cost(bw, repl_db):
     assert {p: (r.n, r.cost_usd) for p, r in out.iterrows()} == pytest.approx(stored)
     assert list(out.cost_usd) == sorted(out.cost_usd, reverse=True)
     t = bw.by(bw._frames["threads"], "depth")
-    assert "incl_cost_usd" not in t.columns and t.n.to_dict() == {0: 4, 1: 1, 2: 1}
+    assert "incl_cost_usd" not in t.columns and t.n.to_dict() == {0: 5, 1: 1, 2: 1}
     assert t.cost_usd.sum() == pytest.approx(bw._frames["calls"].cost_usd.sum())
     by_tool = bw.by(bw._frames["tool_calls"], "tool_name")
     assert by_tool.call_cost_share_usd.sum() == pytest.approx(

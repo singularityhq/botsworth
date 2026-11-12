@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pandas as pd
 import pytest
-from repl_store import SESSION
+from repl_store import SESSION, SOLO
 
 from botsworth.query import NoStore, QueryError, SchemaMismatch, frames
 
@@ -310,15 +310,14 @@ def test_local_day_and_hour_across_a_dst_change(zone, before, after):
         assert (out.local_day[i], out.local_hour[i]) == (local.strftime("%Y-%m-%d"), local.hour), (zone, iso)
 
 
-def test_a_session_with_no_time_split_rows_has_zero_state_times(repl_db, tmp_path):
-    db = tmp_path / "s.sqlite"
-    shutil.copy(repl_db, db)
-    con = sqlite3.connect(db)
-    victim = con.execute("SELECT session_id, op_rowid FROM sessions ORDER BY session_id LIMIT 1").fetchone()
-    con.execute("DELETE FROM time_split WHERE scope='session' AND op_rowid = ?", (victim[1],))
-    con.commit()
-    con.close()
-    s = frames.load(db, TZ).sessions.set_index("session_id")
+def test_a_session_with_no_time_split_rows_has_zero_state_times(repl_db, fr):
+    assert raw(
+        repl_db,
+        "SELECT count(*) FROM time_split t JOIN sessions s ON s.op_rowid = t.op_rowid"
+        " WHERE s.session_id = ? AND t.scope = 'session'",
+        SOLO,
+    ) == [(0,)]  # the premise: the pipeline stores no split for a one-record session
+    s = fr.sessions.set_index("session_id")
     for state in frames.STATES:
-        assert s.loc[victim[0], f"{state}_ms"] == 0, state
+        assert s.loc[SOLO, f"{state}_ms"] == 0, state
         assert str(s[f"{state}_ms"].dtype) == "Int64"

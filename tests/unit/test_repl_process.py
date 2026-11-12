@@ -413,8 +413,11 @@ def test_concurrent_starts_of_one_name_leave_one_live_server(env, repl_db):
     assert bw(env, "run", "1 + 1", "--name", "x").stdout.strip() == "2"
     assert pid_of(env, "x") == pid
     assert (tmpdir_of(env) / "botsworth-repl" / "x.sock").exists()
-    left = [f.name for f in (tmpdir_of(env) / "botsworth-repl").iterdir()]
-    assert left == ["x.sock"], left  # no private bind name is left behind
+    folder = tmpdir_of(env) / "botsworth-repl"
+    left = sorted(f.name for f in folder.iterdir())
+    own = repl.private_path(folder / "x.sock", pid).name
+    assert left == sorted(["x.sock", own]), left  # the winner's two names; no loser's bind name is left
+    assert os.stat(folder / own).st_ino == os.stat(folder / "x.sock").st_ino
 
 
 def test_a_late_server_does_not_replace_a_live_socket(env, repl_db):
@@ -562,3 +565,189 @@ def test_every_exception_while_answering_gets_an_error_reply(tmp_path, monkeypat
     srv.handle(b)
     reply = json.loads(a.recv(65536))
     assert reply["ok"] is False and "RuntimeError: no ps" in reply["error"]
+
+
+# ---- gate-2 recheck ----
+def test_polling_a_stuck_server_never_removes_its_socket_and_stop_still_ends_it(env, repl_db, monkeypatch):
+    start(env, repl_db, "--name", "a")
+    pid = pid_of(env, "a")
+    r = bw(env, "run", GIL_CELL, "--name", "a", "--wait", "1")
+    assert r.returncode == 3
+    monkeypatch.setenv("TMPDIR", env["TMPDIR"])
+    sock = tmpdir_of(env) / "botsworth-repl" / "a.sock"
+    for _ in range(15):  # each one leaves a connection the stuck server has not accepted
+        reply = client.call("a", {"op": "status"}, timeout=0.3)
+        assert reply is not None and reply["unresponsive"], reply
+    assert sock.exists()
+    assert bw(env, "status", "--name", "a").returncode == 3  # unresponsive, not "no session"
+    r = bw(env, "stop", "--name", "a")
+    assert r.returncode == 0, r
+    assert wait_dead(pid)
+    assert not sock.exists()
+    assert [f.name for f in sock.parent.iterdir()] == []  # the private name goes too
+
+
+@pytest.fixture
+def short():
+    d = Path(tempfile.mkdtemp(dir="/tmp", prefix="bws"))
+    yield d
+    shutil.rmtree(d, ignore_errors=True)
+
+
+def make_listener(tmp_path, name, pid, backlog=0):
+    """A socket that never accepts, under `<name>.sock` and the private link of `pid`."""
+    folder = tmp_path / "botsworth-repl"
+    folder.mkdir(mode=0o700, exist_ok=True)
+    private = repl.private_path(folder / f"{name}.sock", pid)
+    srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    srv.bind(str(private))
+    srv.listen(backlog)
+    os.link(private, folder / f"{name}.sock")
+    return srv, folder, private
+
+
+def fill_queue(path):
+    held = []
+    for _ in range(300):
+        c = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        c.settimeout(0.3)
+        try:
+            c.connect(str(path))
+        except ConnectionRefusedError:
+            c.close()
+            return held, True
+        except OSError:
+            c.close()
+            return held, False
+        held.append(c)
+    return held, False
+
+
+def test_a_refused_connect_to_a_live_server_is_not_proof_of_death(short, monkeypatch):
+    monkeypatch.setenv("TMPDIR", str(short))
+    sleeper = subprocess.Popen(["sleep", "30"])
+    try:
+        srv, folder, private = make_listener(short, "q", sleeper.pid)
+        held, refused = fill_queue(folder / "q.sock")
+        if not refused:
+            pytest.skip("this OS does not refuse a connect when the queue is full")
+        monkeypatch.setattr(repl, "is_server", lambda pid, name: pid == sleeper.pid)
+        reply = client.call("q", {"op": "status"}, timeout=0.3)
+        assert reply == {"ok": False, "unresponsive": True, "pid": sleeper.pid}
+        assert (folder / "q.sock").exists() and private.exists()
+        monkeypatch.setattr(repl, "is_server", lambda pid, name: False)  # now the process is not a server
+        assert client.call("q", {"op": "status"}, timeout=0.3) is None
+        assert not (folder / "q.sock").exists() and not private.exists()
+    finally:
+        sleeper.kill()
+        sleeper.wait()
+
+
+def test_a_dead_server_with_a_refusing_socket_is_removed(short, monkeypatch):
+    monkeypatch.setenv("TMPDIR", str(short))
+    gone = subprocess.Popen(["true"])
+    gone.wait()
+    srv, folder, private = make_listener(short, "d", gone.pid, backlog=1)
+    srv.close()  # nobody listens now: a refused connect with a dead owner
+    assert client.call("d", {"op": "status"}, timeout=0.3) is None
+    assert list(folder.iterdir()) == []
+
+
+@pytest.mark.parametrize("name_len", [32, 31, 28])
+def test_a_long_session_name_works_when_its_socket_path_is_at_the_limit(env, repl_db, name_len):
+    limit = 103 if sys.platform == "darwin" else 107  # sun_path size minus the terminating NUL
+    name = "n" * name_len
+    base = tmpdir_of(env)
+    fixed = len(str(base / "x" / "botsworth-repl" / f"{name}.sock")) - 1  # without the 'x' filler
+    pad = limit - fixed
+    assert pad >= 1, "the temp folder is too long for this check"
+    long = base / ("d" * pad)
+    long.mkdir()
+    assert len(str(long / "botsworth-repl" / f"{name}.sock")) == limit
+    env = {**env, "TMPDIR": str(long)}
+    start(env, repl_db, "--name", name)
+    assert bw(env, "run", "6 * 7", "--name", name).stdout.strip() == "42"
+    assert bw(env, "stop", "--name", name).returncode == 0
+    over = base / ("d" * (pad + 1))
+    over.mkdir()
+    r = bw({**env, "TMPDIR": str(over)}, "start", "--tz", "UTC", "--name", name, db=repl_db)
+    assert r.returncode == 5 and "path too long" in r.stderr
+    assert f"{over}/botsworth-repl/{name}." in r.stderr  # the message names the path that was too long
+
+
+def test_a_session_name_of_one_character_still_binds(env, repl_db):
+    start(env, repl_db, "--name", "z")
+    assert bw(env, "run", "1", "--name", "z").returncode == 0
+
+
+def test_stale_file_removal_never_removes_a_new_servers_link(short, monkeypatch):
+    """Two servers both find the same dead file. The first replaces it; the second must see the new link
+    and report Taken instead of unlinking it."""
+    from botsworth.repl import server
+
+    monkeypatch.setenv("TMPDIR", str(short))
+    path = repl.sock_path("w")
+    gone = subprocess.Popen(["true"])
+    gone.wait()
+    srv, folder, private = make_listener(short, "w", gone.pid, backlog=1)
+    srv.close()  # a dead socket file at w.sock
+    winners = []
+    real_dead = repl.socket_dead
+
+    def dead_then_replaced(p):
+        verdict = real_dead(p)  # this server judged the file dead ...
+        if verdict and not winners:  # ... and before it acts, another server replaced it and went live
+            p.unlink()
+            other = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            other.bind(str(p))
+            other.listen(1)
+            winners.append((os.stat(p).st_ino, other))
+        return verdict
+
+    monkeypatch.setattr(repl, "socket_dead", dead_then_replaced)
+    try:
+        with pytest.raises(SystemExit) as e:
+            server.bind(path)
+        assert e.value.code == repl.EXIT_SERVER_TAKEN  # the retry found the live file and gave way
+        assert os.stat(path).st_ino == winners[0][0]  # the other server's link is untouched
+    finally:
+        for _, other in winners:
+            other.close()
+
+
+def test_start_that_gets_an_error_status_leaves_no_server(short, monkeypatch):
+    monkeypatch.setenv("TMPDIR", str(short))
+    sd = short / "botsworth-repl"
+    sd.mkdir(mode=0o700)
+    lonely = subprocess.Popen(["sleep", "60"])
+    srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    srv.bind(str(sd / "e.sock"))
+    srv.listen(4)
+
+    def answer():
+        c, _ = srv.accept()
+        c.makefile().readline()
+        c.sendall(b'{"ok": false, "error": "boom"}\n')
+        c.close()
+
+    threading.Thread(target=answer, daemon=True).start()
+    try:
+        with pytest.raises(client.Exit) as e:
+            client.wait_ready("e", lonely)
+        assert e.value.code == 5 and "boom" in e.value.message
+        assert lonely.poll() is not None  # the server this start launched was ended
+    finally:
+        lonely.kill()
+        srv.close()
+
+
+def test_a_run_request_without_code_does_not_leave_the_session_busy(tmp_path, monkeypatch):
+    srv = make_server(tmp_path, monkeypatch)
+    with pytest.raises(KeyError):
+        srv.op_run({"wait": 1})
+    assert srv.busy_since is None and srv.jobs.empty()
+    a, b = socket.socketpair()
+    a.sendall(b'{"op": "run", "wait": 1}\n')
+    srv.handle(b)
+    assert json.loads(a.recv(65536))["ok"] is False
+    assert srv.busy_since is None

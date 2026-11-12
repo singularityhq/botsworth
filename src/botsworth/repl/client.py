@@ -21,6 +21,8 @@ GUARANTEES:
 - `stop` returns after the process has ended: it asks, waits 5 s, then kills. A server that does not answer is
   reached by its process id from the socket's peer credentials (SIGINT, 5 s, SIGKILL); "stopped" prints only
   for a dead process. A command other than `start` that finds an unusable socket exits 2.
+  A refused connect is checked against the server's pid (private link `<name>.<pid base 36>`)
+  before any socket name is removed; a failed `start` ends the server it launched.
 EXPECTS: pandas importable by the interpreter that runs the client (`start` checks and prints the install
   line).
 FAILURE BEHAVIOR: `start` prints the reason and exits 5 for: pandas missing, socket folder not usable, server
@@ -74,22 +76,31 @@ def peer_pid(s: socket.socket) -> int | None:
         return None  # FALLBACK-OK: REPL-4 an OS without a peer-pid option: `stop` cannot reach a stuck server
 
 
-def drop_if_dead(path: Path, ino: int | None = None) -> None:
-    """Remove `path` if nothing listens on it (and, when `ino` is given, it is still that file)."""
-    c = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    c.settimeout(2)
-    try:
-        c.connect(str(path))
-    except (ConnectionRefusedError, FileNotFoundError):
-        try:
-            if ino is None or os.stat(path).st_ino == ino:
-                path.unlink()
-        except FileNotFoundError:
-            pass  # FALLBACK-OK: REPL-4 already removed
-    except OSError:
-        pass  # FALLBACK-OK: REPL-4 an odd or busy socket is left alone
-    finally:
-        c.close()
+def settle(path: Path, ino: int | None) -> dict | None:
+    """After a refused connect (or a connection that ended with no answer): None when the server is gone
+    (its socket names are removed), else an `unresponsive` reply with the server's pid. A full queue also
+    refuses, so a refusal is checked against the server's pid before anything is removed."""
+    if not repl.refused_means_dead(path):
+        pid = repl.owner_pid(path)
+        return {"ok": False, "unresponsive": True, "pid": pid}
+    pid = repl.owner_pid(path)
+    with contextlib.suppress(FileNotFoundError):
+        if ino is None or os.stat(path).st_ino == ino:
+            path.unlink()
+    if pid is not None:
+        repl.private_path(path, pid).unlink(missing_ok=True)
+    return None
+
+
+def gone(path: Path, ino: int | None) -> dict | None:
+    """A connection ended with no answer: give a dying server a moment to leave, then settle."""
+    r = settle(path, ino)
+    for _ in range(10):
+        if r is None:
+            return None
+        time.sleep(0.1)
+        r = settle(path, ino)
+    return r
 
 
 def call(name: str, req: dict, timeout: float = ANSWER_S, start: bool = False) -> dict | None:
@@ -109,11 +120,13 @@ def call(name: str, req: dict, timeout: float = ANSWER_S, start: bool = False) -
         ino = None
     try:
         s.connect(str(path))
-    except (FileNotFoundError, ConnectionRefusedError):
-        # FALLBACK-OK: REPL-4 no server behind the socket: remove a stale file, report "no session"
+    except FileNotFoundError:
         s.close()
-        drop_if_dead(path, ino)
-        return None
+        return None  # FALLBACK-OK: REPL-4 the socket file went away: no session
+    except ConnectionRefusedError:
+        # FALLBACK-OK: REPL-4 refused: stale socket (removed, "no session") or a live server with a full queue
+        s.close()
+        return settle(path, ino)
     except TimeoutError:
         s.close()
         return {"ok": False, "unresponsive": True}  # FALLBACK-OK: REPL-4 a server stuck in a long call
@@ -130,14 +143,12 @@ def call(name: str, req: dict, timeout: float = ANSWER_S, start: bool = False) -
             while not data.endswith(b"\n"):
                 chunk = s.recv(1 << 20)
                 if not chunk:
-                    drop_if_dead(path, ino)
-                    return None  # FALLBACK-OK: REPL-4 the server ended while answering
+                    return gone(path, ino)  # FALLBACK-OK: REPL-4 the server ended while answering
                 data += chunk
     except TimeoutError:
         return {"ok": False, "unresponsive": True, "pid": pid}  # FALLBACK-OK: REPL-4 a server stuck in a call
     except OSError:
-        drop_if_dead(path, ino)
-        return None  # FALLBACK-OK: REPL-4 the server went away while answering
+        return gone(path, ino)  # FALLBACK-OK: REPL-4 the server went away while answering
     return json.loads(data)
 
 
@@ -232,6 +243,16 @@ class Taken(Exception):
     """The server this `start` launched found a live server on the same name (a concurrent `start`)."""
 
 
+def reap(proc: subprocess.Popen | None, name: str) -> None:
+    """A `start` that fails leaves no server behind, and none of its socket names."""
+    if proc is not None and proc.poll() is None:
+        proc.kill()
+        proc.wait()
+        path = repl.sock_path(name)
+        path.unlink(missing_ok=True)
+        repl.private_path(path, proc.pid).unlink(missing_ok=True)
+
+
 def wait_ready(name: str, proc: subprocess.Popen | None) -> dict:
     deadline = time.time() + LOAD_WAIT_S
     while time.time() < deadline:
@@ -241,12 +262,18 @@ def wait_ready(name: str, proc: subprocess.Popen | None) -> dict:
             err = proc.stderr.read().decode().strip().splitlines() if proc.stderr else []
             reason = err[-1].removeprefix("error: ") if err else f"the server exited with {proc.returncode}"
             raise Exit(repl.EXIT_START_FAILED, f"start failed: {reason}")
-        st = call(name, {"op": "status"}, start=True)
+        try:
+            st = call(name, {"op": "status"}, start=True)
+        except Exit:
+            reap(proc, name)
+            raise
         if st is not None and st.get("ready"):
             return st
         if st is not None and st.get("ok") is False and not st.get("unresponsive"):
+            reap(proc, name)
             raise Exit(repl.EXIT_START_FAILED, f"start failed: {st.get('error')}")
         time.sleep(0.1)
+    reap(proc, name)
     raise Exit(
         repl.EXIT_START_FAILED,
         f"start failed: no answer in {LOAD_WAIT_S:g} s; the server may still be loading",
@@ -428,6 +455,7 @@ def stop(name: str | None = None) -> int:
         if alive(pid):
             raise Exit(repl.EXIT_BUSY, f"session {name} (pid {pid}) did not end after SIGKILL")
         repl.sock_path(name).unlink(missing_ok=True)
+        repl.private_path(repl.sock_path(name), pid).unlink(missing_ok=True)
     print(f"session {name} stopped" + (" (killed after 5 s)" if killed else ""))
     return repl.EXIT_OK
 
